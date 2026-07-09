@@ -100,6 +100,13 @@ npm run db:backup             # snapshot prisma/dev.db to backups/ (VACUUM INTO,
 npm run create-admin           # create/update a user; see below
 ```
 
+Plus two Ubuntu VPS ops scripts (see "Deploying to an OVH VPS" below):
+
+```bash
+./scripts/vps-setup.sh   # one-time provisioning: firewall, Docker, Caddy, env, first deploy
+./scripts/vps-start.sh   # start/redeploy: build, migrate, health-check, reload Caddy
+```
+
 **Re-running `npm run db:seed` against a database that already has real content**
 (anything an admin has edited through the site) **will overwrite `ContentBlock`,
 `Rule`, `Feature`, and `Post` rows back to placeholder text.** Pages/nav are safe to
@@ -140,6 +147,41 @@ for the full reasoning). These steps assume a fresh OVH VPS running Debian 12 or
 Ubuntu 22.04+, deployed via Docker + a host-level Caddy reverse proxy — the
 `Dockerfile`, `docker-compose.yml`, and `Caddyfile` at the repo root are the reference
 artifacts for this. A simpler PM2-based alternative (no Docker) is at the end.
+
+### Scripted setup (recommended)
+
+`scripts/vps-setup.sh` and `scripts/vps-start.sh` automate everything below. They
+target the same Docker + Caddy route documented in this section — read on if you want
+to understand or troubleshoot what they do, or if you'd rather run the steps by hand.
+
+**One-time provisioning** — after step 1 and step 2 below (creating the `deploy` user
+and pointing DNS, both of which happen outside the box and can't be scripted) and after
+cloning the repo onto the VPS (`git clone <repo-url> /opt/jass && cd /opt/jass`), run:
+
+```bash
+./scripts/vps-setup.sh --domain justasimpleserver.net
+```
+
+As the non-root `deploy` user, with sudo access. It's idempotent — safe to re-run if it
+fails partway through, and it never overwrites an existing `.env.production`. It walks
+through opening the firewall, installing Docker and Caddy if missing, writing
+`.env.production` (generating a fresh `AUTH_SECRET`), building and starting the app,
+running migrations and the placeholder-content seed, optionally creating the first
+`OWNER` account, and optionally installing the automatic-backup systemd timer — i.e.
+steps 3–12 below, in order. Run `./scripts/vps-setup.sh --help` for the full flag list.
+
+**Starting or redeploying the site** — once provisioned, use `scripts/vps-start.sh` any
+time you need to bring the site up (e.g. after a reboot) or redeploy new code:
+
+```bash
+./scripts/vps-start.sh              # rebuild + start, migrate, health-check, reload Caddy
+./scripts/vps-start.sh --pull       # git pull first (fails loudly on conflicts, never force-pulls)
+./scripts/vps-start.sh --no-build   # fast restart without rebuilding the image
+```
+
+It never runs `db:seed` (re-seeding can overwrite live admin-edited content — see the
+`db:seed` note below), so it's safe to run after every deploy. Run
+`./scripts/vps-start.sh --help` for details.
 
 ### 1. Provision the VPS
 
@@ -308,3 +350,6 @@ pm2 startup   # follow the printed instructions to start pm2 on boot
 - `docs/DEPLOYMENT.md` — hosting decision rationale, backup internals, pre-deploy
   security checklist
 - `CLAUDE.md` — stack details and this dev environment's known quirks
+- `scripts/vps-setup.sh` / `scripts/vps-start.sh` — the Ubuntu VPS provisioning and
+  start/redeploy scripts referenced in "Deploying to an OVH VPS" above (each supports
+  `--help`)
