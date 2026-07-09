@@ -3,7 +3,7 @@
 // name/tagline/ip stay: they're still used as ContentBlock fallback
 // defaults in lib/content.ts's getSiteContent().
 export const siteConfig = {
-  name: "Embervale",
-  tagline: "A survival world worth logging back into.",
-  ip: "play.embervale.gg",
+  name: "JASS",
+  tagline: "Just A Simple Server — survival worth logging back into.",
+  ip: "justasimpleserver.net",
 } as const;

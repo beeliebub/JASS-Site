@@ -405,7 +405,7 @@ second run):
 - The 4 protected `Page` rows with their `Block`s in order, using the **exact current
   copy** from each page file as the seed values (don't invent new copy):
   - `home`: `hero` (empty data), `linkGrid` (copy `components/home/quick-links.tsx`'s `links` array into `data.links`), `steps` (copy `components/home/getting-started.tsx`'s `steps` array into `data.items`)
-  - `rules`: `pageHeader` (eyebrow "Server Rules", heading "Playing on Embervale", description = the intro paragraph from `app/rules/page.tsx`), `callout` (variant "warning", body = the "Read carefully..." text), `ruleList` (empty data), `richText` (markdown = the closing "Staff decisions are final..." paragraph)
+  - `rules`: `pageHeader` (eyebrow "Server Rules", heading "Playing on {siteConfig.name}", description = the intro paragraph from `app/rules/page.tsx`), `callout` (variant "warning", body = the "Read carefully..." text), `ruleList` (empty data), `richText` (markdown = the closing "Staff decisions are final..." paragraph)
   - `features`: `pageHeader` (copy the eyebrow/h1/intro from `app/features/page.tsx`), `featureGrid` (empty data)
   - `news`: `pageHeader` (copy the eyebrow/h1/intro from `app/news/page.tsx`), `postList` (empty data)
 - Default `NavItem` rows matching the current `siteConfig.nav` array in `lib/site-config.ts` (Home/Rules/Features/News as top-level items, no children) — reference the corresponding `Page.id` via `pageId`, not a raw `href`

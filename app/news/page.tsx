@@ -4,9 +4,9 @@ import { getPageBySlug } from "@/lib/content";
 import { PageRenderer } from "@/components/pages/page-renderer";
 
 export const metadata: Metadata = {
-  title: "News — Embervale",
+  title: "News — JASS",
   description:
-    "Updates, patch notes, and announcements from the Embervale Minecraft server.",
+    "Updates, patch notes, and announcements from the JASS Minecraft server.",
 };
 
 export default async function NewsPage() {

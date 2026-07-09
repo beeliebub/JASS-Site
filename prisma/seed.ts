@@ -238,8 +238,7 @@ const RULES_CLOSING_MARKDOWN =
 
 const FEATURES_INTRO = `${siteConfig.name} runs on Tweaks, our custom plugin — a set of enchantments, claim protections, and minigames layered on top of vanilla Paper so the world holds up under a real community, not just one player.`;
 
-const NEWS_INTRO =
-  "What's new on Embervale — plugin updates, world changes, maintenance windows, and events, newest first.";
+const NEWS_INTRO = `What's new on ${siteConfig.name} — plugin updates, world changes, maintenance windows, and events, newest first.`;
 
 /**
  * Creates the 4 protected Page rows (home/rules/features/news) with their
@@ -284,7 +283,7 @@ async function seedPagesAndNav() {
             type: "pageHeader",
             data: JSON.stringify({
               eyebrow: "Server Rules",
-              heading: "Playing on Embervale",
+              heading: `Playing on ${siteConfig.name}`,
               description: RULES_INTRO,
             }),
           },

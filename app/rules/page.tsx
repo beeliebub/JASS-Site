@@ -4,8 +4,8 @@ import { getPageBySlug } from "@/lib/content";
 import { PageRenderer } from "@/components/pages/page-renderer";
 
 export const metadata: Metadata = {
-  title: "Rules — Embervale",
-  description: "The rules every player agrees to by joining Embervale — conduct, claims, and fair play.",
+  title: "Rules — JASS",
+  description: "The rules every player agrees to by joining JASS — conduct, claims, and fair play.",
 };
 
 export default async function RulesPage() {

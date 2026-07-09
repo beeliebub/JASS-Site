@@ -7,7 +7,7 @@ import { siteConfig } from "@/lib/site-config";
 export const metadata: Metadata = {
   title: `Features — ${siteConfig.name}`,
   description:
-    "Custom enchantments, land claims, and minigames built into Embervale's Tweaks plugin — the systems that make survival worth logging back into.",
+    "Custom enchantments, land claims, and minigames built into JASS's Tweaks plugin — the systems that make survival worth logging back into.",
 };
 
 export default async function FeaturesPage() {
