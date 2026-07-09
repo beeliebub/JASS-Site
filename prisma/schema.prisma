@@ -1,0 +1,122 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  OWNER
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  role         Role     @default(ADMIN)
+  createdAt    DateTime @default(now())
+}
+
+// Block-based page builder (Phase 8). Home/Rules/Features/News are migrated
+// into this system as `protected` rows (blocks delete + slug change); admins
+// can additionally create fully custom pages rendered via app/[slug].
+model Page {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  title           String
+  metaDescription String?
+  published       Boolean   @default(true)
+  protected       Boolean   @default(false)
+  blocks          Block[]
+  navItems        NavItem[]
+  updatedAt       DateTime  @updatedAt
+  updatedBy       String?
+}
+
+// `data` is JSON-as-string (matches the existing ContentBlock.value
+// convention -- no native SQLite JSON type) -- parse/validate at the API
+// boundary per `type` with the discriminated union in lib/validation/pages.ts.
+model Block {
+  id        String   @id @default(cuid())
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  pageId    String
+  order     Int
+  type      String
+  data      String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+// One level of dropdown nesting only (enforced in lib/validation/pages.ts,
+// not just the admin UI): a NavItem whose own parentId is set cannot be used
+// as somebody else's parentId.
+model NavItem {
+  id       String    @id @default(cuid())
+  label    String
+  href     String?
+  page     Page?     @relation(fields: [pageId], references: [id])
+  pageId   String?
+  order    Int
+  parent   NavItem?  @relation("NavItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId String?
+  children NavItem[] @relation("NavItemChildren")
+}
+
+// Singleton, free-form site text keyed by a stable string (hero.name,
+// hero.tagline, server.ip, etc.) — anything Phase 1 hardcoded in
+// lib/site-config.ts that isn't its own list (rules/features/posts).
+model ContentBlock {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model RuleSection {
+  id          String @id @default(cuid())
+  order       Int
+  title       String
+  description String
+  rules       Rule[]
+}
+
+model Rule {
+  id          String      @id @default(cuid())
+  order       Int
+  title       String
+  description String
+  section     RuleSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  sectionId   String
+}
+
+model Feature {
+  id          String  @id @default(cuid())
+  order       Int
+  eyebrow     String
+  title       String
+  description String
+  // Key into the icon registry in components/features/icons.tsx (e.g. "tunneller") —
+  // JSX can't be stored in the DB, so admins pick from a fixed set of icons.
+  icon        String
+  accent      Boolean @default(false)
+}
+
+model Post {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  tag         String
+  title       String
+  excerpt     String
+  body        String?
+  publishedAt DateTime
+  author      String?
+}

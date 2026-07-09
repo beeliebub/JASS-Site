@@ -1,0 +1,291 @@
+@import "tailwindcss";
+
+/*
+ * Dark-first palette: near-black "obsidian" background with a cool green
+ * undertone, emerald as the primary accent (links, primary actions, online
+ * status), amber reserved for sparing torchlight highlights. Radii stay
+ * small/tight (blocks, not pills) as the one deliberate nod to the server's
+ * voxel world without leaning on literal Minecraft iconography.
+ */
+:root {
+  --background: #0a0d0b;
+  --surface: #121611;
+  --surface-2: #181d17;
+  --border: rgba(237, 242, 235, 0.1);
+  --border-strong: rgba(237, 242, 235, 0.18);
+
+  --foreground: #edf2ec;
+  --muted: #93a191;
+
+  --primary: #34c47c;
+  --primary-foreground: #05130a;
+  --primary-hover: #2aa869;
+
+  --accent: #e8a94a;
+  --accent-foreground: #1a1206;
+
+  --danger: #e5484d;
+  --online: var(--primary);
+  --offline: #6b746a;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 999px;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-danger: var(--danger);
+  --color-online: var(--online);
+  --color-offline: var(--offline);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Subtle voxel-grid texture for hero/section backdrops. Kept low-opacity so
+   it reads as a technical schematic, not a decorative pattern. */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(237, 242, 235, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(237, 242, 235, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/*
+ * Motion system (Phase 6). Two layers of reduced-motion defense:
+ * 1. Entrance/decorative animations are only ever applied inside a
+ *    `(prefers-reduced-motion: no-preference)` guard (see `.page-enter`,
+ *    `.toast-enter`/`.toast-exit` below and `motion-safe:` variants used
+ *    inline), so a reduced-motion visitor never runs them at all.
+ * 2. This blanket rule is the safety net for anything that slips through
+ *    (third-party bits, a missed guard) -- it collapses any remaining
+ *    animation/transition to effectively instant rather than removing
+ *    functional feedback (focus rings, disabled states still apply, just
+ *    without the animated transition).
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Page-level entrance transition, applied by app/template.tsx on every
+   route change (templates remount per-navigation, unlike layout.tsx which
+   persists) -- a small fade + rise so navigation reads as continuous motion
+   rather than a hard cut, without a page-transition library. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page-enter {
+    animation: page-enter 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+/* Toast enter/exit (components/admin/toast.tsx) -- slide up + fade in on
+   mount, shorter/quieter fade+shrink on dismiss per the motion-ui skill's
+   "exit is shorter and quieter than enter" rule. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toast-enter {
+    animation: toast-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .toast-exit {
+    animation: toast-out 0.15s ease-in both;
+  }
+}
+
+/* Mobile nav dropdown (components/site-header.tsx) -- unfolds from the
+   header edge instead of popping in, since it's anchored to the toggle
+   button that triggered it. */
+@keyframes nav-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-drop-enter {
+    animation: nav-drop 0.18s ease-out both;
+  }
+}
+
+/* Small icon-state swaps (e.g. copy -> checkmark in CopyIpButton) -- a quick
+   pop-in instead of an instant visibility toggle, per the motion-ui skill's
+   "cross-fade icon swaps" guidance. Pair with a `key` prop on the swapped
+   icon so React remounts it and re-triggers the animation. */
+@keyframes icon-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .icon-pop-enter {
+    animation: icon-pop 0.15s ease-out both;
+  }
+}
+
+/* Sanitized markdown output (richText blocks, /news/[slug] post bodies) --
+   react-markdown renders bare elements with no classes, and no typography
+   plugin is installed, so give the handful of tags it can produce (per
+   rehype-sanitize's default schema) baseline spacing/color using the
+   existing design tokens instead of pulling in @tailwindcss/typography for
+   this one use case. */
+.markdown-content {
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+.markdown-content > * + * {
+  margin-top: 1em;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.markdown-content h1 {
+  font-size: 1.5rem;
+}
+.markdown-content h2 {
+  font-size: 1.25rem;
+}
+.markdown-content h3 {
+  font-size: 1.0625rem;
+}
+
+.markdown-content a {
+  color: var(--primary);
+  text-underline-offset: 2px;
+  text-decoration: underline;
+}
+
+.markdown-content strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.25em;
+}
+.markdown-content ul {
+  list-style: disc;
+}
+.markdown-content ol {
+  list-style: decimal;
+}
+
+.markdown-content blockquote {
+  border-left: 2px solid var(--border-strong);
+  padding-left: 1em;
+  color: var(--muted);
+}
+
+.markdown-content code {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.markdown-content pre {
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  padding: 1em;
+  overflow-x: auto;
+}
+
+.markdown-content pre code {
+  background: none;
+  padding: 0;
+}

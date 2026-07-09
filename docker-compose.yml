@@ -1,0 +1,22 @@
+# Illustrative compose file for the VPS hosting route — see docs/DEPLOYMENT.md.
+# Not deployed as part of this change. Assumes a host-level Caddy (see
+# Caddyfile) reverse-proxying to this container on localhost:3000, so the
+# app port is only bound to loopback, not exposed publicly.
+
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env.production
+    environment:
+      # Overrides the DATABASE_URL from .env.production to match the
+      # in-container bind-mount path below.
+      DATABASE_URL: "file:/app/prisma/dev.db"
+    volumes:
+      # Named/bind-mounted so the SQLite file persists across
+      # `docker compose up --build` redeploys.
+      - ./data/prisma:/app/prisma
+      - ./data/backups:/app/backups

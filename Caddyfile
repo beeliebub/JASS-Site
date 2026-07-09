@@ -1,0 +1,16 @@
+# Illustrative Caddyfile for the VPS hosting route — see docs/DEPLOYMENT.md.
+# Assumes Caddy runs on the host (not in Docker) alongside the Minecraft
+# server, and the Next.js app runs in Docker bound to 127.0.0.1:3000 (see
+# docker-compose.yml). Caddy handles TLS termination and automatic HTTPS
+# certificate issuance/renewal.
+
+justasimpleserver.net, www.justasimpleserver.net {
+    reverse_proxy 127.0.0.1:3000
+
+    encode gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+    }
+}
