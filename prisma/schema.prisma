@@ -30,17 +30,52 @@ model User {
 // into this system as `protected` rows (blocks delete + slug change); admins
 // can additionally create fully custom pages rendered via app/[slug].
 model Page {
-  id              String    @id @default(cuid())
-  slug            String    @unique
+  id              String       @id @default(cuid())
+  slug            String       @unique
   title           String
   metaDescription String?
-  published       Boolean   @default(true)
-  protected       Boolean   @default(false)
+  published       Boolean      @default(true)
+  protected       Boolean      @default(false)
+  adminOnly       Boolean      @default(false) // mirrors `published`; gates app/[slug]/page.tsx
   theme           String? // one of lib/themes.ts THEME_IDS; null = follow visitor theme
+  customThemeId   String? // mutually exclusive with `theme`; see lib/validation/pages.ts
+  customTheme     CustomTheme? @relation(fields: [customThemeId], references: [id], onDelete: SetNull)
   blocks          Block[]
   navItems        NavItem[]
-  updatedAt       DateTime  @updatedAt
+  updatedAt       DateTime     @updatedAt
   updatedBy       String?
+}
+
+// Phase 12: admin-authored full ~16-token color sets, selectable anywhere a
+// built-in lib/themes.ts theme is today. Field-by-field hex strings (not a
+// JSON blob) so each one gets independent Zod validation server-side, same
+// reasoning as every other color token in this project. `onDelete: SetNull`
+// on Page.customTheme means deleting a theme in use silently reverts those
+// pages to following the visitor's own theme -- no dangling reference, no
+// blocked delete (confirmed default, see PLAN.md Phase 12).
+model CustomTheme {
+  id                String   @id @default(cuid())
+  name              String   @unique
+  background        String
+  surface           String
+  surface2          String
+  border            String
+  borderStrong      String
+  foreground        String
+  muted             String
+  primary           String
+  primaryForeground String
+  primaryHover      String
+  accent            String
+  accentForeground  String
+  danger            String
+  info              String
+  online            String
+  offline           String
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  pages             Page[]
 }
 
 // `data` is JSON-as-string (matches the existing ContentBlock.value

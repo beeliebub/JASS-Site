@@ -60,6 +60,7 @@ export async function POST(req: Request) {
         slug,
         metaDescription: parsed.data.metaDescription ?? null,
         published: parsed.data.published ?? true,
+        adminOnly: parsed.data.adminOnly ?? false,
         theme: parsed.data.theme ?? null,
         protected: false,
         updatedBy: user?.email,

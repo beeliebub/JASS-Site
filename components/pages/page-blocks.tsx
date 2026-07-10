@@ -45,12 +45,21 @@ export function PageBlocks({
   const showChrome = isAdmin && editMode;
 
   async function saveBlockData(id: string, data: unknown) {
-    const res = await fetch(`/api/blocks/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data }),
-    });
-    if (!res.ok) throw new Error(await parseError(res, "Failed to save block."));
+    const previous = blocks;
+    setBlocks((prev) => prev.map((blk) => (blk.id === id ? { ...blk, data } : blk)));
+
+    try {
+      const res = await fetch(`/api/blocks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data }),
+      });
+      if (!res.ok) throw new Error(await parseError(res, "Failed to save block."));
+    } catch (error) {
+      setBlocks(previous);
+      showError(error instanceof Error ? error.message : "Failed to save block.");
+      throw error;
+    }
   }
 
   async function moveBlock(id: string, direction: -1 | 1) {

@@ -2,15 +2,12 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { auth } from "@/auth";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
 import { siteConfig } from "@/lib/site-config";
 import { EditModeProvider } from "@/components/admin/edit-mode-context";
 import { ToastProvider } from "@/components/admin/toast";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
 import { isAdminRole } from "@/lib/auth-guard";
-import { getNavTree } from "@/lib/content";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -55,7 +52,6 @@ export default async function RootLayout({
 }>) {
   const session = await auth();
   const isAdmin = isAdminRole(session?.user?.role);
-  const navTree = await getNavTree();
 
   return (
     <html
@@ -84,13 +80,7 @@ export default async function RootLayout({
         </a>
         <ThemeProvider>
           <ToastProvider>
-            <EditModeProvider isAdmin={isAdmin}>
-              <SiteHeader isAdmin={isAdmin} navItems={navTree} />
-              <main id="main-content" className="flex flex-1 flex-col">
-                {children}
-              </main>
-              <SiteFooter navItems={navTree} />
-            </EditModeProvider>
+            <EditModeProvider isAdmin={isAdmin}>{children}</EditModeProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

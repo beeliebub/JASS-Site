@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { HexColorPicker } from "react-colorful";
 import { useTheme } from "@/components/theme/theme-provider";
 import { parseHex, rgbToHex } from "@/lib/color";
-import { THEME_IDS, THEMES } from "@/lib/themes";
+import { customThemeFieldsToCssVars, THEME_IDS, THEMES } from "@/lib/themes";
+import type { CustomTheme } from "@/app/generated/prisma/client";
 
 const RGB_CHANNELS = ["r", "g", "b"] as const;
 type RgbChannel = (typeof RGB_CHANNELS)[number];
@@ -24,8 +25,9 @@ const CHANNEL_LABELS: Record<RgbChannel, string> = { r: "R", g: "G", b: "B" };
  */
 const PANEL_ID = "theme-picker-panel";
 
-export function ThemePicker() {
-  const { theme, accent, setTheme, setAccent, resetAccent } = useTheme();
+export function ThemePicker({ customThemes }: { customThemes: CustomTheme[] }) {
+  const { theme, accent, customTheme, setTheme, setAccent, resetAccent, setCustomTheme, clearCustomTheme } =
+    useTheme();
   const [open, setOpen] = useState(false);
   const [hexDraft, setHexDraft] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -110,11 +112,11 @@ export function ThemePicker() {
                   ref={i === 0 ? firstSwatchRef : undefined}
                   type="button"
                   role="radio"
-                  aria-checked={theme === id}
+                  aria-checked={!customTheme && theme === id}
                   onClick={() => setTheme(id)}
                   title={THEMES[id].description}
                   className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition-colors ${
-                    theme === id
+                    !customTheme && theme === id
                       ? "border-primary bg-primary/10 text-foreground"
                       : "border-border-strong text-muted hover:border-primary/40 hover:text-foreground"
                   }`}
@@ -129,6 +131,47 @@ export function ThemePicker() {
               ))}
             </div>
           </fieldset>
+
+          {customThemes.length > 0 && (
+            <fieldset className="mb-4">
+              <legend className="mb-2 text-xs font-medium text-muted">Custom themes</legend>
+              <div role="radiogroup" aria-label="Custom themes" className="grid grid-cols-2 gap-2">
+                {customThemes.map((ct) => (
+                  <button
+                    key={ct.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={customTheme?.id === ct.id}
+                    onClick={() =>
+                      setCustomTheme({ id: ct.id, name: ct.name, tokens: customThemeFieldsToCssVars(ct) })
+                    }
+                    title={ct.name}
+                    className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition-colors ${
+                      customTheme?.id === ct.id
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border-strong text-muted hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    <span
+                      aria-hidden
+                      className="h-3 w-3 shrink-0 rounded-full border border-border-strong"
+                      style={{ backgroundColor: ct.primary }}
+                    />
+                    <span className="truncate">{ct.name}</span>
+                  </button>
+                ))}
+              </div>
+              {customTheme && (
+                <button
+                  type="button"
+                  onClick={clearCustomTheme}
+                  className="mt-2 w-full rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-danger/50 hover:text-danger"
+                >
+                  Use a built-in theme instead
+                </button>
+              )}
+            </fieldset>
+          )}
 
           <div className="mb-3">
             <p className="mb-2 text-xs font-medium text-muted">Accent color</p>

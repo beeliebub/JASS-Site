@@ -11,6 +11,11 @@ import { LinkGridBlock, type LinkGridData } from "@/components/blocks/link-grid-
 import { RichTextBlock, type RichTextData } from "@/components/blocks/rich-text-block";
 import { ImageBlock, type ImageData } from "@/components/blocks/image-block";
 import { CtaBannerBlock, type CtaBannerData } from "@/components/blocks/cta-banner-block";
+import { CardGridBlock, type CardGridData } from "@/components/blocks/card-grid-block";
+import { CodeBlock, type CodeData } from "@/components/blocks/code-block";
+import { AccordionBlock, type AccordionData } from "@/components/blocks/accordion-block";
+import { TableBlock, type TableData } from "@/components/blocks/table-block";
+import { TocBlock, type TocData } from "@/components/blocks/toc-block";
 import { BLOCK_TYPES, type BlockType } from "@/lib/validation/pages";
 
 /**
@@ -99,6 +104,21 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
       onSaveData={onSaveData as (next: CtaBannerData) => Promise<void>}
     />
   ),
+  cardGrid: ({ block, onSaveData }) => (
+    <CardGridBlock data={block.data as CardGridData} onSaveData={onSaveData as (next: CardGridData) => Promise<void>} />
+  ),
+  code: ({ block, onSaveData }) => (
+    <CodeBlock data={block.data as CodeData} onSaveData={onSaveData as (next: CodeData) => Promise<void>} />
+  ),
+  accordion: ({ block, onSaveData }) => (
+    <AccordionBlock data={block.data as AccordionData} onSaveData={onSaveData as (next: AccordionData) => Promise<void>} />
+  ),
+  table: ({ block, onSaveData }) => (
+    <TableBlock data={block.data as TableData} onSaveData={onSaveData as (next: TableData) => Promise<void>} />
+  ),
+  toc: ({ block, onSaveData }) => (
+    <TocBlock data={block.data as TocData} onSaveData={onSaveData as (next: TocData) => Promise<void>} />
+  ),
 };
 
 export const blockTypeLabels: Record<BlockType, string> = {
@@ -113,6 +133,11 @@ export const blockTypeLabels: Record<BlockType, string> = {
   richText: "Rich text",
   image: "Image",
   ctaBanner: "CTA banner",
+  cardGrid: "Card grid",
+  code: "Code block",
+  accordion: "Accordion / FAQ",
+  table: "Table",
+  toc: "Table of contents",
 };
 
 /** Default `data` for a freshly-added block of `type`, sent as the POST body. */
@@ -128,14 +153,24 @@ export const defaultBlockData: Record<BlockType, unknown> = {
   richText: { markdown: "" },
   image: { src: "", alt: "" },
   ctaBanner: { heading: "Call to action", buttonLabel: "Learn more", buttonHref: "/" },
+  cardGrid: { heading: "", cards: [] },
+  // codeDataSchema requires `code` non-empty (`min(1)`, matching every other
+  // required-text-field default elsewhere in this object, e.g. ctaBanner's
+  // heading) -- "" here would fail blockCreateSchema validation immediately
+  // on add, unlike PLAN.md's literal `{ code: "" }` example.
+  code: { code: "// Add code here", language: "", caption: "" },
+  accordion: { items: [] },
+  table: { caption: "", headers: ["Column 1", "Column 2"], rows: [["", ""]] },
+  toc: { heading: "", items: [] },
 };
 
-/** Block types offered in the "Add block" picker. `hero`/`ruleList`/
- * `featureGrid`/`postList` are excluded -- they're data-referencing blocks
- * tied to the singleton ContentBlock/Rule/Feature/Post tables and are always
- * present on Home/Rules/Features/News from seeding; a second one elsewhere
- * wouldn't have distinct data to show. */
-export const ADDABLE_BLOCK_TYPES = BLOCK_TYPES.filter(
-  (t): t is Exclude<BlockType, "hero" | "ruleList" | "featureGrid" | "postList"> =>
-    t !== "hero" && t !== "ruleList" && t !== "featureGrid" && t !== "postList",
-);
+/** Block types offered in the "Add block" picker. All `BLOCK_TYPES` are
+ * addable, including the data-referencing `hero`/`ruleList`/`featureGrid`/
+ * `postList` -- each of those always reads the same site-wide singleton
+ * table (ContentBlock/Rule/Feature/Post) via `referenceData` regardless of
+ * which page/position it's placed at, so placing a second one elsewhere
+ * intentionally repeats that same content (e.g. embedding the live
+ * server-status widget or the full rules list on another page) rather than
+ * showing distinct per-instance data. Admins who want distinct per-instance
+ * content should use `cardGrid` instead. */
+export const ADDABLE_BLOCK_TYPES = BLOCK_TYPES;

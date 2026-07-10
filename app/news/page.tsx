@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPageBySlug } from "@/lib/content";
 import { PageRenderer } from "@/components/pages/page-renderer";
+import { SiteChrome } from "@/components/pages/site-chrome";
+import { resolvePageTheme } from "@/lib/custom-themes";
 
 export const metadata: Metadata = {
   title: "News — JASS",
@@ -12,6 +14,11 @@ export const metadata: Metadata = {
 export default async function NewsPage() {
   const page = await getPageBySlug("news");
   if (!page) notFound();
+  const { theme, customThemeTokens } = await resolvePageTheme(page);
 
-  return <PageRenderer page={page} />;
+  return (
+    <SiteChrome theme={theme} customThemeTokens={customThemeTokens}>
+      <PageRenderer page={page} />
+    </SiteChrome>
+  );
 }

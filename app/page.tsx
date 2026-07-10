@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getPageBySlug, getSiteContent } from "@/lib/content";
 import { PageRenderer } from "@/components/pages/page-renderer";
+import { SiteChrome } from "@/components/pages/site-chrome";
+import { resolvePageTheme } from "@/lib/custom-themes";
 
 // Dynamic rather than static so the title/description/OG copy always match
 // whatever an admin has edited in place -- including the live server IP --
@@ -22,6 +24,11 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function Home() {
   const page = await getPageBySlug("home");
   if (!page) notFound();
+  const { theme, customThemeTokens } = await resolvePageTheme(page);
 
-  return <PageRenderer page={page} />;
+  return (
+    <SiteChrome theme={theme} customThemeTokens={customThemeTokens}>
+      <PageRenderer page={page} />
+    </SiteChrome>
+  );
 }

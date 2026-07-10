@@ -89,6 +89,11 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
             }
 
             const expanded = openDropdown === item.id;
+            const hasOwnPage = href !== "#";
+            const toggleDropdown = () => {
+              clearCloseTimeout();
+              setOpenDropdown((cur) => (cur === item.id ? null : item.id));
+            };
             return (
               <div
                 key={item.id}
@@ -96,20 +101,42 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
                 onMouseEnter={() => openDropdownNow(item.id)}
                 onMouseLeave={() => scheduleCloseDropdown(item.id)}
               >
-                <button
-                  type="button"
-                  aria-haspopup="true"
-                  aria-expanded={expanded}
-                  onClick={() => {
-                    clearCloseTimeout();
-                    setOpenDropdown((cur) => (cur === item.id ? null : item.id));
-                  }}
-                  onFocus={() => openDropdownNow(item.id)}
-                  className={`flex items-center gap-1 ${linkClass(active)}`}
-                >
-                  {item.label}
-                  <ChevronIcon open={expanded} />
-                </button>
+                {hasOwnPage ? (
+                  <span className={`flex items-center gap-1 ${linkClass(active)}`}>
+                    <Link
+                      href={href}
+                      aria-haspopup="true"
+                      aria-expanded={expanded}
+                      aria-current={active ? "page" : undefined}
+                      onFocus={() => openDropdownNow(item.id)}
+                    >
+                      {item.label}
+                    </Link>
+                    <button
+                      type="button"
+                      aria-label={`${expanded ? "Close" : "Open"} ${item.label} menu`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleDropdown();
+                      }}
+                      className="flex items-center"
+                    >
+                      <ChevronIcon open={expanded} />
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    aria-haspopup="true"
+                    aria-expanded={expanded}
+                    onClick={toggleDropdown}
+                    onFocus={() => openDropdownNow(item.id)}
+                    className={`flex items-center gap-1 ${linkClass(active)}`}
+                  >
+                    {item.label}
+                    <ChevronIcon open={expanded} />
+                  </button>
+                )}
                 {expanded && (
                   // pt-1 (not mt-1) keeps this hoverable box flush against the
                   // trigger button -- a margin gap here is dead space the cursor
@@ -228,17 +255,44 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
               }
 
               const expanded = mobileExpanded === item.id;
+              const hasOwnPage = href !== "#";
+              const toggleMobileExpanded = () => setMobileExpanded((cur) => (cur === item.id ? null : item.id));
               return (
                 <div key={item.id}>
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    onClick={() => setMobileExpanded((cur) => (cur === item.id ? null : item.id))}
-                    className="flex w-full items-center justify-between rounded-md px-3 py-3 text-base font-medium text-muted transition-colors hover:text-foreground"
-                  >
-                    {item.label}
-                    <ChevronIcon open={expanded} />
-                  </button>
+                  {hasOwnPage ? (
+                    <div className="flex items-center justify-between rounded-md text-base font-medium text-muted transition-colors hover:text-foreground">
+                      <Link
+                        href={href}
+                        aria-current={active ? "page" : undefined}
+                        onClick={() => setOpen(false)}
+                        className="flex-1 px-3 py-3"
+                      >
+                        {item.label}
+                      </Link>
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        aria-label={`${expanded ? "Close" : "Open"} ${item.label} menu`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleMobileExpanded();
+                        }}
+                        className="px-3 py-3"
+                      >
+                        <ChevronIcon open={expanded} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={toggleMobileExpanded}
+                      className="flex w-full items-center justify-between rounded-md px-3 py-3 text-base font-medium text-muted transition-colors hover:text-foreground"
+                    >
+                      {item.label}
+                      <ChevronIcon open={expanded} />
+                    </button>
+                  )}
                   {expanded && (
                     <div className="flex flex-col pl-4">
                       {item.children.map((child) => {

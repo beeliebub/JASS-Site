@@ -8,7 +8,9 @@ import { Container } from "@/components/container";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
 
 export type Step = { number: string; title: string; description: string };
-export type StepsData = { items: Step[] };
+export type StepsData = { items: Step[]; heading?: string };
+
+const DEFAULT_HEADING = "Getting started";
 
 /** The hardcoded `steps` array from components/home/getting-started.tsx,
  * now editable. Unlike Rule/Feature, steps have no DB row of their own --
@@ -24,6 +26,7 @@ export function StepsBlock({
   const { editMode, isAdmin } = useEditMode();
   const { showError } = useToast();
   const [items, setItems] = useState(data.items);
+  const [heading, setHeading] = useState(data.heading ?? DEFAULT_HEADING);
   const [saving, setSaving] = useState(false);
 
   const showEditable = isAdmin && editMode;
@@ -31,7 +34,13 @@ export function StepsBlock({
   if (!showEditable) {
     return (
       <Container className="py-16 sm:py-20">
-        <h2 className="text-sm font-medium tracking-wide text-muted uppercase">Getting started</h2>
+        <EditableText
+          as="h2"
+          value={heading}
+          onSave={saveHeading}
+          label="section heading"
+          className="text-sm font-medium tracking-wide text-muted uppercase"
+        />
         <ol className="mt-6 grid grid-cols-1 gap-8 sm:grid-cols-3">
           {items.map((step, i) => (
             <li key={i} className="flex flex-col gap-2">
@@ -50,12 +59,23 @@ export function StepsBlock({
     setItems(next);
     setSaving(true);
     try {
-      await onSaveData({ items: next });
+      await onSaveData({ items: next, heading });
     } catch (error) {
       setItems(previous);
       showError(error instanceof Error ? error.message : "Failed to save steps.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveHeading(next: string) {
+    const previous = heading;
+    setHeading(next);
+    try {
+      await onSaveData({ items, heading: next });
+    } catch (error) {
+      setHeading(previous);
+      showError(error instanceof Error ? error.message : "Failed to save heading.");
     }
   }
 
@@ -82,7 +102,13 @@ export function StepsBlock({
 
   return (
     <Container className="py-8 sm:py-10">
-      <h2 className="mb-4 text-sm font-medium tracking-wide text-muted uppercase">Getting started</h2>
+      <EditableText
+        as="h2"
+        value={heading}
+        onSave={saveHeading}
+        label="section heading"
+        className="mb-4 block text-sm font-medium tracking-wide text-muted uppercase"
+      />
       <div className="flex flex-col gap-4">
         {items.map((step, i) => (
           <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface p-4">

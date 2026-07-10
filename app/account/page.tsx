@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { Container } from "@/components/container";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
+import { SiteChrome } from "@/components/pages/site-chrome";
 
 export const metadata = {
   title: "Account",
@@ -15,36 +16,38 @@ export default async function AccountPage() {
   }
 
   return (
-    <Container className="flex flex-1 flex-col gap-8 py-16">
-      <div className="flex flex-col gap-1.5">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          Account
-        </h1>
-        <p className="text-sm text-muted">
-          Signed in as <span className="text-foreground">{session.user.email}</span>.
-        </p>
-      </div>
-
-      <div>
-        <h2 className="text-sm font-medium tracking-wide text-muted uppercase">Change password</h2>
-        <div className="mt-3">
-          <ChangePasswordForm />
+    <SiteChrome theme={null} customThemeTokens={null}>
+      <Container className="flex flex-1 flex-col gap-8 py-16">
+        <div className="flex flex-col gap-1.5">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
+            Account
+          </h1>
+          <p className="text-sm text-muted">
+            Signed in as <span className="text-foreground">{session.user.email}</span>.
+          </p>
         </div>
-      </div>
 
-      <form
-        action={async () => {
-          "use server";
-          await signOut({ redirectTo: "/login" });
-        }}
-      >
-        <button
-          type="submit"
-          className="flex h-10 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium text-foreground transition hover:bg-surface-2 motion-safe:active:scale-[0.97]"
+        <div>
+          <h2 className="text-sm font-medium tracking-wide text-muted uppercase">Change password</h2>
+          <div className="mt-3">
+            <ChangePasswordForm />
+          </div>
+        </div>
+
+        <form
+          action={async () => {
+            "use server";
+            await signOut({ redirectTo: "/login" });
+          }}
         >
-          Sign out
-        </button>
-      </form>
-    </Container>
+          <button
+            type="submit"
+            className="flex h-10 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium text-foreground transition hover:bg-surface-2 motion-safe:active:scale-[0.97]"
+          >
+            Sign out
+          </button>
+        </form>
+      </Container>
+    </SiteChrome>
   );
 }

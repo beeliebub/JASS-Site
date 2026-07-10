@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useToast } from "@/components/admin/toast";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
 
@@ -161,6 +162,7 @@ function NavItemForm({
 }
 
 export function NavAdmin({ initialItems, pages }: { initialItems: NavTopItem[]; pages: PageOption[] }) {
+  const router = useRouter();
   const { showError } = useToast();
   const [items, setItems] = useState(initialItems);
   const [addingTop, setAddingTop] = useState(false);
@@ -189,6 +191,7 @@ export function NavAdmin({ initialItems, pages }: { initialItems: NavTopItem[]; 
     const { data } = (await res.json()) as { data: NavChildItem };
     setItems((prev) => [...prev, { ...data, children: [] }]);
     setAddingTop(false);
+    router.refresh();
   }
 
   async function createChild(parentId: string, values: FormValues) {
@@ -203,6 +206,7 @@ export function NavAdmin({ initialItems, pages }: { initialItems: NavTopItem[]; 
     const { data } = (await res.json()) as { data: NavChildItem };
     setItems((prev) => prev.map((i) => (i.id === parentId ? { ...i, children: [...i.children, data] } : i)));
     setAddingChildOf(null);
+    router.refresh();
   }
 
   async function updateItem(id: string, values: FormValues, parentId?: string) {
@@ -222,6 +226,7 @@ export function NavAdmin({ initialItems, pages }: { initialItems: NavTopItem[]; 
         : prev.map((i) => (i.id === id ? { ...i, ...data } : i)),
     );
     setEditingId(null);
+    router.refresh();
   }
 
   async function deleteItem(id: string, parentId?: string) {
@@ -235,6 +240,7 @@ export function NavAdmin({ initialItems, pages }: { initialItems: NavTopItem[]; 
     try {
       const res = await fetch(`/api/nav-items/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(await parseError(res, "Failed to delete nav item."));
+      router.refresh();
     } catch (error) {
       setItems(previous);
       showError(error instanceof Error ? error.message : "Failed to delete nav item.");
@@ -255,6 +261,7 @@ export function NavAdmin({ initialItems, pages }: { initialItems: NavTopItem[]; 
         fetch(`/api/nav-items/${b.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order: a.order }) }),
       ]);
       if (!resA.ok || !resB.ok) throw new Error("Failed to reorder.");
+      router.refresh();
     } catch (error) {
       setItems(previous);
       showError(error instanceof Error ? error.message : "Failed to reorder.");
@@ -284,6 +291,7 @@ export function NavAdmin({ initialItems, pages }: { initialItems: NavTopItem[]; 
         fetch(`/api/nav-items/${b.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order: a.order }) }),
       ]);
       if (!resA.ok || !resB.ok) throw new Error("Failed to reorder.");
+      router.refresh();
     } catch (error) {
       setItems(previous);
       showError(error instanceof Error ? error.message : "Failed to reorder.");

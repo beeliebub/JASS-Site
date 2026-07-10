@@ -595,9 +595,57 @@ beyond function/readonly definitions).
 
 ## Phase 12 — Admin-authored custom themes
 
-**Status: scoped, not started.** Locked-in decisions below came out of a scoping
-conversation (see the `jass_workflow_pref` memory convention this project follows) —
-implementation should not begin until this section gets an explicit go-ahead.
+**Status: ✅ Complete.** `CustomTheme` Prisma model + `Page.customThemeId`, full CRUD
+API (`app/api/custom-themes/**`), admin editor (`/admin/themes`), per-page dropdown
+wiring (`components/admin/pages-admin.tsx`), and the visitor-facing footer picker all
+shipped. Also includes, per an additional requirement given alongside the go-ahead, a
+restructuring so a page-level theme override (both the pre-existing `Page.theme` and
+the new `Page.customThemeId`) now colors the **entire page**, header and footer
+included, not just the content blocks — see "Implementation note" below. Verified live
+end-to-end (Puppeteer + Edge): created a custom theme through the real admin UI,
+assigned it to a page (entire page — header/content/footer — reflected it), selected
+it site-wide via the footer picker (persisted with no flash across a hard reload), and
+deleted it (the assigned page silently fell back to the visitor's own theme, per the
+confirmed delete-in-use decision).
+
+### Implementation note: entire-page theme overrides (beyond original scope)
+
+Phase 9's original `PageRenderer` wrapped only the block list in the forced-theme
+`data-theme` div — `SiteHeader`/`SiteFooter` rendered once in `app/layout.tsx`, outside
+that wrapper, so they always followed the visitor's own theme even on a page with an
+override. Fixing this required moving where header/footer render, since React Context
+set inside a page's own subtree can't reach `SiteHeader`/`SiteFooter` (they're siblings
+rendered before/after `{children}` in the root layout, not descendants of it), and
+`app/layout.tsx` can't resolve a specific route's `Page` row itself without reading
+`headers()`/the pathname — which would opt every route into dynamic rendering,
+exactly what Phase 9's design notes said to avoid.
+
+**Fix**: `components/pages/site-chrome.tsx` (new) is now the single per-route
+integration point — it renders `SiteHeader` + `<main>` + `SiteFooter` itself, wrapped
+in the theme-override div when one applies (built-in via `data-theme`, custom via
+inline `style` custom properties from `lib/custom-themes.ts`'s `resolvePageTheme()`).
+Every route file that used to render bare (`app/page.tsx`, `app/rules/page.tsx`,
+`app/features/page.tsx`, `app/news/page.tsx`, `app/[slug]/page.tsx`, plus the
+non-CMS `app/login/page.tsx`, `app/admin/page.tsx`, `app/account/page.tsx`,
+`app/resource/page.tsx`) now wraps its content in `<SiteChrome theme={...}
+customThemeTokens={...}>`. `app/layout.tsx` no longer renders `SiteHeader`/`SiteFooter`
+directly — it's back to `<html>`/`<head>`(`ThemeScript`)/`<body>` plus the
+visitor-theme/toast/edit-mode providers, with `{children}` being whatever `SiteChrome`
+instance the current route rendered. `PageRenderer` no longer applies any theme
+wrapper itself — it only renders blocks now.
+
+The visitor-facing side got the equivalent extension: `theme-provider.tsx` gained
+`customTheme`/`setCustomTheme`/`clearCustomTheme` (mutually exclusive with a built-in
+`theme` selection, matching decision 4's localStorage-cached-tokens approach — see
+`STORAGE_KEY_CUSTOM_THEME_TOKENS` in `lib/themes.ts`), `theme-script.tsx`'s blocking
+inline script was extended (still a static string literal, no interpolation) to apply
+cached custom-theme tokens before first paint, and `theme-picker.tsx` lists custom
+themes (fetched server-side by `SiteChrome` and threaded through `SiteFooter`) in a
+second radiogroup below the built-in swatches.
+
+Verified live (Puppeteer + Edge): a page with `theme: "end"` now renders header,
+content, and footer all in the "end" palette; a page with no override still follows
+the visitor's own theme end-to-end, including the header/footer.
 
 ### Goal
 
@@ -627,35 +675,35 @@ visitor-facing footer theme picker, and the per-page theme override in `/admin/p
    DB model, resolved and applied at request/selection time rather than compiled into
    CSS. This avoids any risk to the working static system and avoids dynamic CSS
    generation (see Security checklist).
-
-### Open design questions to resolve before implementation
-
-These weren't settled in the scoping pass and need an explicit call (or a documented
-default) before agents start:
-
-- **Visitor-wide selection + no-flash**: today's blocking inline `theme-script.tsx`
-  validates against a hardcoded static ID array and applies known CSS at parse time —
-  it can't know about DB-authored themes without a fetch, which reintroduces the
-  flash-of-wrong-theme Phase 9 explicitly eliminated. Proposed default: when a visitor
-  selects a custom theme, cache its *resolved token values* (not just an ID) in
-  `localStorage` under a new key (e.g. `jass.customThemeTokens`), and extend the
-  blocking script to apply cached tokens via `style.setProperty` for all ~16 vars
-  (same technique it already uses for the single `--primary` override) if that key is
-  present — no fetch on the critical path, at the cost of staleness if an admin edits
-  a theme a visitor already has cached (acceptable: picking the theme again refreshes
-  the cache). Confirm this trade-off before building it.
-- **Per-page selection**: no flash risk here — `PageRenderer` is a server component
-  with DB access, so it can resolve `Page.customThemeId` → tokens synchronously and
-  emit them as an inline `style` attribute on the existing `data-theme` wrapper div.
-  Needs a `Page.customThemeId String?` column alongside (not replacing) the existing
-  `Page.theme String?`, since a page must be able to reference *either* a built-in id
-  or a custom theme row, mutually exclusive.
-- **Deleting a custom theme that's in use**: decide the behavior when an admin deletes
-  a theme currently assigned to one or more pages or cached in visitors' localStorage —
-  likely "block delete while any Page references it (surface the count), visitors with
-  a stale cached selection silently fall back to the default on next pick" — confirm.
-- **Uniqueness/limits**: theme name uniqueness, and whether there's a cap on how many
-  custom themes can exist (pure UI/DB hygiene, not a hard blocker).
+4. **Visitor-wide selection + no-flash**: today's blocking inline `theme-script.tsx`
+   validates against a hardcoded static ID array and applies known CSS at parse time —
+   it can't know about DB-authored themes without a fetch, which would reintroduce the
+   flash-of-wrong-theme Phase 9 explicitly eliminated. **Confirmed default**: when a
+   visitor selects a custom theme, cache its *resolved token values* (not just an ID)
+   in `localStorage` under a new key `jass.customThemeTokens`, and extend the blocking
+   script to apply cached tokens via `style.setProperty` for all ~16 vars (same
+   technique it already uses for the single `--primary` override) if that key is
+   present — no fetch on the critical path, at the cost of staleness if an admin edits
+   a theme a visitor already has cached (accepted: picking the theme again refreshes
+   the cache).
+5. **Per-page selection**: no flash risk here — `PageRenderer` is a server component
+   with DB access, so it can resolve `Page.customThemeId` → tokens synchronously and
+   emit them as an inline `style` attribute on the existing `data-theme` wrapper div.
+   Needs a `Page.customThemeId String?` column alongside (not replacing) the existing
+   `Page.theme String?`, since a page must be able to reference *either* a built-in id
+   or a custom theme row, mutually exclusive.
+6. **Deleting a custom theme that's in use**: **confirmed** — delete is unconditional,
+   not blocked. Deleting a `CustomTheme` sets `Page.customThemeId` to `null` on every
+   page that referenced it (that page falls back to following the visitor's own theme
+   selection, same as any page with no override, no warning surfaced). A visitor whose
+   `localStorage` still holds that theme's cached tokens keeps seeing them until they
+   next open the theme picker and pick something else, at which point the stale cache
+   is overwritten (no active reconciliation needed — same accepted-staleness model as
+   decision 4).
+7. **Uniqueness/limits**: `CustomTheme.name` is `@unique` (already reflected in the
+   migration sketch below); create/update routes reject a duplicate name via Zod +
+   a `conflict()` envelope response, mirroring the existing `Page.slug` uniqueness
+   pattern. No cap on total custom themes.
 
 ### Sketch of the DB migration
 
@@ -705,10 +753,13 @@ validation server-side — same reasoning as every other token being validated a
 - [ ] Create/update/delete routes gated by `requireAdmin()` (`ADMIN` or `OWNER`, per
       `lib/auth-guard.ts`) — no owner-only restriction needed here, matching the "Admin
       & Owner" ask.
+- [ ] Delete route nulls out `Page.customThemeId` for every referencing page in the
+      same transaction as the `CustomTheme` row delete — no page left pointing at a
+      deleted row.
 - [ ] No new CSP loosening required (verify `next.config.ts` unchanged) — the
       no-`<style>`-injection rule above is what keeps this true.
 
-### Verification (draft — refine once open questions are resolved)
+### Verification
 
 1. `ADMIN` and `OWNER` can both create/edit/delete a custom theme; a non-admin session
    gets 403 from the API routes.
@@ -717,17 +768,23 @@ validation server-side — same reasoning as every other token being validated a
 3. Assigning a custom theme to a page renders that page with the custom tokens while
    the rest of the site follows the visitor's own selection.
 4. Selecting a custom theme site-wide survives a hard reload with no flash of the
-   previous theme (validates the localStorage-cache approach above, once built).
-5. Deleting a custom theme in use is blocked (or handled per the confirmed behavior)
-   rather than silently breaking pages that reference it.
+   previous theme (validates the localStorage-cache approach in decision 4 above).
+5. Deleting a custom theme currently assigned to a page immediately reverts that page
+   to following the visitor's own theme (decision 6) — no dangling reference, no error.
+6. Creating a second custom theme with a name that already exists is rejected with a
+   `conflict()` response; the admin form surfaces the error inline.
 
 ### Agent dispatch
 
-Not yet dispatched — implementation should not start until the open design questions
-above are confirmed. Once confirmed, expect the same two-track split Phase 9 used: one
-agent for the DB model + validation + API routes, one for the admin editor UI +
-picker/PageRenderer integration, with `CustomTheme`'s shape as the shared contract
-landed first.
+Go-ahead given. DB model + validation + `SiteChrome`/`PageRenderer`/`app/layout.tsx`
+restructuring (the shared contract, including the entire-page-override fix above) and
+the visitor-facing picker/provider/script extension were done directly rather than
+delegated, since they touch the root layout and every route file — cross-cutting
+enough that getting it wrong would break the whole site. Dispatched in parallel on top
+of that foundation: one agent for the CustomTheme CRUD API routes +
+`components/admin/pages-admin.tsx`'s per-page dropdown, one for the new
+`/admin/themes` editor UI (`components/admin/custom-themes-admin.tsx`), coordinated
+against a fixed API contract specified up front so neither waited on the other.
 
 ---
 
@@ -947,6 +1004,282 @@ Implemented via two parallel agents, same split as Phase 10: one backend
 `imageDataSchema` relaxation), one frontend (`image-block.tsx` upload UI). Upload
 progress bar remains deferred (same XHR-vs-fetch limitation noted in the Appendix for
 Phase 10).
+
+---
+
+## Phase 15 — Block expansion, admin-only pages, and live-preview fixes
+
+**Status: ✅ Complete.** Scope locked in via a clarifying-questions pass with the user
+on 2026-07-10; implemented the same day via 3 parallel agents, then verified live end
+-to-end with Playwright (all 7 checks below PASS — tone/variant live update, nav
+dropdown live refresh, editable headings, admin-only gate, full "Add block" picker,
+all 5 new block types working for a real anonymous visitor, and the footer text).
+
+### Goal
+
+Six independent pieces of work, bundled into one phase because they all touch the
+same block-builder surface:
+
+1. Two live-preview bugs: editing `tone`/`variant` on `pageHeader`/`callout`/
+   `ctaBanner` blocks requires a manual reload to show; editing the header nav
+   (specifically adding/reordering/promoting dropdown children in `/admin/nav`) also
+   requires a manual reload before other pages' headers reflect it.
+2. Two hardcoded, unremovable section headings become admin-editable: "Get oriented"
+   on `linkGrid` blocks and "Getting started" on `steps` blocks — same bug shape in
+   both, neither heading is part of the block's data today.
+3. Admins can mark any builder `Page` as **admin+ only** (hidden/404 to the public,
+   visible to signed-in `ADMIN`/`OWNER`), mirroring the existing `published` gate.
+4. Five new block types: a generic reusable **Card Grid** (so the Features-style
+   card layout becomes truly addable, not a Features-page singleton), **Code block**,
+   **Accordion/FAQ**, **Table**, and **Table of contents** — aimed at tutorial/wiki
+   pages.
+5. The four singleton blocks currently excluded from the "Add block" picker —
+   **Hero**, **Rule list**, **Feature grid**, **Post list** — become addable anywhere,
+   alongside (not instead of) the new Card Grid from item 4.
+6. The footer's "not affiliated" disclaimer gains **Hypixel Studios**.
+
+### Prerequisite reading
+
+`components/blocks/registry.tsx` · `lib/validation/pages.ts` · `components/blocks/tones.tsx`
+· `components/blocks/steps-block.tsx` and `components/blocks/link-grid-block.tsx`
+(closest existing array-shaped block patterns to clone) · `components/pages/page-blocks.tsx`
+(`saveBlockData`/`moveBlock`/`deleteBlock` — the bug and the pattern that already fixes
+it live side by side here) · `components/admin/nav-admin.tsx` · `app/api/nav-items/route.ts`
+and `app/api/nav-items/[id]/route.ts` · `app/[slug]/page.tsx` (existing `published` gate
+to clone for `adminOnly`) · `lib/auth-guard.ts` · `components/admin/pages-admin.tsx` ·
+`components/features/icon-registry.ts` and `components/features/feature-card.tsx`
+(icon picker + card visuals to reuse for Card Grid) · `components/admin/editable-text.tsx`
+· `components/admin/list-controls.tsx` · `components/site-footer.tsx` (the copyright
+line) · `components/blocks/registry.tsx`'s `ADDABLE_BLOCK_TYPES` comment (explains why
+`hero`/`ruleList`/`featureGrid`/`postList` are excluded today — the exact filter this
+phase relaxes).
+
+### Locked-in decisions (from the 2026-07-10 clarifying pass)
+
+1. **Card Grid is a new, independent block type (`cardGrid`)** — not a change to the
+   existing `featureGrid` block. `featureGrid` stays exactly as-is: a singleton wrapper
+   around the site-wide `Feature` table, excluded from `ADDABLE_BLOCK_TYPES`, used only
+   on the Features page. The new `cardGrid` block stores its own cards per instance
+   (like `steps`/`linkGrid` already do), so it can be placed multiple times across the
+   site with different content each time.
+2. **Out of scope for this phase**: converting `/resource` into a block, and splitting
+   the live server-status widget out of the `hero` block into its own block. Both
+   confirmed explicitly deferred — revisit separately later if wanted.
+3. **New block types, confirmed**: Code block, Accordion/FAQ, Table, Table of contents.
+   (Video embed and a separate note/tip block were considered and dropped — `callout`
+   already covers note/tip via its tone enum.)
+4. **The reported "dropdown status doesn't update" bug is the header nav editor**
+   (`/admin/nav`), not a not-yet-built accordion block. Root-caused below.
+5. **Table of contents is admin-curated, not auto-derived from headings.** Scanning
+   other blocks' markdown/headings for anchors would require injecting stable heading
+   IDs across every block type (`richText` markdown, `pageHeader`, etc.) — real
+   complexity for a "wiki nice-to-have." Simpler default: the `toc` block stores its own
+   `items: {label, anchor}[]`, admin-typed, same array-editing pattern as every other
+   list-shaped block. Anchors are plain `#anchor-id` fragment links the admin types to
+   match an `id` they've put on a target block (see step 7).
+6. **Code block has no syntax-highlighting engine in this pass** — a themed
+   monospace `<pre><code>` with a language label and copy-to-clipboard button, styled
+   like `image`/`richText` blocks. Real highlighting (e.g. `shiki`) is a clean drop-in
+   later if wanted; skipping it now avoids a new client-bundle dependency for a v1.
+7. **`hero`/`ruleList`/`featureGrid`/`postList` become addable everywhere, added by a
+   follow-up request.** This deliberately embraces the exact "same site-wide singleton
+   content repeats at every placement" tradeoff decision 1 avoided for Card Grid — and
+   that's fine here, because the two options now serve different needs: Card Grid gives
+   admins *distinct* per-instance cards, while these four give admins a way to reuse
+   *the same* Home/Rules/Features/News content elsewhere (e.g. embedding the live
+   server-status widget or the full rules list on another page). No schema or component
+   changes to these four blocks — they keep using `emptyDataSchema` and reading their
+   singleton table via `referenceData` exactly as they do today; this is purely removing
+   them from the exclusion filter in `components/blocks/registry.tsx`.
+8. **Footer disclaimer gains "Hypixel Studios"** — pure copy change,
+   `components/site-footer.tsx` line 18, no logic touched.
+
+### Root cause — live-preview bugs (both diagnosed, no further investigation needed)
+
+- **Tone/variant not updating**: `saveBlockData` in `components/pages/page-blocks.tsx`
+  only does the `fetch(PUT)` — it never calls `setBlocks(...)`. Compare `moveBlock` and
+  `deleteBlock` in the same file, which already do
+  optimistic-`setBlocks`-then-persist-then-rollback-on-failure correctly. `ToneSelect`
+  (`components/blocks/tones.tsx`) is a fully controlled, stateless component — it only
+  shows a new value when the `data` prop it's fed actually changes, which never happens
+  today because `blocks` state in `PageBlocks` is never touched by `saveBlockData`.
+  **Fix**: make `saveBlockData` follow the same optimistic pattern as its two neighbors
+  in the same file. This one change fixes `pageHeader`, `callout`, and `ctaBanner`
+  simultaneously, since all three funnel through it.
+- **Nav dropdown edits not updating elsewhere**: `nav-admin.tsx`'s own mutations
+  (`createTop`/`createChild`/`updateItem`/`deleteItem`/`moveTop`/`moveChild`) already
+  update their local `items` state correctly, and the API routes
+  (`app/api/nav-items/route.ts`, `app/api/nav-items/[id]/route.ts`) already call
+  `revalidatePath("/", "layout")` on every mutation — both are correct and don't need
+  changing. The gap: nav mutations go through plain `fetch()` to a Route Handler, not a
+  Server Action — Next's automatic client-side Router Cache invalidation only fires for
+  Server Action round-trips, not `fetch()`-to-Route-Handler ones. So `revalidatePath`
+  correctly busts the server-side Data Cache, but an already-mounted `SiteHeader` on any
+  other page the admin has open in the same tab keeps showing the stale Router Cache
+  entry until a hard reload (or enough time passes). **Fix**: add a `router.refresh()`
+  call (`useRouter` from `next/navigation`) after every successful nav mutation in
+  `nav-admin.tsx`, alongside the existing local-state update — cheap, matches Next's own
+  recommended pattern for fetch-based mutations that affect shared layout data, and
+  forces the Router Cache to drop stale entries for the current tab. **Verify live in
+  the browser** during implementation (edit a dropdown, navigate to another page in the
+  same tab without a manual reload, confirm the header reflects it) — the theory is
+  strong from code inspection but wasn't confirmed by driving the actual UI.
+
+### DB migration
+
+Add to `prisma/schema.prisma`:
+
+```prisma
+model Page {
+  // ...existing fields...
+  adminOnly Boolean @default(false) // mirrors `published`; gates app/[slug]/page.tsx
+}
+```
+
+Run: `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name page_admin_only`
+then regenerate the client.
+
+### Steps
+
+1. **Fix `saveBlockData`** in `components/pages/page-blocks.tsx` — optimistic
+   `setBlocks` update before the `fetch`, rollback + `showError` on failure, mirroring
+   `moveBlock`/`deleteBlock` in the same file exactly.
+2. **Fix nav live-refresh** — add `router.refresh()` in `components/admin/nav-admin.tsx`
+   after every successful mutation. Drive it live in a browser to confirm before
+   marking done (see root-cause note above).
+3. **Editable singleton-block headings — `linkGrid` and `steps`.** Same fix, two
+   blocks: `lib/validation/pages.ts`: add `heading: z.string().min(1).max(80).optional()`
+   to both `linkGridDataSchema` and `stepsDataSchema`.
+   `components/blocks/link-grid-block.tsx`: replace both hardcoded `<h2>Get
+   oriented</h2>` occurrences (visitor branch and edit-mode branch) with
+   `<EditableText value={data.heading ?? "Get oriented"} onSave={...} as="h2" .../>`
+   wired through the block's existing `onSaveData`.
+   `components/blocks/steps-block.tsx`: same treatment for both hardcoded
+   `<h2>Getting started</h2>` occurrences (lines 34 and 85), default `"Getting started"`.
+   In both blocks, an absent `heading` renders exactly today's text — no data
+   migration, existing rows stay valid.
+4. **`adminOnly` page gate.** `lib/validation/pages.ts`: add
+   `adminOnly: z.boolean().optional()` to `pageCreateSchema` and `pageUpdateSchema`.
+   `app/api/pages/route.ts`: include `adminOnly: parsed.data.adminOnly ?? false` in the
+   `POST` create call. `app/api/pages/[id]/route.ts`'s `PUT` already spreads
+   `parsed.data` — no route-code change needed there. `app/[slug]/page.tsx`: alongside
+   the existing `if (!page.published) { ... requireAdmin() ... }` block, add the same
+   shape for `page.adminOnly` (either a second `if` or merged into one admin-gate check
+   with a distinct banner, e.g. "Admin+ only — not visible to the public"). Note the
+   same pre-existing limitation `published` already has: the 4 protected/static pages
+   (home/rules/features/news) render via their own dedicated route files, not
+   `app/[slug]/page.tsx`, so this gate — like `published` today — only actually applies
+   to custom builder pages. Not a new gap introduced by this phase.
+5. **`adminOnly` admin UI.** `components/admin/pages-admin.tsx`: add a
+   `toggleAdminOnly(page)` function mirroring the existing `togglePublished` (same
+   optimistic-update/rollback shape, `PUT` `{ adminOnly: !page.adminOnly }`), with a
+   toggle/badge in the table next to the existing Published status control.
+6. **Make `hero`/`ruleList`/`featureGrid`/`postList` addable.**
+   `components/blocks/registry.tsx`: remove all four from the `ADDABLE_BLOCK_TYPES`
+   filter (lines 138-141) and update its preceding comment (it currently explains why
+   they're excluded — replace with a note that they're intentionally addable
+   site-wide-singleton blocks, per decision 7 above). No other code changes: all four
+   already have entries in `blockTypeLabels`/`defaultBlockData`, and their components
+   already read from `referenceData`/singleton tables regardless of which page they're
+   rendered on.
+7. **Footer disclaimer.** `components/site-footer.tsx` line 18: change
+   `Not affiliated with Mojang or Microsoft.` to
+   `Not affiliated with Mojang, Microsoft, or Hypixel Studios.`
+8. **New block type: `cardGrid`.** `lib/validation/pages.ts`: `cardGridDataSchema =
+   z.object({ heading: z.string().max(80).optional(), tone: toneSchema.optional(), cards:
+   z.array(z.object({ icon: z.string().optional(), title: z.string().min(1).max(80),
+   description: z.string().min(1).max(400) })).max(20) })`. New
+   `components/blocks/card-grid-block.tsx` cloning `steps-block.tsx`'s
+   local-state/persist/add/delete/move pattern, reusing `components/features/icon-registry.ts`
+   for the icon picker and `components/features/feature-card.tsx`'s visual styling
+   (extract shared card presentation if it's a clean lift; don't force it if the two
+   diverge). Register in `components/blocks/registry.tsx` (`blockComponents`,
+   `blockTypeLabels`, `defaultBlockData`) — included in `ADDABLE_BLOCK_TYPES`
+   automatically.
+9. **New block type: `code`.** `codeDataSchema = z.object({ code: z.string().min(1).max(20000),
+   language: z.string().max(40).optional(), caption: z.string().max(200).optional() })`.
+   New `components/blocks/code-block.tsx`: themed `<pre><code>` (monospace, wrapped for
+   long lines), optional language label pill, copy-to-clipboard button (client-side
+   `navigator.clipboard`), `EditableText multiline` for the code body in edit mode.
+   Register in the registry same as above.
+10. **New block type: `accordion`.** `accordionDataSchema = z.object({ tone:
+   toneSchema.optional(), items: z.array(z.object({ question: z.string().min(1).max(200),
+   answer: z.string().min(1).max(4000) })).max(20) })`. New
+   `components/blocks/accordion-block.tsx`: open/closed state is pure client `useState`
+   per item (not persisted — no reactivity-bug risk, matches how `SiteHeader`'s own
+   visitor-facing dropdown already works), editable Q/A list via the
+   add/delete/move-button pattern. Register same as above.
+11. **New block type: `table`.** `tableDataSchema = z.object({ caption: z.string().max(200).optional(),
+   headers: z.array(z.string().max(80)).max(12), rows: z.array(z.array(z.string().max(400))).max(50)
+   }).refine(data => data.rows.every(r => r.length === data.headers.length), "Row length must match header count")`.
+   New `components/blocks/table-block.tsx`: semantic `<table>` for visitors; edit mode
+   adds add/delete row and add/delete column controls plus per-cell `EditableText`.
+   This is the most structurally involved of the four new blocks — budget more review
+   time for it. Register same as above.
+12. **New block type: `toc`.** `tocDataSchema = z.object({ heading: z.string().max(80).optional(),
+    items: z.array(z.object({ label: z.string().min(1).max(80), anchor: z.string().min(1).max(80)
+    })).max(30) })`. New `components/blocks/toc-block.tsx`: renders an anchor-link list;
+    edit mode is the standard add/delete/move label+anchor list. Register same as above.
+    Document (in the block's own edit-mode UI, a short hint line) that `anchor` should
+    match an `id` the admin has put on a target block/heading elsewhere on the page —
+    this phase does not add automatic `id` generation to other block types.
+
+### Security checklist
+
+- [ ] `adminOnly` validated as boolean server-side (Zod); gate checked with
+      `requireAdmin()` inside `app/[slug]/page.tsx`, never trusted from client state.
+- [ ] All five new block data schemas enforce max lengths/array sizes (no unbounded
+      strings/arrays reaching the DB).
+- [ ] `code` block content is rendered as text (`<pre><code>{code}</code></pre>` via
+      React, never `dangerouslySetInnerHTML`) — no new HTML-injection surface even
+      though it displays arbitrary user-authored text.
+- [ ] `table` cell content likewise rendered as plain React children, not raw HTML.
+- [ ] `toc` anchors are plain strings rendered into `href="#..."` — no `javascript:`
+      or other scheme values reaching an `<a href>` (mirror the existing `imageDataSchema`
+      URL-safety refinement pattern if a stricter check is warranted).
+
+### Verification
+
+1. Edit a `pageHeader`/`callout`/`ctaBanner` block's tone/variant — new styling applies
+   immediately, no reload, and persists after a real reload too.
+2. In `/admin/nav`, add a dropdown child (or promote/demote an item) then navigate to
+   another page in the same tab without a manual reload — the header reflects the
+   change. If `router.refresh()` alone doesn't fully fix it live, dig further before
+   marking this step done — the fix is a strong theory, not a confirmed-live fact yet.
+3. `linkGrid` blocks: edit the "Get oriented" heading to custom text, confirm it saves
+   and persists; a `linkGrid` block created before this migration (no `heading` in its
+   stored `data`) still renders "Get oriented" unchanged. Repeat identically for
+   `steps` blocks and "Getting started".
+4. Mark a page `adminOnly` — logged-out visitor gets 404, `ADMIN`/`OWNER` sees it
+   (with a distinguishing banner, same UX precedent as the unpublished-draft banner).
+5. Add a `cardGrid` block to two different pages with different cards on each — both
+   render independently (unlike `featureGrid`, which would show the same list twice).
+6. Each of the 4 new tutorial blocks: add one via the block picker, edit its content in
+   edit mode, confirm visitor view renders correctly, confirm content survives reload.
+7. `hero`/`ruleList`/`featureGrid`/`postList` all appear in the "Add block" picker;
+   add one of each to a second page and confirm it shows the same live singleton
+   content as its home page (expected, not a bug) and that the original page is
+   unaffected.
+8. Footer text reads "Not affiliated with Mojang, Microsoft, or Hypixel Studios." on
+   every page.
+9. `npm run lint` and `npx tsc --noEmit` pass.
+
+### Agent dispatch (parallel, per explicit request)
+
+- One agent: the two live-preview bug fixes (steps 1–2) — small, self-contained,
+  should land and be verified live first since later block work doesn't depend on them.
+- One agent: `adminOnly` pages (steps 4–5) + the `linkGrid`/`steps` heading fix
+  (step 3) + making the four singleton blocks addable (step 6) + the footer text
+  (step 7) — schema/API/admin-UI/registry/copy work, all small and mechanical, bundled
+  into one agent since none of it depends on the new block types below.
+- One agent: Card Grid (step 8), since it's the most visually/architecturally novel
+  (icon picker reuse) and benefits from focused attention.
+- One agent: the four remaining tutorial blocks — Code, Accordion/FAQ, Table, ToC
+  (steps 9–12) — mechanical repetition of one established pattern (array-shaped block
+  cloning `steps-block.tsx`), well-suited to a single agent working through a list.
+- Review: `code-reviewer` over all block additions (schema/registry consistency);
+  a focused pass on the `table` block specifically (most structurally involved); confirm
+  step 2's fix against a live browser, not just code review, before phase close.
 
 ---
 

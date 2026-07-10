@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import { ResourcePackView } from "@/components/resource/resource-pack-view";
 import { ResourcePackAdmin } from "@/components/resource/resource-pack-admin";
+import { SiteChrome } from "@/components/pages/site-chrome";
 
 export const metadata: Metadata = {
   title: "Resource Pack — JASS",
@@ -21,9 +22,9 @@ export default async function ResourcePackPage() {
     : null;
 
   return (
-    <>
+    <SiteChrome theme={null} customThemeTokens={null}>
       <ResourcePackView pack={packSummary} downloadUrl={downloadUrl} />
       <ResourcePackAdmin />
-    </>
+    </SiteChrome>
   );
 }

@@ -11,7 +11,9 @@ import { ToneSelect } from "@/components/blocks/tones";
 import type { Tone } from "@/lib/themes";
 
 export type QuickLink = { href: string; title: string; description: string };
-export type LinkGridData = { links: QuickLink[]; tone?: Tone };
+export type LinkGridData = { links: QuickLink[]; tone?: Tone; heading?: string };
+
+const DEFAULT_HEADING = "Get oriented";
 
 /** Full literal `group-hover:text-*` class per tone -- kept as complete,
  * non-interpolated strings so Tailwind's static source scanner can see them
@@ -39,6 +41,7 @@ export function LinkGridBlock({
   const { showError } = useToast();
   const [links, setLinks] = useState(data.links);
   const [tone, setTone] = useState<Tone>(data.tone ?? "neutral");
+  const [heading, setHeading] = useState(data.heading ?? DEFAULT_HEADING);
   const [saving, setSaving] = useState(false);
 
   const showEditable = isAdmin && editMode;
@@ -50,7 +53,13 @@ export function LinkGridBlock({
     return (
       <section className="border-b border-border">
         <Container className="py-16 sm:py-20">
-          <h2 className="text-sm font-medium tracking-wide text-muted uppercase">Get oriented</h2>
+          <EditableText
+            as="h2"
+            value={heading}
+            onSave={saveHeading}
+            label="section heading"
+            className="text-sm font-medium tracking-wide text-muted uppercase"
+          />
           <div className="mt-6 grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-3">
             {links.map((link) => (
               <Link
@@ -78,7 +87,7 @@ export function LinkGridBlock({
     setLinks(next);
     setSaving(true);
     try {
-      await onSaveData({ links: next, tone });
+      await onSaveData({ links: next, tone, heading });
     } catch (error) {
       setLinks(previous);
       showError(error instanceof Error ? error.message : "Failed to save links.");
@@ -111,10 +120,21 @@ export function LinkGridBlock({
     const previous = tone;
     setTone(next);
     try {
-      await onSaveData({ links, tone: next });
+      await onSaveData({ links, tone: next, heading });
     } catch (error) {
       setTone(previous);
       showError(error instanceof Error ? error.message : "Failed to save tone.");
+    }
+  }
+
+  async function saveHeading(next: string) {
+    const previous = heading;
+    setHeading(next);
+    try {
+      await onSaveData({ links, tone, heading: next });
+    } catch (error) {
+      setHeading(previous);
+      showError(error instanceof Error ? error.message : "Failed to save heading.");
     }
   }
 
@@ -122,7 +142,13 @@ export function LinkGridBlock({
     <section className="border-b border-border">
       <Container className="py-16 sm:py-20">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium tracking-wide text-muted uppercase">Get oriented</h2>
+          <EditableText
+            as="h2"
+            value={heading}
+            onSave={saveHeading}
+            label="section heading"
+            className="text-sm font-medium tracking-wide text-muted uppercase"
+          />
           <ToneSelect value={tone} onChange={changeTone} />
         </div>
         <div className="mt-6 flex flex-col gap-3">

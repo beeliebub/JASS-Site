@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Container } from "@/components/container";
 import { getPages } from "@/lib/content";
+import { getCustomThemes } from "@/lib/custom-themes";
 import { PagesAdmin } from "@/components/admin/pages-admin";
 
 export const metadata = { title: "Pages — Admin" };
@@ -10,7 +11,7 @@ export default async function AdminPagesPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const pages = await getPages();
+  const [pages, customThemes] = await Promise.all([getPages(), getCustomThemes()]);
 
   return (
     <Container className="flex flex-1 flex-col gap-6 py-16">
@@ -23,7 +24,7 @@ export default async function AdminPagesPage() {
         </p>
       </div>
 
-      <PagesAdmin initialPages={pages} />
+      <PagesAdmin initialPages={pages} initialCustomThemes={customThemes} />
     </Container>
   );
 }

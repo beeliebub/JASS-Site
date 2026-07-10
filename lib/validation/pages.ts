@@ -40,15 +40,36 @@ function refineNotReserved<T extends { slug?: string }>(data: T, ctx: z.Refineme
   }
 }
 
+/** `theme` (built-in) and `customThemeId` (Phase 12) are mutually exclusive --
+ * a page follows at most one theme override. The admin UI's theme dropdown
+ * always sends both fields together on a change (the non-chosen one as
+ * `null`), so this only ever rejects a malformed/direct API call, not normal
+ * UI usage. */
+function refineExclusiveTheme<T extends { theme?: string | null; customThemeId?: string | null }>(
+  data: T,
+  ctx: z.RefinementCtx,
+) {
+  if (data.theme && data.customThemeId) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["customThemeId"],
+      message: "theme and customThemeId cannot both be set -- pick one.",
+    });
+  }
+}
+
 export const pageCreateSchema = z
   .object({
     title: z.string().min(1).max(200),
     slug: slugSchema.optional(),
     metaDescription: z.string().max(300).nullable().optional(),
     published: z.boolean().optional(),
+    adminOnly: z.boolean().optional(),
     theme: themeSchema.nullable().optional(),
+    customThemeId: z.string().min(1).nullable().optional(),
   })
-  .superRefine(refineNotReserved);
+  .superRefine(refineNotReserved)
+  .superRefine(refineExclusiveTheme);
 
 export const pageUpdateSchema = z
   .object({
@@ -56,9 +77,12 @@ export const pageUpdateSchema = z
     slug: slugSchema.optional(),
     metaDescription: z.string().max(300).nullable().optional(),
     published: z.boolean().optional(),
+    adminOnly: z.boolean().optional(),
     theme: themeSchema.nullable().optional(),
+    customThemeId: z.string().min(1).nullable().optional(),
   })
-  .superRefine(refineNotReserved);
+  .superRefine(refineNotReserved)
+  .superRefine(refineExclusiveTheme);
 
 /**
  * Server-side (not just UI) enforcement that protected pages (home, rules,
@@ -91,6 +115,11 @@ export const BLOCK_TYPES = [
   "richText",
   "image",
   "ctaBanner",
+  "cardGrid",
+  "code",
+  "accordion",
+  "table",
+  "toc",
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -116,6 +145,7 @@ const calloutDataSchema = z.object({
 });
 
 const stepsDataSchema = z.object({
+  heading: z.string().min(1).max(80).optional(),
   items: z
     .array(
       z.object({
@@ -128,6 +158,7 @@ const stepsDataSchema = z.object({
 });
 
 const linkGridDataSchema = z.object({
+  heading: z.string().min(1).max(80).optional(),
   links: z
     .array(
       z.object({
@@ -182,6 +213,80 @@ const ctaBannerDataSchema = z.object({
   tone: toneSchema.optional(),
 });
 
+/** Phase 15: new, independent block type -- NOT a change to `featureGrid`.
+ * Stores its own cards per instance (like `steps`/`linkGrid`) so it can be
+ * placed multiple times across the site with different content each time. */
+const cardGridDataSchema = z.object({
+  heading: z.string().max(80).optional(),
+  tone: toneSchema.optional(),
+  cards: z
+    .array(
+      z.object({
+        icon: z.string().optional(),
+        title: z.string().min(1).max(80),
+        description: z.string().min(1).max(400),
+      }),
+    )
+    .max(20),
+});
+
+/** Phase 15: themed monospace code block, no syntax highlighting (see
+ * PLAN.md decision 6). */
+const codeDataSchema = z.object({
+  code: z.string().min(1).max(20000),
+  language: z.string().max(40).optional(),
+  caption: z.string().max(200).optional(),
+});
+
+/** Phase 15: accordion/FAQ. Open/closed state is pure client UI state, never
+ * persisted here. */
+const accordionDataSchema = z.object({
+  tone: toneSchema.optional(),
+  items: z
+    .array(
+      z.object({
+        question: z.string().min(1).max(200),
+        answer: z.string().min(1).max(4000),
+      }),
+    )
+    .max(20),
+});
+
+/** Phase 15: admin-authored data table. `.refine` keeps every row's length
+ * equal to `headers.length` -- TableBlock's column add/remove must keep this
+ * invariant true at every step (pad/trim every row in the same update). */
+const tableDataSchema = z
+  .object({
+    caption: z.string().max(200).optional(),
+    headers: z.array(z.string().max(80)).max(12),
+    rows: z.array(z.array(z.string().max(400))).max(50),
+  })
+  .refine((data) => data.rows.every((r) => r.length === data.headers.length), {
+    message: "Row length must match header count",
+    path: ["rows"],
+  });
+
+/** Phase 15: admin-curated table of contents (not auto-derived from
+ * headings -- see PLAN.md decision 5). `anchor` is restricted to a safe
+ * charset and is always rendered by TocBlock as `href={`#${anchor}`}` --
+ * never the raw stored string -- so a `javascript:`/external-URL value can
+ * never reach an `<a href>`. */
+const tocDataSchema = z.object({
+  heading: z.string().max(80).optional(),
+  items: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        anchor: z
+          .string()
+          .min(1)
+          .max(80)
+          .regex(/^[a-zA-Z0-9-_]+$/, "anchor must be letters, numbers, hyphens, or underscores"),
+      }),
+    )
+    .max(30),
+});
+
 /** Per-type `data` shape, keyed by `Block.type`. Used both to validate on
  * write (POST/PUT) and to guard on read-back before rendering. */
 export const blockDataSchemas = {
@@ -196,6 +301,11 @@ export const blockDataSchemas = {
   richText: richTextDataSchema,
   image: imageDataSchema,
   ctaBanner: ctaBannerDataSchema,
+  cardGrid: cardGridDataSchema,
+  code: codeDataSchema,
+  accordion: accordionDataSchema,
+  table: tableDataSchema,
+  toc: tocDataSchema,
 } as const satisfies Record<BlockType, z.ZodTypeAny>;
 
 export const blockTypeSchema = z.enum(BLOCK_TYPES);
@@ -253,6 +363,21 @@ export const blockCreateSchema = z.discriminatedUnion("type", [
     order: z.number().int(),
     data: blockDataSchemas.ctaBanner,
   }),
+  z.object({
+    type: z.literal("cardGrid"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    data: blockDataSchemas.cardGrid,
+  }),
+  z.object({ type: z.literal("code"), pageId: z.string().min(1), order: z.number().int(), data: blockDataSchemas.code }),
+  z.object({
+    type: z.literal("accordion"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    data: blockDataSchemas.accordion,
+  }),
+  z.object({ type: z.literal("table"), pageId: z.string().min(1), order: z.number().int(), data: blockDataSchemas.table }),
+  z.object({ type: z.literal("toc"), pageId: z.string().min(1), order: z.number().int(), data: blockDataSchemas.toc }),
 ]);
 
 /** `PUT /api/blocks/[id]` body: reordering and/or a content edit. `data`'s

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Page } from "@/app/generated/prisma/client";
+import type { CustomTheme, Page } from "@/app/generated/prisma/client";
 import { useToast } from "@/components/admin/toast";
 import { DeleteButton } from "@/components/admin/list-controls";
 import { pagePath } from "@/lib/routes";
@@ -22,11 +22,18 @@ function slugify(input: string) {
     .replace(/^-+|-+$/g, "");
 }
 
-export function PagesAdmin({ initialPages }: { initialPages: Page[] }) {
+export function PagesAdmin({
+  initialPages,
+  initialCustomThemes,
+}: {
+  initialPages: Page[];
+  initialCustomThemes: CustomTheme[];
+}) {
   const router = useRouter();
   const { showError } = useToast();
   const [pages, setPages] = useState(initialPages);
   const [creating, setCreating] = useState(false);
+  const customThemes = initialCustomThemes;
 
   async function togglePublished(page: Page) {
     const previous = pages;
@@ -44,14 +51,41 @@ export function PagesAdmin({ initialPages }: { initialPages: Page[] }) {
     }
   }
 
-  async function changeTheme(page: Page, theme: ThemeId | null) {
+  async function toggleAdminOnly(page: Page) {
     const previous = pages;
-    setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, theme } : p)));
+    setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, adminOnly: !p.adminOnly } : p)));
     try {
       const res = await fetch(`/api/pages/${page.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ theme }),
+        body: JSON.stringify({ adminOnly: !page.adminOnly }),
+      });
+      if (!res.ok) throw new Error(await parseError(res, "Failed to update page."));
+    } catch (error) {
+      setPages(previous);
+      showError(error instanceof Error ? error.message : "Failed to update page.");
+    }
+  }
+
+  /** Parses the combined theme `<select>`'s string value into the mutually
+   * exclusive `{theme, customThemeId}` pair the API expects: "" is the
+   * default (both null), a bare built-in id is a built-in theme, and
+   * `custom:<id>` is a Phase 12 custom theme. */
+  function parseThemeSelection(value: string): { theme: ThemeId | null; customThemeId: string | null } {
+    if (value === "") return { theme: null, customThemeId: null };
+    if (value.startsWith("custom:")) return { theme: null, customThemeId: value.slice("custom:".length) };
+    return { theme: value as ThemeId, customThemeId: null };
+  }
+
+  async function changeThemeSelection(page: Page, value: string) {
+    const { theme, customThemeId } = parseThemeSelection(value);
+    const previous = pages;
+    setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, theme, customThemeId } : p)));
+    try {
+      const res = await fetch(`/api/pages/${page.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme, customThemeId }),
       });
       if (!res.ok) throw new Error(await parseError(res, "Failed to update page theme."));
     } catch (error) {
@@ -120,23 +154,37 @@ export function PagesAdmin({ initialPages }: { initialPages: Page[] }) {
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-muted">/{page.slug === "home" ? "" : page.slug}</td>
                 <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => togglePublished(page)}
-                    aria-pressed={page.published}
-                    className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                      page.published
-                        ? "border-primary/40 bg-primary/10 text-primary"
-                        : "border-border-strong text-muted hover:text-foreground"
-                    }`}
-                  >
-                    {page.published ? "Published" : "Draft"}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => togglePublished(page)}
+                      aria-pressed={page.published}
+                      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                        page.published
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "border-border-strong text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {page.published ? "Published" : "Draft"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleAdminOnly(page)}
+                      aria-pressed={page.adminOnly}
+                      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                        page.adminOnly
+                          ? "border-accent/40 bg-accent/10 text-accent"
+                          : "border-border-strong text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {page.adminOnly ? "Admin+ only" : "Public"}
+                    </button>
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   <select
-                    value={page.theme ?? ""}
-                    onChange={(e) => changeTheme(page, e.target.value === "" ? null : (e.target.value as ThemeId))}
+                    value={page.customThemeId ? `custom:${page.customThemeId}` : (page.theme ?? "")}
+                    onChange={(e) => changeThemeSelection(page, e.target.value)}
                     aria-label={`Theme for ${page.title}`}
                     className="h-8 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary"
                   >
@@ -146,6 +194,15 @@ export function PagesAdmin({ initialPages }: { initialPages: Page[] }) {
                         {THEMES[id].label}
                       </option>
                     ))}
+                    {customThemes.length > 0 && (
+                      <optgroup label="Custom">
+                        {customThemes.map((ct) => (
+                          <option key={ct.id} value={`custom:${ct.id}`}>
+                            {ct.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </td>
                 <td className="px-4 py-3">

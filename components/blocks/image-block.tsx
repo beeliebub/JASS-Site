@@ -31,6 +31,15 @@ async function parseError(res: Response, fallback: string) {
   return body?.error?.message ?? fallback;
 }
 
+// One-shot fallback so an upload never fails validation just because alt
+// text hasn't been typed yet -- not a general-purpose slugify utility.
+function fallbackAltFromFilename(filename: string) {
+  return filename
+    .replace(/\.[^./\\]+$/, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+}
+
 /** Admins can either paste an absolute URL to an externally-hosted image, or
  * upload a PNG/JPEG/GIF/WebP file directly (stored server-side and served
  * from the site's own origin, content-addressed by sha1 -- see
@@ -72,7 +81,8 @@ export function ImageBlock({
       });
       if (!res.ok) throw new Error(await parseError(res, "Failed to upload image."));
       const { data: uploaded } = (await res.json()) as { data: { url: string } };
-      await onSaveData({ ...data, src: uploaded.url });
+      const alt = data.alt || fallbackAltFromFilename(file.name);
+      await onSaveData({ ...data, src: uploaded.url, alt });
       showSuccess("Image uploaded.");
     } catch (error) {
       showError(error instanceof Error ? error.message : "Failed to upload image.");
