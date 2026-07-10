@@ -40,10 +40,11 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.ts ./next.config.ts
 COPY --from=build /app/scripts ./scripts
 
-# prisma/ (the SQLite DB) and backups/ are bind-mounted from the host via
-# docker-compose.yml so data survives image rebuilds/redeploys — never bake
-# prisma/dev.db into the image itself.
-RUN mkdir -p /app/prisma /app/backups
+# prisma/ (the SQLite DB), backups/, and uploads/ (resource packs) are
+# bind-mounted from the host via docker-compose.yml so data survives image
+# rebuilds/redeploys — never bake prisma/dev.db or uploaded packs into the
+# image itself.
+RUN mkdir -p /app/prisma /app/backups /app/uploads
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

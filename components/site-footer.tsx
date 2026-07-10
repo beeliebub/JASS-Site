@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Container } from "@/components/container";
+import { ThemePicker } from "@/components/theme/theme-picker";
 import { siteConfig } from "@/lib/site-config";
 import { navItemHref } from "@/lib/routes";
 
@@ -15,13 +16,16 @@ export function SiteFooter({ navItems }: { navItems: NavTop[] }) {
         <p>
           &copy; {year} {siteConfig.name}. Not affiliated with Mojang or Microsoft.
         </p>
-        <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2">
-          {navItems.map((item) => (
-            <Link key={item.id} href={navItemHref(item)} className="transition-colors hover:text-foreground">
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        <div className="flex flex-wrap items-center gap-4">
+          <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2">
+            {navItems.map((item) => (
+              <Link key={item.id} href={navItemHref(item)} className="transition-colors hover:text-foreground">
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+          <ThemePicker />
+        </div>
       </Container>
     </footer>
   );

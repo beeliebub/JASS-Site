@@ -51,15 +51,27 @@ edge network or team-based preview deployments — it doesn't today.
 
 ### Reference artifacts (repo root)
 
+- `setup.sh` (+ `scripts/lib/*.sh`) — the unified interactive setup wizard and
+  the single entry point for all of the below: `./setup.sh` presents a menu, or
+  use `--mode local|provision|deploy` directly. `scripts/vps-setup.sh` and
+  `scripts/vps-start.sh` remain as thin back-compat wrappers over the same lib
+  files, with their original flags and behavior.
 - `Dockerfile` — multi-stage build: installs deps, runs `prisma generate` +
   `next build`, then a slim runtime stage that runs `npm run start`. Comments
   inline explain the better-sqlite3 native-module consideration.
 - `docker-compose.yml` — binds the app to `127.0.0.1:3000` only (not public),
   bind-mounts `./data/prisma` and `./data/backups` so the DB and backup
   snapshots survive container rebuilds, and reads `.env.production` for
-  secrets.
+  secrets. Phase 10 adds a third bind-mount, `./data/uploads`, so resource
+  packs (`UPLOADS_DIR`, content-addressed under `resource-packs/<sha1>.zip`)
+  also survive rebuilds instead of living only inside the container layer.
 - `Caddyfile` — host-level Caddy (outside Docker) terminating TLS for
-  `justasimpleserver.net` and reverse-proxying to the container.
+  `justasimpleserver.net` and reverse-proxying to the container. Caddy has no
+  default request body size limit, so the large resource-pack uploads in
+  Phase 10 (up to 256 MiB, enforced app-side) pass through untouched; add an
+  explicit `request_body { max_size 300MB }` directive inside the site block
+  if you want Caddy itself to reject oversized requests before they reach
+  the app.
 
 None of these have been built/run/deployed — verify the better-sqlite3
 prebuild works for the actual host's OS/arch before relying on the Dockerfile

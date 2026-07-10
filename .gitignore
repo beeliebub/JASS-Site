@@ -50,6 +50,9 @@ next-env.d.ts
 # local DB backups (scripts/backup-db.ts)
 /backups
 
+# uploaded resource packs (lib/uploads.ts)
+/uploads
+
 # Claude Code local/machine-specific state (not shared project config)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

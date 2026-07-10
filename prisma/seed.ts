@@ -346,12 +346,15 @@ async function seedPagesAndNav() {
     { label: "Rules", pageId: rulesPage.id, order: 1 },
     { label: "Features", pageId: featuresPage.id, order: 2 },
     { label: "News", pageId: newsPage.id, order: 3 },
+    // Static route (app/resource/page.tsx), not a builder Page row, hence
+    // `href` instead of `pageId` -- see navItemHref() in lib/routes.ts.
+    { label: "Resource Pack", href: "/resource", order: 4 },
   ];
   for (const entry of navEntries) {
     await prisma.navItem.create({ data: entry });
   }
 
-  console.log("Seeded 4 protected pages with blocks, and default top-level nav items.");
+  console.log(`Seeded 4 protected pages with blocks, and ${navEntries.length} default top-level nav items.`);
 }
 
 async function main() {

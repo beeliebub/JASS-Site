@@ -7,6 +7,8 @@ import { SiteFooter } from "@/components/site-footer";
 import { siteConfig } from "@/lib/site-config";
 import { EditModeProvider } from "@/components/admin/edit-mode-context";
 import { ToastProvider } from "@/components/admin/toast";
+import { ThemeProvider } from "@/components/theme/theme-provider";
+import { ThemeScript } from "@/components/theme/theme-script";
 import { isAdminRole } from "@/lib/auth-guard";
 import { getNavTree } from "@/lib/content";
 
@@ -58,8 +60,19 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      {/* Theme flash-prevention (Phase 9, PLAN.md): a blocking inline script
+          in <head> corrects data-theme/accent on <html> before first paint
+          (see components/theme/theme-script.tsx and
+          node_modules/next/dist/docs/01-app/02-guides/preventing-flash-before-hydration.md,
+          "Themes" section, for why this lives in an explicit <head> rather
+          than next/script). suppressHydrationWarning above is required
+          because that mutation happens before React hydrates. */}
+      <head>
+        <ThemeScript />
+      </head>
       <body className="flex min-h-full flex-col bg-background font-sans text-foreground">
         {/* Visually hidden until focused -- lets keyboard/screen-reader users
             jump past the header nav straight to page content. */}
@@ -69,15 +82,17 @@ export default async function RootLayout({
         >
           Skip to content
         </a>
-        <ToastProvider>
-          <EditModeProvider isAdmin={isAdmin}>
-            <SiteHeader isAdmin={isAdmin} navItems={navTree} />
-            <main id="main-content" className="flex flex-1 flex-col">
-              {children}
-            </main>
-            <SiteFooter navItems={navTree} />
-          </EditModeProvider>
-        </ToastProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <EditModeProvider isAdmin={isAdmin}>
+              <SiteHeader isAdmin={isAdmin} navItems={navTree} />
+              <main id="main-content" className="flex flex-1 flex-col">
+                {children}
+              </main>
+              <SiteFooter navItems={navTree} />
+            </EditModeProvider>
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

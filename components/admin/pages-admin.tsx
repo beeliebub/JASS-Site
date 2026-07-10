@@ -7,6 +7,7 @@ import type { Page } from "@/app/generated/prisma/client";
 import { useToast } from "@/components/admin/toast";
 import { DeleteButton } from "@/components/admin/list-controls";
 import { pagePath } from "@/lib/routes";
+import { THEME_IDS, THEMES, type ThemeId } from "@/lib/themes";
 
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -40,6 +41,22 @@ export function PagesAdmin({ initialPages }: { initialPages: Page[] }) {
     } catch (error) {
       setPages(previous);
       showError(error instanceof Error ? error.message : "Failed to update page.");
+    }
+  }
+
+  async function changeTheme(page: Page, theme: ThemeId | null) {
+    const previous = pages;
+    setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, theme } : p)));
+    try {
+      const res = await fetch(`/api/pages/${page.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme }),
+      });
+      if (!res.ok) throw new Error(await parseError(res, "Failed to update page theme."));
+    } catch (error) {
+      setPages(previous);
+      showError(error instanceof Error ? error.message : "Failed to update page theme.");
     }
   }
 
@@ -86,6 +103,7 @@ export function PagesAdmin({ initialPages }: { initialPages: Page[] }) {
               <th className="px-4 py-2.5 font-medium">Title</th>
               <th className="px-4 py-2.5 font-medium">Slug</th>
               <th className="px-4 py-2.5 font-medium">Status</th>
+              <th className="px-4 py-2.5 font-medium">Theme</th>
               <th className="px-4 py-2.5 font-medium">&nbsp;</th>
             </tr>
           </thead>
@@ -114,6 +132,21 @@ export function PagesAdmin({ initialPages }: { initialPages: Page[] }) {
                   >
                     {page.published ? "Published" : "Draft"}
                   </button>
+                </td>
+                <td className="px-4 py-3">
+                  <select
+                    value={page.theme ?? ""}
+                    onChange={(e) => changeTheme(page, e.target.value === "" ? null : (e.target.value as ThemeId))}
+                    aria-label={`Theme for ${page.title}`}
+                    className="h-8 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary"
+                  >
+                    <option value="">Default</option>
+                    {THEME_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        {THEMES[id].label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">

@@ -25,7 +25,16 @@
   --accent-foreground: #1a1206;
 
   --danger: #e5484d;
-  --online: var(--primary);
+  --info: #4aa8e8;
+  /* Intentionally NOT `var(--primary)` -- Phase 9's custom accent picker
+     overrides --primary with an arbitrary visitor-chosen color via inline
+     style on <html>, and --online is a semantic status color (the live
+     server-status badge), not a brand accent. Referencing --primary here
+     would let a visitor's cosmetic choice (e.g. a red accent) silently
+     recolor "online" in a way that reads as "danger/offline". Each theme
+     below repeats its own curated brand green as a fixed, independent value
+     instead of aliasing it. */
+  --online: #34c47c;
   --offline: #6b746a;
 
   --radius-sm: 0.25rem;
@@ -52,6 +61,7 @@
   --color-accent-foreground: var(--accent-foreground);
 
   --color-danger: var(--danger);
+  --color-info: var(--info);
   --color-online: var(--online);
   --color-offline: var(--offline);
 
@@ -62,6 +72,102 @@
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+/*
+ * Phase 9 theme overrides. Selectors are attribute-only (`[data-theme="…"]`,
+ * never `html[data-theme="…"]`) for two reasons: (1) equal CSS specificity
+ * to `:root` (both are a single pseudo-class/attribute selector), so when
+ * the visitor-theme script/ThemeProvider sets `data-theme` on `<html>`,
+ * source order alone decides the winner -- these rules must stay *after*
+ * `:root` in this file for that to work; (2) the identical selector also
+ * powers PageRenderer's per-page `data-theme` wrapper div deeper in the
+ * tree, where there is no competing `:root` rule at all. `obsidian` has no
+ * block here -- it *is* `:root`, unmodified, so a no-JS visitor always gets
+ * today's look. Every block below re-declares the full color token set
+ * (never a partial override -- see PLAN.md's "Frankenstein theme" warning).
+ * Radii are not theme-specific and stay untouched.
+ */
+
+/* Parchment -- light theme. Not an inverted obsidian: the emerald primary
+   is independently darkened to #156d40 (~5.3:1 against this background,
+   verified via lib/color.ts's relativeLuminance formula) since a naive
+   invert of the dark-theme primary reads badly on light paper. Border
+   alphas flip from light-on-dark rgba to dark-on-light rgba. */
+[data-theme="parchment"] {
+  --background: #f2ead6;
+  --surface: #ece1c8;
+  --surface-2: #e4d7ba;
+  --border: rgba(35, 28, 18, 0.12);
+  --border-strong: rgba(35, 28, 18, 0.22);
+
+  --foreground: #241b12;
+  --muted: #6b5f4a;
+
+  --primary: #156d40;
+  --primary-foreground: #f6f1e4;
+  --primary-hover: #126038;
+
+  --accent: #8a5117;
+  --accent-foreground: #f6f1e4;
+
+  --danger: #c53030;
+  --info: #1a63a0;
+  --online: #156d40;
+  --offline: #8a7f68;
+}
+
+/* Deepslate -- cool blue-gray dark family, distinct mood from obsidian's
+   warm-green dark (different hue on background/surfaces/primary, not just
+   a relabeled obsidian). Warm copper accent for contrast against the cool
+   base, echoing Minecraft's deepslate + copper-lantern pairing. */
+[data-theme="deepslate"] {
+  --background: #0a0d12;
+  --surface: #10141b;
+  --surface-2: #161c25;
+  --border: rgba(214, 224, 237, 0.1);
+  --border-strong: rgba(214, 224, 237, 0.18);
+
+  --foreground: #e4e9f2;
+  --muted: #8a93a6;
+
+  --primary: #5b9bd5;
+  --primary-foreground: #061018;
+  --primary-hover: #5088bb;
+
+  --accent: #d98d4a;
+  --accent-foreground: #1a1006;
+
+  --danger: #e2555c;
+  --info: #4fc8e0;
+  --online: #5b9bd5;
+  --offline: #6b7480;
+}
+
+/* The End -- deep purple dimension backdrop, purple primary, chorus-fruit
+   magenta accent. Info uses a blue distinct from the purple/magenta family
+   so info callouts don't blend into the primary/accent hues. */
+[data-theme="end"] {
+  --background: #120a1a;
+  --surface: #1a1024;
+  --surface-2: #22162e;
+  --border: rgba(232, 219, 245, 0.1);
+  --border-strong: rgba(232, 219, 245, 0.18);
+
+  --foreground: #ede8f5;
+  --muted: #9a8bb0;
+
+  --primary: #b06fe0;
+  --primary-foreground: #14051f;
+  --primary-hover: #9b62c5;
+
+  --accent: #e05fb0;
+  --accent-foreground: #1f0a17;
+
+  --danger: #f0506a;
+  --info: #5aa9e6;
+  --online: #b06fe0;
+  --offline: #726a80;
 }
 
 body {

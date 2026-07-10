@@ -36,6 +36,7 @@ model Page {
   metaDescription String?
   published       Boolean   @default(true)
   protected       Boolean   @default(false)
+  theme           String? // one of lib/themes.ts THEME_IDS; null = follow visitor theme
   blocks          Block[]
   navItems        NavItem[]
   updatedAt       DateTime  @updatedAt
@@ -119,4 +120,19 @@ model Post {
   body        String?
   publishedAt DateTime
   author      String?
+}
+
+// Resource pack hosting (Phase 10). Content-addressed on disk at
+// <UPLOADS_DIR>/resource-packs/<sha1>.zip (see lib/uploads.ts) -- this row
+// is metadata only, never the file bytes. Exactly one row is `active` at a
+// time; re-uploading a known sha1 re-activates its existing row instead of
+// duplicating (see POST /api/resource-pack).
+model ResourcePack {
+  id         String   @id @default(cuid())
+  filename   String // sanitized original name, display only -- never used as a storage path
+  size       Int // bytes; 256 MiB max fits Int comfortably
+  sha1       String   @unique // lowercase hex, 40 chars
+  active     Boolean  @default(false)
+  uploadedAt DateTime @default(now())
+  uploadedBy String? // uploader email, display only
 }

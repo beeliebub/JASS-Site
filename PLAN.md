@@ -1,513 +1,615 @@
-# JASS — Minecraft Server Website: Implementation Plan
+# JASS Site — Phased Implementation Plan
 
-A sleek, modern website that displays information about the Minecraft server, with an
-admin-only login system that lets admins edit site content in place, in real time.
-
-## Tech Stack
-
-| Layer | Choice | Why |
-|---|---|---|
-| Framework | Next.js (App Router, TypeScript) | One codebase for UI + API routes; server components keep the public site fast |
-| Styling | Tailwind CSS | Rapid, consistent styling; pairs well with a design-token system |
-| Database | SQLite via Prisma | Zero-ops persistence for content + admin accounts; easy to migrate to Postgres later |
-| Auth | Auth.js (NextAuth) with credentials provider | Session-based login; no public signup — accounts are seeded/invited only. Two roles: `OWNER` and `ADMIN` (Phase 8) — an `ADMIN` cannot edit, demote, or delete an `OWNER` |
-| Server status | Minecraft Server List Ping (e.g. `minecraft-server-util`) | Live online/offline, player count, and MOTD straight from the server |
-| Animations | CSS transitions + Framer Motion (sparingly) | Sleek/modern feel per the `motion-ui` skill — performance and accessibility first |
-| Markdown rendering | `react-markdown` + `rehype-sanitize` (Phase 8) | Sanitized rendering for post bodies and RichText blocks — no raw HTML from the DB ever reaches the page unsanitized |
-
-## Installed Skills (from ECC) and where they apply
-
-- `frontend-design-direction`, `design-system`, `make-interfaces-feel-better`, `motion-ui` — visual direction, tokens, polish, motion (Phases 1, 6)
-- `frontend-patterns`, `react-patterns`, `nextjs-turbopack` — component architecture, server/client boundaries, dev tooling (Phases 1–5)
-- `backend-patterns`, `api-design`, `error-handling` — API routes, data layer, robust failure handling (Phases 2–5)
-- `coding-standards` — baseline conventions across the whole project (all phases)
+This is the working implementation plan for the JASS (Just A Simple Server) Minecraft
+server website. Phases 0–8 are **complete** and summarized in the retrospective below
+(the full historical spec for those phases lives in git history:
+`git show 564cf60:PLAN.md`). Phases 9–11 are **pending** and specified in full detail
+so that an orchestrating model can dispatch implementation and review subagents
+directly from this document.
 
 ---
 
-## Phase 0 — Project Scaffold
+## How to use this plan
 
-**Goal:** A running dev environment with the toolchain in place.
+### Agent-dispatch conventions
 
-- [x] `create-next-app` with TypeScript, Tailwind, ESLint, App Router (Turbopack dev)
-- [x] Add Prisma + SQLite; commit an initial empty schema and migration workflow
-- [x] Project structure: `app/`, `components/`, `lib/`, `prisma/`
-- [x] `.env` handling (`DATABASE_URL`, `AUTH_SECRET`, `MC_SERVER_HOST`/`MC_SERVER_PORT`)
-- [x] CLAUDE.md documenting commands (dev, build, migrate, seed)
+Each pending phase contains: **Goal · Prerequisite reading · DB migration · Steps
+(numbered, per-file specs) · API contracts · Security checklist · Verification · Agent
+dispatch**. When executing a phase:
 
-**Done when:** `npm run dev` serves a blank page; `prisma migrate dev` works.
+1. Have every dispatched agent read the phase's *Prerequisite reading* files first —
+   they define the conventions the new code must match.
+2. Dispatch implementation agents per the *Agent dispatch* subsection (backend and
+   frontend work can usually run as separate agents; steps within a group are ordered).
+3. After implementation, dispatch the named review agents (`security-reviewer`,
+   `react-reviewer` / `typescript-reviewer`, `code-reviewer`) before closing the phase.
+   Phase 10's security review is **mandatory, not optional**.
+4. Run the *Verification* list end-to-end before marking a phase done. Fix CRITICAL and
+   HIGH review findings before continuing.
+5. Commit per phase (conventional commits: `feat: …`), never mid-phase broken states.
 
-## Phase 1 — Design System & Public Pages (static content)
+### Machine quirks (READ FIRST — this machine's Node crashes)
 
-**Goal:** The full public-facing site, looking sleek and modern, with placeholder content.
+`npm install` and some CLI tools crash with a V8 fatal error
+(`InductionVariablePhiTypeIsPrefixedPoint`) on this machine's Node install:
 
-- [x] Define design tokens (per `design-system` skill): dark-first palette suited to a Minecraft aesthetic without being kitschy, type scale, spacing, radii, shadows
-- [x] Layout shell: header with server name + nav, footer, responsive container
-- [x] Pages:
-  - [x] **Home** — hero with server name, tagline, IP with copy-to-clipboard, live status badge (stubbed for now)
-  - [x] **Rules** — ordered, styled rule list
-  - [x] **Features** — cards for gameplay features (custom enchants, claims, minigames from the Tweaks plugin)
-  - [x] **News/Announcements** — reverse-chronological post list
-- [x] Apply `make-interfaces-feel-better` pass: hover/focus states, hit areas, text wrapping, spacing rhythm
-- [x] Mobile-first responsive check on all pages
+- **npm install**: if it crashes, retry as `NODE_OPTIONS="--jitless" npm install ...`.
+  `--jitless` disables JIT and **breaks WebAssembly**, so never use it for Prisma.
+- **Prisma CLI** (needs WASM): invoke the JS entry directly with `--no-turbofan`:
+  `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name <name>`
+  (`--no-turbofan` isn't allowlisted for `NODE_OPTIONS`, so it must be passed directly
+  to `node` on the entry file, not via `npx`.)
 
-**Done when:** Every public page renders with hardcoded content and looks finished.
+All migration commands in this plan are written in the safe form.
 
-## Phase 2 — Content Persistence
+### Project conventions every agent must follow
 
-**Goal:** All editable content lives in the database, served through a clean API.
+- **API envelope**: all JSON API routes use `lib/api-response.ts` helpers
+  (`apiSuccess`, `apiError`, `unauthorized`, `notFound`, `badRequest`, `conflict`,
+  `validationError`, `internalError`). The only exception in this plan is the binary
+  pack download in Phase 10.
+- **Auth gates**: mutations require `requireAdmin()` (or `requireOwner()`) from
+  `lib/auth-guard.ts`, checked *inside the route handler* — never rely on UI gating.
+- **Validation**: Zod schemas live in `lib/validation/*`; validate every body with
+  `safeParse` and return `validationError(...)` on failure. `lib/validation/pages.ts`
+  must stay importable from client components (no Prisma imports there).
+- **Cache invalidation**: call `revalidatePath()` for every path a mutation affects.
+- **Design tokens**: colors/radii are CSS custom properties in `app/globals.css`,
+  exposed to Tailwind via the `@theme inline` block (`bg-background`, `text-primary`,
+  …). New colors must be added to both places. Never hardcode hex values in components.
+- **Data layer**: server components read via `lib/content.ts` / Prisma directly — no
+  self-fetching of our own API from server code.
+- **Motion**: all animation guarded behind `prefers-reduced-motion: no-preference`
+  (see the existing motion system in `app/globals.css`).
+- **Prisma 7**: config lives in `prisma.config.ts`; client is generated into
+  `app/generated/prisma` and instantiated with the better-sqlite3 driver adapter in
+  `lib/prisma.ts`.
 
-- [x] Prisma schema:
-  - `ContentBlock` (key, JSON/markdown value, updatedAt, updatedBy) — for hero text, tagline, IP, etc.
-  - `Rule` (order, text) — plus `RuleSection` for the grouping the UI already relies on
-  - `Feature` (order, title, description, icon)
-  - `Post` (title, body, publishedAt, author)
-  - `User` (email, passwordHash, name, role=ADMIN)
-- [x] Seed script that loads the Phase 1 placeholder content into the DB
-- [x] Server components read content directly via a `lib/content.ts` data layer
-- [x] REST API routes for mutations (`api-design` skill): `PUT /api/content/[key]`, CRUD for rules/features/posts — **auth-gated but stubbed open until Phase 3**
-- [x] Consistent error envelope + input validation with Zod (`error-handling` skill)
+---
 
-**Done when:** Editing a DB row changes what the site renders; API routes pass manual tests.
+## Retrospective — completed phases
 
-## Phase 3 — Admin Authentication
+- **Phase 0 — Project scaffold.** Next.js 16 App Router + TypeScript + Tailwind v4
+  toolchain, running dev environment.
+- **Phase 1 — Design system & public pages.** Dark "obsidian" visual identity and
+  token system, hardcoded placeholder content in `lib/site-config.ts`, core components
+  (header, footer, hero, feature cards, rules, news).
+- **Phase 2 — Database-backed content.** Prisma 7 + SQLite with models `ContentBlock`,
+  `RuleSection`/`Rule`, `Feature`, `Post`; re-runnable seed (`prisma/seed.ts`,
+  `npm run db:seed`, `--pages-only` flag); JSON envelope API routes with Zod validation.
+- **Phase 3 — Authentication.** Auth.js v5 credentials provider (bcrypt, JWT sessions),
+  `Role` enum `OWNER`/`ADMIN`, `lib/auth-guard.ts` gates, `scripts/create-admin.ts`
+  bootstrap.
+- **Phase 4 — In-place editors.** Edit mode (`components/admin/edit-mode-context.tsx`),
+  inline editable text, list editors for rules/features/posts, toast feedback.
+- **Phase 5 — Live server status.** `lib/mc-status.ts` (minecraft-server-util, 30s
+  cache, in-flight dedupe, never throws), public `GET /api/status`, polling status badge.
+- **Phase 6 — Polish & deployment.** Motion system (page-enter/toast/nav/icon
+  keyframes in `app/globals.css`, blanket `prefers-reduced-motion` reset), Dockerfile +
+  docker-compose (loopback bind, `./data/*` mounts), host Caddy with auto-HTTPS,
+  `scripts/vps-setup.sh` / `scripts/vps-start.sh`, backups (`scripts/backup-db.ts` +
+  systemd timer), `docs/DEPLOYMENT.md`.
+- **Phase 7 — Security hardening.** Security headers in `next.config.ts` (CSP, HSTS,
+  X-Frame-Options), login rate limiting, defense-in-depth auth gates, sanitized
+  markdown rendering.
+- **Phase 8 — Block-based page builder.** Models `Page`/`Block`/`NavItem`; block
+  registry (`components/blocks/registry.tsx`) with 11 block types; `PageRenderer`;
+  catch-all `app/[slug]`; protected pages; `/admin/pages`, `/admin/nav`, OWNER-only
+  `/admin/users`; reserved-slug + protected-slug enforcement.
 
-**Goal:** Only admins can log in; sessions gate every mutation.
+---
 
-- [x] Auth.js credentials provider; bcrypt/argon2 password hashing
-- [x] No public registration — seed the first admin via script; admins can invite/create other admins from a settings panel later
-- [x] `/login` page styled to match the design system; generic error messages (no user enumeration)
-- [x] Middleware protecting `/admin/**` routes and all mutation API routes (server-side session check — never trust the client) — note: Next.js 16 renamed Middleware to `proxy.ts`; page-level redirects live there, mutation routes are gated via `lib/auth-guard.ts`
-- [x] Rate limiting on the login endpoint; secure/httpOnly session cookies; CSRF covered by Auth.js defaults
-- [x] Logout + session expiry behavior
+## Phase 9 — Theme system
 
-**Done when:** Mutation APIs return 401 without a session; a seeded admin can log in and out.
+### Goal
 
-## Phase 4 — Real-Time In-Place Editing
+Visitors can switch the whole site between four curated Minecraft-flavored themes and
+set a **custom accent color** (color wheel + exact hex/RGB input), persisted across
+visits with no flash of default theme. Admins can force a specific theme per page and
+choose a color *tone* on emphasis-capable blocks while editing.
 
-**Goal:** A logged-in admin browses the normal site with an "edit mode" toggle; content is editable where it appears.
+### Prerequisite reading
 
-- [x] Global edit-mode toggle in the header (visible only to logged-in admins)
-- [x] `Editable` component wrapper: renders plain content for visitors; in edit mode, click-to-edit inline (text fields, markdown textarea for posts)
-- [x] Optimistic updates: UI changes instantly, saves via the Phase 2 APIs, rolls back on failure with a toast
-- [x] List management inline: add/remove/reorder rules and features (drag or up/down controls)
-- [x] Post editor: create/edit/publish/delete announcements
-- [x] Revalidation so visitors see changes immediately (`revalidatePath`/tag-based)
-- [x] Clear edit-mode affordances (dashed outlines, edit cursors) that never leak to logged-out visitors
+`app/globals.css` · `app/layout.tsx` · `components/blocks/registry.tsx` ·
+`lib/validation/pages.ts` · `components/blocks/callout-block.tsx` (existing
+variant-select pattern to clone) · `components/pages/page-renderer.tsx` ·
+`next.config.ts` (CSP comment) · `app/api/pages/[id]/route.ts` ·
+`components/admin/pages-admin.tsx`.
 
-**Done when:** An admin can change any piece of site content without leaving the page, and a visitor in another browser sees it on next load.
+### Design decisions (do not relitigate)
 
-## Phase 5 — Live Server Status
+- **No-flash persistence: localStorage + blocking inline `<script>` in `<head>`**
+  (the next-themes pattern). NOT cookies: reading `cookies()` in the root layout would
+  opt every route into dynamic rendering and break the static + `revalidatePath` model
+  the whole site relies on. The CSP already carries `script-src 'unsafe-inline'`
+  (required by RSC streaming), so the inline script costs nothing. SSR always emits
+  default-theme markup; the script corrects `<html>` before first paint.
+- **Themes are `[data-theme="…"]` token-override blocks** in `app/globals.css`.
+  `:root` stays exactly as it is today (obsidian) so no-JS visitors get the current
+  look. Selectors must be attribute-only (`[data-theme="end"]`, not
+  `html[data-theme="end"]`) so the same rules power page-level wrapper overrides.
+- **Theme set**: `obsidian` (current dark, default) · `parchment` (light) ·
+  `deepslate` (cool blue-gray dark) · `end` (dark purple, purple primary).
+  **No auto `prefers-color-scheme` switching** — dark-first is the brand (documented
+  non-goal); the picker is one click away.
+- **Custom accent**: `react-colorful`'s `HexColorPicker` (~2.8 kB, zero deps,
+  keyboard-accessible) plus a hex text field and three R/G/B number inputs. The accent
+  sets `--primary`, `--primary-hover`, `--primary-foreground` as **inline style
+  custom properties on `<html>`**. Foreground is auto-picked (dark `#05130a` vs light
+  `#edf2ec`) by WCAG relative luminance; hover is derived by darkening.
+- **`Page.theme` is a forced override**: when non-null, that page renders in that theme
+  regardless of visitor choice. Implemented as a `data-theme` wrapper div in
+  `PageRenderer` — the wrapper's `[data-theme]` rule re-declares tokens closer to the
+  content than the `<html>` inline accent vars, so it wins by cascade proximity. No JS
+  arbitration needed. Visitor accent intentionally yields on such pages.
+- **Block tones**: one shared enum `["neutral","primary","accent","info","warning","danger"]`.
+  The existing `callout.variant` (`z.enum(["warning","info"])` in
+  `lib/validation/pages.ts`) is **extended in place** to the full enum — the JSON key
+  stays `variant`, so existing Block rows remain valid with **no data migration**.
+  `pageHeader`, `ctaBanner`, and `linkGrid` gain an optional `tone` field
+  (absent = `neutral` = exactly today's look, so existing rows stay valid too).
 
-**Goal:** Real server data on the site.
+### DB migration
 
-- [x] `GET /api/status` route that pings the Minecraft server (status + player count + MOTD), cached ~30s server-side to avoid hammering the server
-- [x] Home hero status badge: online/offline, player count `x / max`, graceful "offline" state
-- [x] Client polling (~30–60s) for the badge so it stays fresh without reloads
-- [x] Error handling: timeouts, DNS failures → render "offline", never crash the page
-
-**Done when:** The badge reflects reality when the server is started/stopped.
-
-## Phase 6 — Polish & Deployment
-
-**Goal:** Production-ready.
-
-- [x] Motion pass (`motion-ui` skill): page transitions, hover micro-interactions, respects `prefers-reduced-motion`
-- [x] Accessibility pass: keyboard nav, focus rings, contrast, semantic landmarks
-- [x] Performance: Lighthouse ≥ 90s, image optimization, font loading
-- [x] SEO/meta: titles, descriptions, Open Graph card with server branding
-- [x] Production build + hosting decision (VPS alongside the MC server via Docker/PM2 + Caddy, or Vercel with a remote DB) — see `docs/DEPLOYMENT.md`; actual deployment to a live host is still outstanding
-- [x] Backup story for the SQLite DB — see `scripts/backup-db.ts` / `npm run db:backup`, documented in `docs/DEPLOYMENT.md`
-
-**Done when:** Deployed, reachable, and an admin can log in and edit in production.
-
-## Phase 7 — Security Hardening
-
-**Goal:** Close the gaps found in the pre-launch security review before this goes live.
-Full findings write-up (what's already solid vs. what's below) lives in the
-`jass-security-review` memory from the review conversation — this checklist is the
-actionable subset.
-
-- [x] **Security response headers** — add an async `headers()` export to
-      `next.config.ts` (verify the exact Next 16 shape against
-      `node_modules/next/dist/docs/` per CLAUDE.md before writing it — the API has been
-      stable across Next majors but confirm rather than assume). Starting point, apply
-      to `source: "/(.*)"`:
-      - `Content-Security-Policy`: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'` — `style-src 'unsafe-inline'` is a pragmatic allowance for Next's injected `<style>` tags (next/font, Tailwind); tighten to a nonce-based policy later if desired, don't block on it now. **Deviation from the original draft:** `script-src` also needed `'unsafe-inline'` (not just `'self'`) — verified by testing: the App Router injects unnonced inline `<script>` tags on every page to stream the RSC payload (`self.__next_f.push(...)`), and a strict `script-src 'self'` blocked them outright, leaving pages fully unhydrated. Next's own CSP guide (`node_modules/next/dist/docs/.../content-security-policy.md`, "Without Nonces" section) confirms this is the expected allowance without a per-request-nonce setup (which would require `proxy.ts` changes + opting every page into dynamic rendering — deferred, not needed now). Test the whole site in `npm run dev` after adding this — a too-strict CSP silently breaks hydration/fetch and is easy to ship broken without checking.
-      - `X-Content-Type-Options: nosniff`
-      - `Referrer-Policy: strict-origin-when-cross-origin`
-      - `Permissions-Policy: camera=(), microphone=(), geolocation=()` (none of these are used anywhere in the app)
-      - `Strict-Transport-Security: max-age=63072000; includeSubDomains` — only meaningful once served over HTTPS (Caddy terminates TLS per `docs/DEPLOYMENT.md`); safe to send unconditionally since HTTP requests just ignore it
-      - Drop the now-redundant `X-Frame-Options` in favor of `frame-ancestors 'none'` above (CSP's `frame-ancestors` supersedes it in all current browsers, but add `X-Frame-Options: DENY` too if targeting anything ancient — low cost either way)
-- [x] **Audit trail on content edits.** `ContentBlock.updatedBy` exists in the schema but no route sets it. Fix as part of this phase (touches the same routes Phase 8 will later extend for `Page`/`Block`, so do it now to establish the pattern once):
-      1. Add `getSessionUser()` to `lib/auth-guard.ts`: returns `{ id, email, role } | null` from `await auth()`.
-      2. In `app/api/content/[key]/route.ts`'s `PUT`, pass `updatedBy: user.email` into both the `create` and `update` branches of the `prisma.contentBlock.upsert` call.
-      3. This establishes the convention Phase 8 reuses for `Page.updatedBy` / `Block.updatedBy`.
-- [x] **`AUTH_TRUST_HOST` behind Caddy.** NextAuth v5 needs to know it's behind a
-      reverse proxy or session cookies/redirects can misbehave. Add
-      `trustHost: true` to the `NextAuth({...})` config object in `auth.ts` (confirm
-      this is still the correct v5 option name against the installed
-      `next-auth@^5.0.0-beta.31` — it's a beta, check its actual type defs in
-      `node_modules/next-auth` rather than assuming). Document in `docs/DEPLOYMENT.md`'s
-      pre-deploy checklist as well, in case the code-level fix needs an env-var
-      companion (`AUTH_URL` set to the real public URL) — check both.
-- [x] **Per-IP login rate limit.** `lib/rate-limit.ts` currently only limits
-      `email:ip` (5 attempts / 15 min). Add a second, more permissive ceiling keyed on
-      IP alone (e.g. 20 attempts / 15 min across all emails from one IP) so one IP can't
-      spray many different admin emails. Simplest approach: export a second function
-      `checkIpRateLimit(ip: string): boolean` using the same `Map`-based fixed-window
-      pattern (or a second `Map`), called from `auth.ts`'s `authorize()` alongside the
-      existing `checkRateLimit(rateLimitKey)` check — reject if *either* check fails.
-- [x] **Ops step, not code:** rotate `AUTH_SECRET` to a freshly generated value before
-      any real production deploy (command already documented in `.env.example`). Add
-      this as an explicit line item in `docs/DEPLOYMENT.md`'s pre-deploy checklist if
-      it isn't already called out clearly enough there.
-- [x] **Re-run `npm audit` before deploy.** As of the last check, 5 moderate findings
-      are transitive dev-tooling only (Prisma's dev server via `@prisma/dev` /
-      `@hono/node-server`, Next's bundled PostCSS) and not present in the production
-      runtime; `npm audit fix --force` would downgrade to breaking major versions and
-      should **not** be run. Re-verify this reasoning still holds at deploy time rather
-      than trusting this note as dependencies drift.
-
-**Done when:** every item above is checked, security headers are verified present on
-live responses (`curl -I` against a running `npm run start`), and a `ContentBlock` edit
-made through the UI shows a non-null `updatedBy` in `npx prisma studio`.
-
-## Phase 8 — Dynamic Pages, Navigation & Roles
-
-**[x] Complete.** Schema/migration, `isAdminRole`/`requireOwner`, validation,
-data layer, all API routes (pages/blocks/nav-items/users), `create-admin
---role`, `seedPagesAndNav()`, the block renderer/editor library, the 4
-rewired pages + `app/[slug]` + `app/news/[slug]`, the `SiteHeader` dropdown
-nav, the 3 admin sub-routes, and sanitized markdown (`react-markdown` +
-`rehype-sanitize`) are all in place and verified against the running dev
-server (see the end-of-phase verification notes below the "Done when"
-section for what was actually exercised and one blocking pre-existing bug
-found along the way).
-
-**Goal:** Replace the fixed page set with an admin-manageable block-based page builder,
-admin-manageable header navigation (with one level of dropdowns), and an Owner/Admin
-role hierarchy — building on the Phase 4 in-place editing UX (`EditableText`,
-`list-controls.tsx`, optimistic-update-with-toast-rollback) rather than a separate
-form-heavy back office. This is the big phase — land it as one coherent pass, not split
-across parallel agents touching overlapping files, given how much of the data model and
-rendering path changes at once. Do Phase 7 first or in parallel; it's small and
-independent.
-
-**Scope decisions locked in during scoping** (see `jass-cms-scope` memory for the
-original rationale — restated here as the operative spec):
-- Block-based builder; **all** of Home/Rules/Features/News migrate into it, protected
-  from deletion/slug-changes but otherwise fully editable; News gains `/news/[slug]`
-  detail pages with sanitized markdown; one level of header dropdown nesting; new
-  `OWNER`/`ADMIN` role split where `ADMIN` cannot touch `OWNER` accounts.
-
-### 1. Schema (`prisma/schema.prisma`)
+Add to `prisma/schema.prisma`:
 
 ```prisma
-enum Role {
-  OWNER
-  ADMIN
-}
-
 model Page {
-  id              String   @id @default(cuid())
-  slug            String   @unique
-  title           String
-  metaDescription String?
-  published       Boolean  @default(true)
-  protected       Boolean  @default(false) // true for home/rules/features/news — blocks delete + slug change
-  blocks          Block[]
-  updatedAt       DateTime @updatedAt
-  updatedBy       String?
-}
-
-model Block {
-  id        String   @id @default(cuid())
-  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  pageId    String
-  order     Int
-  type      String   // see block type library below — validated against a fixed set in Zod, not a DB enum, so new types don't need a migration
-  data      String   // JSON, shape depends on `type` — see block type library
-  updatedAt DateTime @updatedAt
-  updatedBy String?
-}
-
-model NavItem {
-  id       String    @id @default(cuid())
-  label    String
-  href     String?   // external URL; mutually exclusive with pageId
-  page     Page?     @relation(fields: [pageId], references: [id])
-  pageId   String?
-  order    Int
-  parent   NavItem?  @relation("NavItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
-  parentId String?
-  children NavItem[] @relation("NavItemChildren")
+  // ...existing fields...
+  theme String? // one of lib/themes.ts THEME_IDS; null = follow visitor theme
 }
 ```
 
-Add the reverse `Page.navItems NavItem[]` relation field if Prisma requires it for the
-`page`/`pageId` relation on `NavItem` (check the generated client — Prisma 7 may need
-it explicit). `Block.data` is a JSON-as-string column (matches the existing
-`ContentBlock.value: String` convention in this schema, i.e. no native SQLite JSON
-type) — parse/stringify at the API boundary, validate the parsed shape with Zod per
-`type` before storing.
+Run: `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name page_theme`
+then `node --no-turbofan node_modules/prisma/build/index.js generate`.
 
-**Critical gotcha — fix this or `OWNER` accounts get silently locked out:**
-`lib/auth-guard.ts`'s `requireAdmin()` currently checks `role === "ADMIN"` exactly
-(see the existing file), and `app/layout.tsx` independently computes
-`const isAdmin = session?.user?.role === "ADMIN"`. Once `OWNER` exists, *both* of these
-checks must accept `OWNER` too, or an `OWNER` account can log in but every mutation
-route returns 401 and the edit-mode toggle never appears for them. Fix by adding one
-shared helper and using it in both places:
+### Steps
 
-```ts
-// lib/auth-guard.ts
-export function isAdminRole(role: string | undefined | null): boolean {
-  return role === "ADMIN" || role === "OWNER";
-}
-export async function requireAdmin(): Promise<boolean> {
-  const session = await auth();
-  return isAdminRole(session?.user?.role);
-}
-export async function requireOwner(): Promise<boolean> {
-  const session = await auth();
-  return session?.user?.role === "OWNER";
-}
-export async function getSessionUser() {
-  const session = await auth();
-  return session?.user ? { id: session.user.id, email: session.user.email, role: session.user.role } : null;
-}
-```
+1. **`lib/themes.ts` (new — client-safe, NO Prisma imports).**
+   `export const THEME_IDS = ["obsidian", "parchment", "deepslate", "end"] as const;`
+   `export type ThemeId = (typeof THEME_IDS)[number];` `DEFAULT_THEME = "obsidian"`,
+   a `THEMES: Record<ThemeId, { label: string; description: string; swatch: string }>`
+   map for pickers, localStorage keys (`STORAGE_KEY_THEME = "jass.theme"`,
+   `STORAGE_KEY_ACCENT = "jass.accent"`), and
+   `export const TONES = ["neutral", "primary", "accent", "info", "warning", "danger"] as const;`
+   with `type Tone`.
 
-Update `app/layout.tsx`'s `isAdmin` computation to `isAdminRole(session?.user?.role)` (import from `lib/auth-guard.ts`) instead of its own inline check.
+2. **`lib/color.ts` (new — pure functions, unit-testable, no deps).**
+   `parseHex(hex): {r,g,b} | null` (accept `#rgb`/`#rrggbb`), `rgbToHex(r,g,b)`,
+   `relativeLuminance({r,g,b})` (WCAG 2.x formula), `readableForeground(hex)` →
+   `"#05130a"` when luminance > ~0.4 else `"#edf2ec"`, `darken(hex, amount)` (for
+   `--primary-hover`, ~12%). Clamp/validate all inputs.
 
-### 2. Validation (`lib/validation/pages.ts`, new file)
+3. **`app/globals.css`.**
+   - Add an `--info` token to `:root` (readable blue on obsidian, e.g. `#4aa8e8`
+     family) and `--color-info: var(--info)` to `@theme inline`.
+   - Add three full token-override blocks: `[data-theme="parchment"]` (light surfaces,
+     dark foreground, **darkened** emerald primary that hits ≥ 4.5:1 on the light
+     background, border alphas flipped to dark), `[data-theme="deepslate"]` (cool
+     blue-gray dark family), `[data-theme="end"]` (deep purple background, purple
+     primary, chorus-fruit magenta accent). Each block must override *every* color
+     token `:root` defines (`--background`, `--surface`, `--surface-2`, `--border`,
+     `--border-strong`, `--foreground`, `--muted`, `--primary`, `--primary-foreground`,
+     `--primary-hover`, `--accent`, `--accent-foreground`, `--danger`, `--info`,
+     `--online`, `--offline`) — partial overrides create Frankenstein themes.
+   - Do NOT emit a `[data-theme="obsidian"]` block; obsidian is `:root`.
 
-Add a new file rather than growing `lib/validation/content.ts` further — this is a
-separate domain. Define:
-- `pageCreateSchema` / `pageUpdateSchema` — `{ title, slug? }` / partial, with a
-  **reserved-slug check**: reject `admin`, `login`, `api`, plus the 4 fixed slugs
-  (`home` is reserved as a concept but the home Page's actual slug can just be `""` or
-  a sentinel like `"home"` depending on the routing approach chosen in step 5 — pick
-  one and keep it consistent) if the target Page isn't itself the protected page that
-  legitimately owns that slug. Also reject slug changes entirely when `protected: true`
-  (return 409/400 from the route, not just a UI restriction).
-- `blockDataSchemas`: a `z.discriminatedUnion("type", [...])` covering every block type
-  below, each with its own `data` shape. Use this both to validate `POST /api/blocks`
-  and `PUT /api/blocks/[id]` bodies.
-- `navItemCreateSchema` / `navItemUpdateSchema` — `{ label, href?, pageId?, parentId?, order }`,
-  with a refinement that exactly one of `href`/`pageId` is set, and a refinement that
-  `parentId` (if set) refers to a *top-level* `NavItem` (i.e. reject creating a
-  grandchild — enforces the one-level-deep decision at the validation layer, not just
-  in the UI).
-- `userCreateSchema` / `userUpdateSchema` — `{ email, password, name?, role }` /
-  partial, `role` restricted to the `Role` enum.
+4. **`components/theme/theme-script.tsx` (new — server component).**
+   Renders `<script>{INLINE}</script>` where `INLINE` is a **static string literal**
+   (no interpolation of any dynamic value — zero injection surface): reads the two
+   localStorage keys inside `try/catch`; validates theme against a hardcoded ID array
+   and accent against `/^#[0-9a-fA-F]{6}$/`; sets
+   `document.documentElement.dataset.theme` (omit for obsidian) and
+   `style.setProperty("--primary"|"--primary-hover"|"--primary-foreground", …)` using
+   inlined minimal copies of the luminance/darken math. Keep it dependency-free and
+   under ~1 kB.
 
-### 3. Block type library
+5. **`components/theme/theme-provider.tsx` (new — `"use client"`).**
+   Context `{ theme, accent, setTheme, setAccent, resetAccent }`. Setters write
+   localStorage and mutate `<html>` (same operations as the inline script, but
+   importing from `lib/themes.ts` + `lib/color.ts`). Initial state read from the DOM
+   (`document.documentElement`) in a lazy `useState` initializer so provider state and
+   the script-applied DOM agree.
 
-Every block type maps to the exact copy/behavior the current 4 pages already have —
-this is the "all current features available in the editor" requirement. Two flavors:
+6. **`components/theme/theme-picker.tsx` (new — `"use client"`).**
+   Popover/panel opened from a small button in `SiteFooter` (and optionally the mobile
+   menu): four labeled theme swatches (radio semantics, keyboard navigable),
+   `react-colorful` `HexColorPicker` for the accent, hex input, three R/G/B number
+   inputs (0–255, synced both ways via `lib/color.ts`), and a "Reset accent" button.
+   Follow existing focus-visible/radius/surface token styling.
+   Install: `npm install react-colorful` (fallback:
+   `NODE_OPTIONS="--jitless" npm install react-colorful`).
 
-**Data-referencing blocks** (data is `{}`/empty — the block just marks *where* existing
-DB-backed content renders; editing goes through the existing Phase 2/4 routes and
-editor components, completely unchanged):
-| type | Renders via (unchanged) |
-|---|---|
-| `hero` | `components/home/hero.tsx` as-is (name/tagline/IP/status badge/CTAs from `ContentBlock`) |
-| `ruleList` | `components/rules/rules-editor.tsx` (`RulesEditor`) as-is, backed by `getRuleSections()` |
-| `featureGrid` | `components/features/features-editor.tsx` (`FeaturesEditor`) as-is, backed by `getFeatures()` |
-| `postList` | `components/news/posts-editor.tsx` (`PostsEditor`) as-is, backed by `getPosts()` — update `NewsPostItem`/`PostsEditor` cards to link to `/news/[slug]` (new in this phase, see step 6) |
+7. **`app/layout.tsx`.** Add `suppressHydrationWarning` to `<html>`; render
+   `<ThemeScript />` as the first child of `<body>` (Next 16 executes it before
+   paint; keep it above all visible markup) or via an explicit `<head>` — whichever
+   the installed Next docs (`node_modules/next/dist/docs/`) recommend for blocking
+   scripts; wrap the existing provider stack with `<ThemeProvider>`.
 
-**Data-carrying blocks** (content lives directly in `Block.data` JSON; editing is a new,
-small editor component per type, following the exact pattern `RulesEditor` already
-establishes — `useEditMode()` + local state + `EditableText` per field + optimistic
-`PUT /api/blocks/[id]` with `{ data: {...} }`, list items get `list-controls.tsx`
-add/remove/reorder same as rules/features do today):
-| type | `data` shape | Sourced from (copy the exact current strings, don't rewrite) |
-|---|---|---|
-| `pageHeader` | `{ eyebrow?: string, heading: string, description?: string }` | The eyebrow+h1+intro pattern at the top of `app/rules/page.tsx`, `app/features/page.tsx`, `app/news/page.tsx` today |
-| `callout` | `{ variant: "warning" \| "info", body: string }` | The amber "Read carefully" warning box in `app/rules/page.tsx` |
-| `steps` | `{ items: { number: string, title: string, description: string }[] }` | `components/home/getting-started.tsx`'s hardcoded `steps` array |
-| `linkGrid` | `{ links: { href: string, title: string, description: string }[] }` | `components/home/quick-links.tsx`'s hardcoded `links` array |
-| `richText` | `{ markdown: string }` | General-purpose; used for Rules page's closing "Staff decisions are final..." paragraph, and any new custom page content. Rendered via `react-markdown` + `rehype-sanitize` (new deps — install both; this is also where the Phase 7-adjacent sanitization requirement is actually implemented) |
-| `image` | `{ src: string, alt: string, caption?: string }` | New capability. **URL-only for this phase** — no file upload pipeline (no object storage configured); `src` must be an absolute URL. Note upload support as explicit future scope, don't build it unprompted |
-| `ctaBanner` | `{ heading: string, body?: string, buttonLabel: string, buttonHref: string }` | New capability, general-purpose |
+8. **`components/pages/page-renderer.tsx`.** When `page.theme` is set, wrap the block
+   list: `<div data-theme={page.theme} className="bg-background text-foreground">`
+   (re-asserting bg/text so the wrapper actually repaints). All protected pages and
+   `app/[slug]` funnel through PageRenderer, so this is the single integration point.
 
-### 4. Data layer (`lib/content.ts`)
+9. **`lib/validation/pages.ts`.**
+   `export const themeSchema = z.enum(THEME_IDS);` — add
+   `theme: themeSchema.nullable().optional()` to `pageCreateSchema` and
+   `pageUpdateSchema`. `export const toneSchema = z.enum(TONES);` — change
+   `calloutDataSchema.variant` to `toneSchema`, add `tone: toneSchema.optional()` to
+   `pageHeaderDataSchema`, `ctaBannerDataSchema`, `linkGridDataSchema`.
 
-Add, following the existing function style:
-- `getPageBySlug(slug: string)` — `prisma.page.findUnique({ where: { slug }, include: { blocks: { orderBy: { order: "asc" } } } })`
-- `getPages()` — all pages, for the admin Pages panel
-- `getNavTree()` — top-level `NavItem`s (`where: { parentId: null }`) with `include: { children: { orderBy: { order: "asc" } } }`, ordered
+10. **`app/api/pages/route.ts` + `app/api/pages/[id]/route.ts`.** Persist `theme` on
+    create/update; `revalidatePath` the page's path (existing pattern).
 
-### 5. Routing & rendering
+11. **`components/blocks/tones.ts` (new).**
+    `TONE_STYLES: Record<Tone, { container: string; title: string; icon?: ReactNode }>`
+    mapping tones to token classes (e.g. info → `border-info/30 bg-info/10 text-info`;
+    danger → danger tokens; neutral → current default styling). Export a shared
+    `<ToneSelect value onChange>` edit-mode control cloned from callout's existing
+    variant `<select>`.
 
-**Reserved/fixed routing (avoids the classic "generic `[slug]` catch-all shadows my
-other routes" trap):** Next.js already resolves more-specific static segments
-(`app/admin/`, `app/login/`, `app/api/`, `app/news/[slug]/`) before falling through to
-a sibling `app/[slug]/page.tsx`, so those are safe by construction — but keep the
-4 fixed pages on their **existing static route files** rather than routing them through
-the new catch-all, so `app/news/[slug]/page.tsx` (new post-detail route, nested under
-`app/news/`) can coexist with a `news` Page rendered at the `/news` path itself:
+12. **Block components.** `callout-block.tsx`: replace its two-variant style map with
+    `TONE_STYLES` + per-tone icon; keep JSON key `variant`. `page-header-block.tsx`:
+    tone tints the eyebrow/heading accent. `cta-banner-block.tsx`: tone tints panel +
+    button. `link-grid-block.tsx`: tone tints hover border/title. Each shows
+    `<ToneSelect>` only in edit mode. Leave `defaultBlockData` in `registry.tsx`
+    unchanged (absent tone = neutral) unless a default is needed for callout
+    (keep `variant: "info"`).
 
-- `app/page.tsx` (Home) — replace its current body with: fetch `getPageBySlug("home")`, render `<PageRenderer page={page} />`
-- `app/rules/page.tsx` — same, `getPageBySlug("rules")`
-- `app/features/page.tsx` — same, `getPageBySlug("features")`
-- `app/news/page.tsx` — same, `getPageBySlug("news")`
-- `app/news/[slug]/page.tsx` (**new**) — post detail: `prisma.post.findUnique({ where: { slug } })`, 404 via `notFound()` if missing, render title/tag/date/author + sanitized markdown `body` (reuse the `react-markdown`+`rehype-sanitize` pipeline from the `richText` block)
-- `app/[slug]/page.tsx` (**new**) — catch-all for admin-created custom pages: `getPageBySlug(params.slug)`, `notFound()` if missing; if `!published`, `notFound()` for non-admins but render with a visible "Unpublished draft" banner for admins in edit mode (nice-to-have, skip if it adds meaningful complexity — not required for done-when)
+13. **`components/admin/pages-admin.tsx`.** Add a theme `<select>` per page row
+    (Default + the four themes), PUT via the existing pages API pattern.
 
-**`components/pages/page-renderer.tsx`** (new, server component): takes
-`page: Page & { blocks: Block[] }`, maps each block to its renderer by `block.type`
-(a lookup object, not a long `if`/`switch`, so adding a block type later is a
-one-line registration), wrapping each in a shared **`components/blocks/block-shell.tsx`**
-(new client component) that — only in edit mode — adds the dashed-outline chrome plus
-`MoveUpButton`/`MoveDownButton`/`DeleteButton` from `components/admin/list-controls.tsx`
-(reused, not rebuilt) calling `PUT /api/blocks/[id]` (order swap, same pattern as
-`moveSection` in `rules-editor.tsx`) and `DELETE /api/blocks/[id]`. Below the last
-block in edit mode, an `AddButton` opens a block-type picker (a simple list/select of
-the block types above) that `POST /api/blocks` with an empty/default `data` for the
-chosen type.
+### Security checklist
 
-One renderer component per block type under `components/blocks/` (e.g.
-`hero-block.tsx`, `page-header-block.tsx`, `callout-block.tsx`, `rule-list-block.tsx`,
-`feature-grid-block.tsx`, `post-list-block.tsx`, `steps-block.tsx`,
-`link-grid-block.tsx`, `rich-text-block.tsx`, `image-block.tsx`, `cta-banner-block.tsx`)
-— data-referencing ones are thin wrappers around the existing editor components listed
-in step 3's first table; data-carrying ones are new small editors following the
-`RulesEditor`/`FeaturesEditor` pattern exactly (read those two files as the reference
-implementation before writing new ones).
+- [ ] Inline theme script is a static literal — no user data interpolated.
+- [ ] Accent validated as `#rrggbb` hex before any `style.setProperty` (script,
+      provider, and picker all validate).
+- [ ] `theme` strings validated against the enum server-side (Zod) and client-side.
+- [ ] No new CSP loosening required (verify `next.config.ts` unchanged).
 
-### 6. API routes (new, following `lib/api-response.ts` + Zod + `requireAdmin()`/`requireOwner()` conventions exactly as every existing route under `app/api/**` already does)
+### Verification
 
-- `GET/POST /api/pages`, `PUT/DELETE /api/pages/[id]` — admin-management only (public page rendering reads go through `lib/content.ts` directly in server components, not this API); `PUT`/`DELETE` reject with 400/409 on protected pages per the slug/delete rules in step 2
-- `POST /api/blocks`, `PUT/DELETE /api/blocks/[id]` — body per the discriminated union in step 2; `PUT` handles both reordering (`{ order }`) and content edits (`{ data }`)
-- `GET/POST /api/nav-items`, `PUT/DELETE /api/nav-items/[id]` — parent/child via `parentId` in the body, same flat-resource pattern `app/api/rules/route.ts` already uses for `sectionId` (read that file as the reference)
-- `GET/POST /api/users`, `PUT/DELETE /api/users/[id]` — **every handler starts with `if (!(await requireOwner())) return unauthorized();`**, no exceptions. Additional invariants to enforce server-side (not just UI): reject deleting/demoting yourself, reject deleting/demoting the last remaining `OWNER` (count `OWNER` rows before allowing either)
-- Every mutation route that touches `Page`/`Block` should call `revalidatePath` for the affected page's rendered URL(s) afterward, same as every Phase 4 route already does — for a `NavItem` change, revalidate `"/"` at minimum since the header renders on every page (or use `revalidatePath("/", "layout")` to hit the whole tree in one call — check the Next 16 docs for the layout-scope revalidation signature)
+1. `npm run lint` and `npx tsc --noEmit` pass.
+2. Set each theme, hard-reload with devtools CPU throttling — **no flash** of obsidian
+   before the chosen theme.
+3. Disable JS → site renders obsidian correctly.
+4. Set `Page.theme = "end"` on a test page → that page is purple while the rest of the
+   site follows the visitor's theme; visitor accent does not leak into that page.
+5. Set accent `#ffff00` on parchment → button text auto-flips dark; on obsidian too.
+6. Existing callout blocks (variant `info`/`warning`) render unchanged (backward-compat).
+7. Each tone spot-checked on each theme for contrast (especially parchment).
+8. Reduced-motion and keyboard navigation of the picker verified.
 
-### 7. Admin UI
+### Agent dispatch
 
-Split the admin dashboard into sub-routes rather than growing `app/admin/page.tsx`
-further — it already has "quick links to editable pages" from Phase 4, extend that
-pattern:
-- `app/admin/pages/page.tsx` (**new**) — list of `Page` rows (title, slug, published toggle, protected badge, "Edit" link that navigates to the live page in edit mode), "New Page" button (prompts for a title, auto-slugifies, creates via `POST /api/pages` with zero blocks, redirects to `/{slug}` so the admin immediately starts adding blocks inline)
-- `app/admin/nav/page.tsx` (**new**) — `NavItem` list (top-level rows, indented children), add/remove/reorder (reuse `list-controls.tsx`), each item's form: label, target picker (radio between "internal page" — a `<select>` of published `Page`s — or "external URL" — text input), "add dropdown item" action nested under a top-level row
-- `app/admin/users/page.tsx` (**new**, `OWNER`-only — redirect non-owners server-side, same pattern as the existing `if (!session?.user) redirect("/login")` in `app/admin/page.tsx`) — list users (email, name, role, createdAt), create form (email, temp password, name, role picker), per-row edit role / delete (both blocked client- and server-side against self and against the last `OWNER`, per step 6)
-- `app/admin/page.tsx` — add cards linking to the 3 new sub-routes; only show the Users card when `session.user.role === "OWNER"` (the route itself still enforces this independently — defense in depth, same posture as every other gate in this app)
-
-### 8. Seeding & backfill (`prisma/seed.ts`)
-
-Rather than a separate one-off migration script, add a new idempotent
-`seedPagesAndNav()` function to the existing `prisma/seed.ts` (matches its established
-upsert-everything, safe-to-rerun pattern) that creates, **guarded to skip if any `Page`
-row already exists** (so it never clobbers an admin's custom pages or reordering on a
-second run):
-- The 4 protected `Page` rows with their `Block`s in order, using the **exact current
-  copy** from each page file as the seed values (don't invent new copy):
-  - `home`: `hero` (empty data), `linkGrid` (copy `components/home/quick-links.tsx`'s `links` array into `data.links`), `steps` (copy `components/home/getting-started.tsx`'s `steps` array into `data.items`)
-  - `rules`: `pageHeader` (eyebrow "Server Rules", heading "Playing on {siteConfig.name}", description = the intro paragraph from `app/rules/page.tsx`), `callout` (variant "warning", body = the "Read carefully..." text), `ruleList` (empty data), `richText` (markdown = the closing "Staff decisions are final..." paragraph)
-  - `features`: `pageHeader` (copy the eyebrow/h1/intro from `app/features/page.tsx`), `featureGrid` (empty data)
-  - `news`: `pageHeader` (copy the eyebrow/h1/intro from `app/news/page.tsx`), `postList` (empty data)
-- Default `NavItem` rows matching the current `siteConfig.nav` array in `lib/site-config.ts` (Home/Rules/Features/News as top-level items, no children) — reference the corresponding `Page.id` via `pageId`, not a raw `href`
-- **Caution:** the existing `seedContentBlocks()`/`seedRuleSections()`/etc. functions in this file unconditionally overwrite `ContentBlock`/`Rule`/`Feature`/`Post` values on every re-run (`update: { value: block.value }` with no "only if unchanged" guard) — this is pre-existing behavior, not introduced here, but it means blindly re-running `npm run db:seed` on a DB with live admin edits (e.g. this dev.db, which has already been edited once or twice this session) will silently revert those edits back to placeholder text. When backfilling this phase onto the existing `prisma/dev.db`, either add a `--pages-only` mode to the seed script (skip the content-overwriting functions, run only `seedPagesAndNav()`), or accept the overwrite consciously if the current DB content is disposable. Don't silently run full `db:seed` against data anyone cares about.
-
-### 9. `scripts/create-admin.ts`
-
-Add a `--role` flag (or `ADMIN_ROLE` env var), accepted values `OWNER`/`ADMIN`
-(case-insensitive, default `ADMIN` if omitted), passed into the `prisma.user.upsert`
-call's `role` field. Update the `usage()` text. Document in `CLAUDE.md` or
-`docs/DEPLOYMENT.md` that the *first* bootstrapped account for a fresh deploy should be
-created with `--role OWNER`.
-
-### 10. Cleanup
-
-- `lib/site-config.ts`'s `nav` array becomes dead once `SiteHeader` reads from
-  `getNavTree()` instead — remove it, keep `name`/`tagline`/`ip` (still used as
-  `ContentBlock` fallback defaults in `lib/content.ts`)
-- `components/home/quick-links.tsx` and `components/home/getting-started.tsx` as
-  *standalone hardcoded components* become dead once the `linkGrid`/`steps` block
-  renderers exist — their JSX/markup should move into the new block renderer/editor
-  components rather than being deleted outright (the visual design is correct today,
-  just needs to become data-driven + editable)
-- `components/rules/rules-data.ts` and `components/news/posts-data.ts` stay — they're
-  still `prisma/seed.ts`'s source for `Rule`/`Post` seed content, unrelated to this
-  phase's `Page`/`Block` migration
-
-### Suggested build order (minimize backtracking)
-
-1. Schema + migration (`node --no-turbofan node_modules/prisma/build/index.js migrate dev --name pages_nav_roles` per CLAUDE.md's documented workaround)
-2. `lib/auth-guard.ts` additions (`isAdminRole`, `requireOwner`, `getSessionUser`) + fix `app/layout.tsx`'s `isAdmin` computation — do this immediately after the migration, before anything else depends on it
-3. `lib/validation/pages.ts`
-4. `lib/content.ts` additions
-5. API routes: pages → blocks → nav-items → users, in that order (each is independently testable with `curl`/Prisma Studio before the UI exists)
-6. `scripts/create-admin.ts` `--role` flag
-7. `prisma/seed.ts`'s `seedPagesAndNav()`, run it, verify in `npx prisma studio`
-8. Block renderer + editor components (`components/blocks/*`, `components/pages/page-renderer.tsx`, `components/blocks/block-shell.tsx`)
-9. Rewire the 4 existing page files to render via `PageRenderer`; add `app/[slug]/page.tsx` and `app/news/[slug]/page.tsx`
-10. `SiteHeader` refactor to consume `getNavTree()` + dropdown UI (desktop hover/focus-triggered `aria-haspopup`/`aria-expanded` pattern, not the strict ARIA `role="menu"` pattern — simpler to get right and equally accessible for a marketing nav; mobile gets an accordion-style expand)
-11. Admin sub-routes: `app/admin/pages/page.tsx`, `app/admin/nav/page.tsx`, `app/admin/users/page.tsx`, plus the new cards on `app/admin/page.tsx`
-12. Install `react-markdown` + `rehype-sanitize`, wire the `richText` block and `/news/[slug]`
-13. Full regression pass: confirm Phase 4 editing, Phase 5 status badge, and Phase 6 motion/a11y are all unaffected by the rendering-path swap
-
-**Done when:** an `OWNER` or `ADMIN` can create a brand-new page from scratch out of
-blocks, publish it, add it to the header nav (top-level or inside a dropdown), and it's
-live for visitors — with Home/Rules/Features/News running through the same system
-rather than as a special case — and an `OWNER` can manage the account roster without an
-`ADMIN` being able to touch `OWNER` accounts.
-
-### End-of-phase verification notes
-
-All of the above was exercised against the real running `npm run dev` server (not just
-code review) via authenticated HTTP requests: created a brand-new page from zero blocks,
-added `pageHeader`/`richText`/`ctaBanner` blocks to it, confirmed it rendered for a
-logged-out visitor at its slug; added it to the header nav both as a top-level item and
-as a dropdown child under Features, confirmed both rendered in the server-rendered HTML
-(`aria-haspopup` present); confirmed the one-level-nesting rule rejects a grandchild
-nav item (400); confirmed reserved slugs are rejected (400) and protected pages
-(Rules) reject slug changes and deletion (409) while still accepting other edits;
-confirmed an `ADMIN` account gets 401 from every `/api/users/**` route and a 307
-redirect away from `/admin/users`, and cannot view/edit/delete/promote the seeded
-`OWNER` account; confirmed the `OWNER` cannot demote or delete themselves, nor delete
-the last remaining `OWNER` (409 in both cases); confirmed a Phase 4 content edit
-(`hero.name`) from both an `OWNER` and an `ADMIN` session revalidates and appears on the
-next page load; confirmed unauthenticated mutation attempts get 401; confirmed
-Home/Rules/Features/News still render their full original content through the new
-block system, and `/news/[slug]` post-detail pages work. Test artifacts (the scratch
-page and its nav entries) were deleted afterward.
-
-**Pre-existing bug found during verification (not introduced by Phase 8) — fixed:**
-`bcryptjs@3.0.3`'s pure-JS `compare`/`hash` was intermittently non-deterministic on
-this machine's Node `v25.3.0` install (measured ~1–5% failure rate per hash+compare
-round-trip via a minimal repro outside Next.js/Prisma entirely — not "most of the time"
-as first suspected, but real and reproducible). This predates Phase 8 (Phase 3) and
-wasn't introduced here; because it's rare rather than constant, sessions for the
-OWNER/ADMIN test accounts were minted directly with `next-auth/jwt`'s `encode()` to
-complete this phase's own login-gated verification without depending on it.
-
-**Resolution:** swapped `bcryptjs` for the native `bcrypt` package (C++ binding, not
-subject to the same JIT miscompilation path) across all 4 usage sites (`auth.ts`,
-`scripts/create-admin.ts`, `app/api/users/route.ts`, `app/api/users/[id]/route.ts`) —
-a drop-in swap since both expose the same `hash`/`compare` API and produce
-interoperable `$2a$`/`$2b$` hash strings. `npm install bcrypt @types/bcrypt` pulled a
-prebuilt binary for this platform, no native toolchain/node-gyp needed. Verified:
-native `bcrypt` hash+compare round-tripped 0/300 failures (vs. bcryptjs's ~1–5%);
-`npm run build` succeeds (one retry needed for the documented flaky V8 crash, per
-CLAUDE.md); 5/5 real logins through the actual `/login` credentials flow (CSRF token,
-cookie jar, no shortcuts) succeeded end-to-end against a `npm run start` production
-server. Test account and scratch script deleted afterward.
+- Implementation: one frontend agent for steps 1–8 (tokens/script/provider/picker/
+  layout), one for steps 9–13 (validation/API/tones/blocks/admin). Step 1–2 outputs are
+  shared contracts — land them first.
+- Review: `react-reviewer` on provider/picker/script; `code-reviewer` on the rest;
+  a design pass (design-system / make-interfaces-feel-better skills) over the four
+  themes' token values — parchment must be *designed*, not naively inverted.
+- Tests: unit tests for `lib/color.ts` (luminance/foreground/darken edge cases) if a
+  test runner is introduced; otherwise verify via the manual list above.
 
 ---
 
-## Suggested Order of Attack
+## Phase 10 — Resource pack hosting (`/resource`)
 
-Phases are sequential by design — each is independently shippable. Phase 5 (server
-status) has no dependency on 3–4 and can be pulled earlier if seeing live data is
-motivating. Nothing in Phases 1–4 requires the Minecraft server to be online.
+### Goal
 
-Phases 7 and 8 were scoped after a pre-launch security/readiness review (see
-conversation history) and are additive on top of the otherwise-complete Phases 0–6.
-Phase 7 is small and independent — safe to do first or in parallel. Phase 8 is the big
-one: it subsumes and rebuilds the Phase 4 editing surface for Home/Rules/Features/News,
-so it should land as a single coherent pass rather than being split arbitrarily across
-files/agents the way Phases 4–6 were, given how much of the data model and rendering
-path it touches at once.
+The site stores and delivers the server's resource pack, replacing what the old
+justasimpleserver.net site did. Public `/resource` page shows a download button, the
+**date of the last upload**, and the pack's **SHA-1 digest in lowercase hexadecimal**
+(the exact format `server.properties` wants), plus a copyable `server.properties`
+snippet. Admins upload new packs through the UI; a stable URL serves the active pack
+to Minecraft clients. Packs survive Docker rebuilds.
+
+### Prerequisite reading
+
+`lib/api-response.ts` · `lib/auth-guard.ts` · `app/api/blocks/route.ts` (route
+conventions) · `docker-compose.yml` · `Dockerfile` · `lib/validation/pages.ts`
+(RESERVED_SLUGS) · `components/admin/toast.tsx` · `components/admin/edit-mode-context.tsx`
+· `docs/DEPLOYMENT.md`.
+
+### Design decisions (do not relitigate)
+
+- **Upload transport: raw streaming POST** — the browser sends the `File` object
+  directly as the `fetch` body; the route handler streams `request.body` to disk
+  through a SHA-1 hasher. Next 16 route handlers stream request bodies with no size
+  config (`bodySizeLimit` applies only to Server Actions). No multipart parser dep.
+  Original filename travels in an `X-Filename` header, sanitized server-side.
+- **Size cap 256 MiB (268435456 bytes)**, enforced **twice**: reject upfront on the
+  (required) `Content-Length` header, and count bytes while streaming — on overflow
+  abort, unlink the temp file, return 413. (Content-Length alone is spoofable;
+  counting alone wastes bandwidth.)
+- **Content-addressed storage**: `<UPLOADS_DIR>/resource-packs/<sha1>.zip`, where
+  `UPLOADS_DIR` env defaults to `path.join(process.cwd(), "uploads")`. Stream to
+  `<name>.tmp`, then atomic `rename`. Free dedupe, natural ETags, no filename-derived
+  paths. **Keep the newest 3 packs** (rollback headroom on a small VPS); exactly one
+  DB row is `active`.
+- **Download URL: `GET /api/resource-pack`** — one canonical, stable URL for
+  `server.properties`. Streams from disk (`fs.createReadStream` → `Readable.toWeb`),
+  direct 200 (no redirects — MC clients handle them poorly), `ETag: "<sha1>"` with
+  `If-None-Match` → 304 support.
+
+### DB migration
+
+```prisma
+model ResourcePack {
+  id         String   @id @default(cuid())
+  filename   String            // sanitized original name, display only
+  size       Int               // bytes; 256 MiB max fits Int comfortably
+  sha1       String   @unique  // lowercase hex, 40 chars
+  active     Boolean  @default(false)
+  uploadedAt DateTime @default(now())
+  uploadedBy String?           // uploader email, display only
+}
+```
+
+Run: `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name resource_pack`
+then regenerate the client.
+
+### API contracts
+
+All JSON responses use the `lib/api-response.ts` envelope. Admin = `requireAdmin()`.
+
+| Route | Auth | Behavior |
+|---|---|---|
+| `GET /api/resource-pack` | public | **Binary.** 200 zip stream of the active pack: `Content-Type: application/zip`, `Content-Length`, `Content-Disposition: attachment; filename="<filename>"`, `ETag: "<sha1>"`, `Cache-Control: public, no-cache`. 304 when `If-None-Match` matches. 404 envelope when no active pack **or file missing on disk** (log the drift loudly). |
+| `GET /api/resource-pack/meta` | public | 200 `{ data: { filename, size, sha1, uploadedAt } \| null }`. |
+| `POST /api/resource-pack` | admin | Raw body stream. Pipeline: `requireAdmin()` → **Origin header must match the site origin** (CSRF guard: raw-body POSTs are not covered by Auth.js form CSRF) → require `Content-Length` ≤ 268435456 else 413 → stream to temp while hashing (`crypto.createHash("sha1")`) and counting; first 4 bytes must be `50 4B 03 04` ("PK\x03\x04") else 400 `invalid_zip`; overflow → abort/unlink → 413 → atomic rename to `<sha1>.zip` → transaction: `updateMany({ where: { active: true }, data: { active: false } })` + upsert by sha1 (`create` new or re-activate existing — re-upload of a known sha1 must NOT duplicate) with `uploadedBy` = session email → `prunePacks(3)` → `revalidatePath("/resource")` → 201 `{ data: pack }`. Temp file unlinked in `finally` on every error path. |
+| `GET /api/resource-pack/history` | admin | 200 `{ data: ResourcePack[] }` newest-first. |
+| `POST /api/resource-pack/[id]/activate` | admin | Verify the row's file exists on disk (else 409 `conflict` with drift message); transaction: deactivate others, activate this; `revalidatePath("/resource")`; 200 `{ data: pack }`; 404 unknown id. |
+| `DELETE /api/resource-pack/[id]` | admin | 409 `conflict` if row is active; delete row + file (ignore ENOENT); 200. |
+
+### Steps
+
+1. **`lib/uploads.ts` (new — first line `import "server-only";`).**
+   `uploadsDir()` (env `UPLOADS_DIR` fallback `./uploads`; `mkdirSync` recursive),
+   `packsDir()`, `packPath(sha1)` — **re-validate `/^[a-f0-9]{40}$/` before
+   `path.join`** (defense in depth even though sha1 comes from our own DB),
+   `tempPackPath()`, `prunePacks(keep = 3)` (delete rows + files beyond the newest 3,
+   never deleting the active row).
+2. **API routes** per the contract table: `app/api/resource-pack/route.ts` (GET binary
+   + POST upload), `app/api/resource-pack/meta/route.ts`,
+   `app/api/resource-pack/history/route.ts`,
+   `app/api/resource-pack/[id]/activate/route.ts`,
+   `app/api/resource-pack/[id]/route.ts` (DELETE).
+   Filename sanitization: `path.basename`, strip control chars, cap 200 chars, must
+   end `.zip`, fallback `"resource-pack.zip"`. Never used for storage paths.
+3. **`app/resource/page.tsx` (new — server component).** Reads the active
+   `ResourcePack` row via Prisma directly. Static metadata ("Resource Pack — JASS").
+   Renders `ResourcePackView` (+ `ResourcePackAdmin`, which self-hides outside edit
+   mode). Absolute download URL built from `NEXT_PUBLIC_SITE_URL` (same fallback
+   pattern as `app/layout.tsx`).
+4. **`components/resource/resource-pack-view.tsx` (new).** Download button (primary
+   token styling), uploaded date (human-readable + `<time dateTime>`), SHA-1 in mono
+   (`font-mono`, lowercase, copy button), and a copyable snippet:
+
+   ```
+   resource-pack=https://<site>/api/resource-pack
+   resource-pack-sha1=<sha1>
+   ```
+
+   Empty state when no pack yet ("No resource pack uploaded yet").
+5. **`components/resource/resource-pack-admin.tsx` (new — `"use client"`).** Rendered
+   only when `useEditMode()` is active: file input (`accept=".zip"`, client-side size
+   pre-check with a friendly error), upload via
+   `fetch("/api/resource-pack", { method: "POST", body: file, headers: { "X-Filename": file.name, "Content-Type": "application/zip" } })`
+   with pending/disabled state (XHR progress bar is deferred — see appendix), then
+   `router.refresh()`; history table (filename, size, date, sha1 prefix, active badge)
+   with Activate/Delete actions; toasts via existing `ToastProvider`.
+6. **`lib/validation/pages.ts`.** Add `"resource"` to `RESERVED_SLUGS` (a builder Page
+   must never shadow the new static route).
+7. **Infra.** `docker-compose.yml`: volume `./data/uploads:/app/uploads` + env
+   `UPLOADS_DIR: /app/uploads`. `Dockerfile` runner stage: `mkdir -p /app/uploads`.
+   `.gitignore`: `uploads/`. `.env.example`: document `UPLOADS_DIR` (optional, default
+   `./uploads`).
+8. **Docs + nav.** `docs/DEPLOYMENT.md`: uploads mount, and note Caddy has no default
+   body limit (optionally add `request_body { max_size 300MB }` to the Caddyfile as an
+   explicit cap). Optional: seed a "Resource Pack" NavItem → `/resource` in
+   `prisma/seed.ts` (upsert style, `--pages-only`-safe).
+
+### Security checklist
+
+- [ ] Upload/activate/delete/history behind `requireAdmin()`; Origin check on POST.
+- [ ] Magic-bytes check (`PK\x03\x04`) + double size enforcement.
+- [ ] Storage paths derived only from validated sha1 — user filename never touches
+      the filesystem path.
+- [ ] Temp files cleaned in `finally` on all error paths.
+- [ ] Zips are opaque bytes — never extracted or parsed server-side.
+- [ ] Download re-validates sha1 format before path join; 404s cleanly on drift.
+- [ ] No secrets/params leak into error messages (use envelope codes).
+
+### Verification
+
+1. Upload a real pack (ideally ~100 MB) locally; `sha1sum pack.zip` matches the
+   displayed digest exactly (lowercase hex).
+2. `curl -I http://localhost:3000/api/resource-pack` → 200 with all headers; repeat
+   with `If-None-Match: "<sha1>"` → 304.
+3. Watch process RSS during the large upload — memory stays flat (true streaming).
+4. `docker compose up -d --build` twice → pack + metadata survive rebuilds.
+5. Unauthenticated POST → 401 envelope. Oversized Content-Length → 413. Non-zip
+   bytes → 400. After each failure the temp dir is empty.
+6. Re-upload the same file → no duplicate row; it re-activates.
+7. Activate an older pack → download + page reflect it after refresh.
+8. Point a real MC server's `server.properties` at the deployed URL + sha1 and join
+   (manual; the Phase 11 walkthrough automates the instructions).
+9. `npm run lint` + `npx tsc --noEmit`.
+
+### Agent dispatch
+
+- Implementation: one backend agent (steps 1–2, 6–7), one frontend agent (steps 3–5, 8).
+- Review: **`security-reviewer` over the upload/download routes is mandatory before
+  phase close** (file upload + raw body + streaming = highest-risk surface in the
+  project). `typescript-reviewer`/`code-reviewer` on the rest.
+- The large-file streaming test (verification 3) must be explicitly reported, not
+  assumed.
+
+---
+
+## Phase 11 — Unified interactive setup wizard (`setup.sh`)
+
+### Goal
+
+One entry point — `./setup.sh` — that interactively walks a human from zero to a
+running site in any of three modes: **local dev**, **VPS first-time provision**,
+**VPS redeploy/update**. Everything automatable is automated (idempotently, safe to
+re-run); everything that isn't (DNS, OVH cloud firewall, `server.properties` on the
+Minecraft server) becomes a guided, numbered walkthrough with pauses and verification
+commands. Existing `vps-setup.sh` / `vps-start.sh` keep working as thin wrappers.
+
+### Prerequisite reading
+
+`scripts/vps-setup.sh` (all 709 lines) · `scripts/vps-start.sh` (all 460 lines) ·
+`CLAUDE.md` (machine quirks) · `prisma/seed.ts` · `scripts/create-admin.ts` ·
+`.env.example` · `docs/DEPLOYMENT.md` · `README.md` (setup sections).
+
+### Design decisions (do not relitigate)
+
+- **Refactor into sourced lib files.** The two VPS scripts duplicate ~200 lines of
+  helpers (logging, traps, prompt helpers, `set_env_var`, xtrace secret guards,
+  `generate_auth_secret`, validators, `run_apt`). A dispatcher that merely `exec`s
+  them couldn't share state (domain, env values, step results) across modes.
+- **Extraction is verbatim and behavior-preserving.** Function bodies move unchanged
+  — no "improvements" during the move. This is the top regression control.
+- **Back-compat wrappers.** `vps-setup.sh` and `vps-start.sh` become thin wrappers
+  that source the libs and run their mode with identical flags (`--domain`, `--pull`,
+  `--no-build`, `--help`) and identical `--help` output.
+
+### Layout
+
+```
+setup.sh                      # dispatcher: interactive menu ("1) Local dev
+                              # 2) Provision VPS  3) Redeploy") + --mode local|provision|deploy,
+                              # --domain / --pull / --no-build passthrough, --help
+scripts/lib/common.sh         # moved verbatim: colors, info/warn/error/die/step, EXIT/ERR
+                              # traps, hide_xtrace/restore_xtrace, ask_yes_no,
+                              # prompt_default, prompt_validated, is_valid_port,
+                              # validate_domain, set_env_var, generate_auth_secret, run_apt
+scripts/lib/local-dev.sh      # NEW mode (steps below)
+scripts/lib/vps-provision.sh  # vps-setup.sh steps 1-11 as step_* functions
+scripts/lib/vps-deploy.sh     # vps-start.sh tasks as step_* functions
+scripts/lib/walkthroughs.sh   # guided manual steps (below)
+scripts/vps-setup.sh          # thin wrapper → provision mode (back-compat)
+scripts/vps-start.sh          # thin wrapper → deploy mode (back-compat)
+```
+
+All files `set -Eeuo pipefail`; libs must be source-safe (no top-level side effects
+beyond function/readonly definitions).
+
+### Steps
+
+1. **Extract `scripts/lib/common.sh`** from the shared helpers of both VPS scripts
+   (verbatim). Where the two scripts' copies differ trivially, keep the more defensive
+   variant and note it in the commit message.
+2. **Extract `scripts/lib/vps-provision.sh`** — each existing numbered step of
+   `vps-setup.sh` becomes `step_sanity`, `step_dns_check`, `step_firewall`,
+   `step_docker`, `step_caddy`, `step_env_production`, `step_compose_up`,
+   `step_migrate_seed`, `step_owner_account`, `step_backups`, `step_final_checklist`,
+   orchestrated by `run_provision "$DOMAIN"`. Add `mkdir -p data/uploads` beside the
+   existing data-dir handling (Phase 10).
+3. **Extract `scripts/lib/vps-deploy.sh`** — `step_sanity`, `step_git_pull`,
+   `step_compose_up`, `step_migrate_deploy`, `step_health_check`,
+   `step_caddy_reload`, `step_status_report`, orchestrated by `run_deploy`. Also
+   `mkdir -p data/uploads`. After a successful deploy, offer the resource-pack
+   walkthrough (step 6).
+4. **Write `scripts/lib/local-dev.sh`** — `run_local_dev` with idempotent steps that
+   print `SKIP` when already satisfied:
+   1. Node ≥ 20 check (`node --version`), with install guidance if missing/old.
+   2. `npm install`; on nonzero exit, retry **once** with
+      `NODE_OPTIONS="--jitless" npm install`, warning that jitless breaks WASM (so
+      Prisma steps below use the separate workaround).
+   3. `.env` from `.env.example` if absent: generate `AUTH_SECRET`
+      (`generate_auth_secret` under the xtrace guard), prompt for
+      `MC_SERVER_HOST`/`MC_SERVER_PORT` with defaults. Never touch an existing `.env`.
+   4. Prisma generate + `migrate dev`: try `npx prisma …` first; on the V8 crash
+      signature fall back to
+      `node --no-turbofan node_modules/prisma/build/index.js …`.
+   5. `npm run db:seed` (skip with a warning if the DB already has content unless the
+      user confirms; mention `--pages-only`).
+   6. Offer OWNER account creation via `npm run create-admin -- <email> <pw> --role OWNER`
+      (password prompted with confirmation, hidden input, min 8 chars).
+   7. `mkdir -p uploads` (Phase 10 local storage).
+   8. Offer to start `npm run dev`.
+5. **Write `setup.sh`** (repo root, executable): parses `--mode`/`--domain`/`--pull`/
+   `--no-build`/`--help`; with no `--mode`, shows the interactive menu; sources
+   `scripts/lib/*.sh`; dispatches to `run_local_dev` / `run_provision` / `run_deploy`.
+6. **Write `scripts/lib/walkthroughs.sh`** — each walkthrough prints numbered
+   instructions, pauses with "Press Enter when done", then runs an optional
+   verification command:
+   - `walkthrough_dns`: A/AAAA records for `@` and `www` at the registrar; verify with
+     `dig +short <domain>` vs detected public IP.
+   - `walkthrough_ovh_firewall`: exact OVH console path to open 80/443 in the network
+     firewall (in addition to ufw).
+   - `walkthrough_resource_pack`: after deploy, `curl -fsS https://<domain>/api/resource-pack/meta`;
+     if a pack exists, print ready-to-paste lines pre-filled with the live sha1:
+     `resource-pack=https://<domain>/api/resource-pack` and
+     `resource-pack-sha1=<sha1>`; mention `require-resource-pack=true` as optional;
+     if no pack yet, explain uploading via `/resource` in edit mode first.
+7. **Rewrite `scripts/vps-setup.sh` / `vps-start.sh` as thin wrappers** (keep flags
+   and `--help` text identical).
+8. **Update `README.md` + `docs/DEPLOYMENT.md`**: `./setup.sh` is now the front door;
+   old script names still work.
+
+### Security checklist
+
+- [ ] `AUTH_SECRET` / passwords never echoed and never leak under `bash -x`
+      (`hide_xtrace` guards preserved around every secret-handling block).
+- [ ] `.env` / `.env.production` created atomically (mktemp 0600 → mv), existing
+      files never overwritten.
+- [ ] Domain/port inputs still pass `validate_domain` / `is_valid_port` before being
+      written into Caddyfile/.env (shell-injection guard).
+- [ ] No `curl | sh` beyond what already exists (Docker's get.docker.com — unchanged).
+
+### Verification
+
+1. `bash -n` on all seven files; `shellcheck` clean (or annotated) on each.
+2. Diff every extracted function against its original — must be verbatim.
+3. Fresh clone → `./setup.sh --mode local` runs to a working dev server; run it again
+   → every step prints SKIP; `.env` untouched.
+4. `./scripts/vps-setup.sh --help` and `./scripts/vps-start.sh --help` byte-identical
+   to before the refactor.
+5. Menu works with piped/EOF stdin (the existing EOF-safe prompt behavior preserved).
+6. On the VPS (or a container): provision mode end-to-end, then deploy mode, then the
+   resource-pack walkthrough against the live meta endpoint.
+
+### Agent dispatch
+
+- Implementation: one bash-focused agent for the mechanical extraction (steps 1–3, 7
+  — instruct explicitly: *move function bodies verbatim, no improvements*); a second
+  agent for `local-dev.sh`, `walkthroughs.sh`, and `setup.sh` (steps 4–6, 8).
+- Review: `code-reviewer` pass focused on trap/ERR/xtrace integrity and idempotency;
+  spot-check that no secret can appear in xtrace output.
+
+---
+
+## Appendix — cross-phase risks & deferred items
+
+**Risks**
+
+1. *Inline theme script vs future nonce-CSP*: if CSP is ever tightened to nonces, the
+   Phase 9 script needs the nonce plumbed through — note this beside the CSP comment
+   in `next.config.ts` when implementing.
+2. *Large uploads through the full stack*: streaming behavior in `next start` and
+   through Caddy (buffering/timeouts) is an **acceptance criterion** (Phase 10
+   verification 3), not an assumption.
+3. *DB/disk drift* for packs (file deleted but row active): mitigated by existence
+   checks in download/activate; a consistency check in the wizard's deploy mode is a
+   nice-to-have.
+4. *Bash refactor regressions*: mitigated by verbatim extraction, shellcheck,
+   wrapper back-compat, and help-output diffing.
+5. *Parchment (light) contrast*: light theme needs re-derived border alphas and a
+   darkened primary — design it, don't invert it. Flagged for the Phase 9 design pass.
+6. *Hero block on non-default themes*: it renders server-side with token classes, so
+   it themes automatically — but verify visually on all four themes.
+
+**Deferred (explicitly out of scope for phases 9–11)**
+
+- Upload progress bar (needs XHR; fetch has no upload progress) — revisit after
+  Phase 10 ships.
+- Pack version diffing / changelogs.
+- Full per-block theme overrides (only tones for now).
+- Cookie-based SSR theming (would force dynamic rendering).
+- Automated test suite / CI — worth its own phase; manual verification lists above
+  are the interim gate.

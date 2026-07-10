@@ -1,6 +1,7 @@
 # JASS — Minecraft Server Website
 
-See `PLAN.md` for the phased implementation plan.
+See `PLAN.md` for the phased implementation plan (phases 0–8 complete; phases 9–11
+— themes, resource pack hosting, setup wizard — specified and pending).
 
 ## Stack
 
@@ -16,10 +17,13 @@ in the schema), and the generated client requires an explicit driver adapter —
 ## Commands
 
 ```bash
-npm run dev              # start dev server (Turbopack), http://localhost:3000
+npm run dev              # start dev server, http://localhost:3000
 npm run build             # production build
 npm run start              # run a production build
 npm run lint                # eslint
+npm run db:seed           # seed placeholder content (re-runnable; --pages-only skips content overwrite)
+npm run db:backup          # timestamped SQLite backup into backups/ (keeps last 7)
+npm run create-admin        # create/update an OWNER or ADMIN account
 
 # Prisma
 npx prisma migrate dev --name <migration-name>   # create + apply a migration
@@ -27,8 +31,8 @@ npx prisma generate                                # regenerate the client into 
 npx prisma studio                                    # browse the SQLite DB
 ```
 
-There is no seed script yet — one will be added in Phase 2 to load placeholder
-content into the DB.
+The seed script lives at `prisma/seed.ts`; all writes are upserts so it is safe to
+re-run, and `npm run db:seed -- --pages-only` skips the content-overwriting portions.
 
 ## Known environment issue: Node V8 crash on this machine
 

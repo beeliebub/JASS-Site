@@ -3,11 +3,14 @@
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { EditableText } from "@/components/admin/editable-text";
 import { Container } from "@/components/container";
+import { TONE_STYLES, ToneSelect } from "@/components/blocks/tones";
+import type { Tone } from "@/lib/themes";
 
 export type PageHeaderData = {
   eyebrow?: string;
   heading: string;
   description?: string;
+  tone?: Tone;
 };
 
 /**
@@ -25,11 +28,17 @@ export function PageHeaderBlock({
 }) {
   const { editMode, isAdmin } = useEditMode();
   const showEditable = isAdmin && editMode;
+  const tone = data.tone ?? "neutral";
+  const toneStyles = TONE_STYLES[tone];
+  const eyebrowClass = tone === "neutral" ? "text-muted" : toneStyles.title;
 
   return (
     <section className="border-b border-border bg-grid">
       <Container className="py-12 sm:py-16">
         <header className="max-w-2xl">
+          {showEditable && (
+            <ToneSelect value={tone} onChange={(next) => onSaveData({ ...data, tone: next })} />
+          )}
           {(showEditable || data.eyebrow) && (
             <EditableText
               as="p"
@@ -38,8 +47,11 @@ export function PageHeaderBlock({
               label="page eyebrow"
               allowEmpty
               placeholder="Eyebrow (optional)"
-              className="font-mono text-xs uppercase tracking-widest text-muted"
+              className={`font-mono text-xs uppercase tracking-widest ${eyebrowClass}`}
             />
+          )}
+          {tone !== "neutral" && (
+            <span aria-hidden className={`mt-3 block h-0.5 w-10 rounded-full bg-current ${toneStyles.title}`} />
           )}
           <EditableText
             as="h1"

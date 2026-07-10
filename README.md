@@ -12,6 +12,10 @@ Next.js (App Router, TypeScript) + Tailwind CSS + Prisma 7 (SQLite) + Auth.js v5
 
 ## Local development
 
+> **Quick start:** run `./setup.sh` and choose **Local dev** — it automates steps 1–5
+> below (including this machine's V8-crash workarounds), is idempotent, and never
+> touches an existing `.env`. The manual steps stay below as the reference path.
+
 ### Prerequisites
 
 - Node.js 20+ and npm
@@ -95,9 +99,11 @@ npm run db:backup             # snapshot prisma/dev.db to backups/ (VACUUM INTO,
 npm run create-admin           # create/update a user; see below
 ```
 
-Plus two Ubuntu VPS ops scripts (see "Deploying to an OVH VPS" below):
+Plus the setup wizard and two Ubuntu VPS ops scripts (see "Deploying to an OVH VPS"
+below):
 
 ```bash
+./setup.sh               # interactive setup wizard: local dev, VPS provisioning, or redeploy
 ./scripts/vps-setup.sh   # one-time provisioning: firewall, Docker, Caddy, env, first deploy
 ./scripts/vps-start.sh   # start/redeploy: build, migrate, health-check, reload Caddy
 ```
@@ -140,35 +146,40 @@ the end.
 
 ### Scripted setup (recommended)
 
-`scripts/vps-setup.sh` and `scripts/vps-start.sh` automate everything below — read on
-only if you want to understand what they do or need to run the steps by hand.
+`./setup.sh` is the front door — run it with no flags for an interactive menu (local
+dev / provision / redeploy), or pass a mode directly as below. It automates everything
+in this section — read on only if you want to understand what it does or need to run
+the steps by hand. (`scripts/vps-setup.sh` and `scripts/vps-start.sh` still work as
+thin back-compat wrappers over the same code, with their original flags.)
 
 **One-time provisioning** — after step 1 and step 2 below (creating the `deploy` user
-and pointing DNS, both external and unscriptable) and after cloning the repo onto the
-VPS (`git clone <repo-url> /opt/jass && cd /opt/jass`), run:
+and pointing DNS, both external and unscriptable — `setup.sh` offers guided
+walkthroughs for the DNS records and OVH's network firewall) and after cloning the
+repo onto the VPS (`git clone <repo-url> /opt/jass && cd /opt/jass`), run:
 
 ```bash
-./scripts/vps-setup.sh --domain justasimpleserver.net
+./setup.sh --mode provision --domain justasimpleserver.net
 ```
 
 As the non-root `deploy` user, with sudo access. It's idempotent — safe to re-run if it
 fails partway through, and it never overwrites an existing `.env.production`. It walks
 through steps 3–12 below in order (firewall, Docker, Caddy, env file, build, migrate +
-seed, first `OWNER` account, automatic backups). Run `./scripts/vps-setup.sh --help`
-for the full flag list.
+seed, first `OWNER` account, automatic backups). Run `./setup.sh --help` for the full
+flag list.
 
-**Starting or redeploying the site** — once provisioned, use `scripts/vps-start.sh` any
-time you need to bring the site up (e.g. after a reboot) or redeploy new code:
+**Starting or redeploying the site** — once provisioned, use deploy mode any time you
+need to bring the site up (e.g. after a reboot) or redeploy new code:
 
 ```bash
-./scripts/vps-start.sh              # rebuild + start, migrate, health-check, reload Caddy
-./scripts/vps-start.sh --pull       # git pull first (fails loudly on conflicts, never force-pulls)
-./scripts/vps-start.sh --no-build   # fast restart without rebuilding the image
+./setup.sh --mode deploy              # rebuild + start, migrate, health-check, reload Caddy
+./setup.sh --mode deploy --pull       # git pull first (fails loudly on conflicts, never force-pulls)
+./setup.sh --mode deploy --no-build   # fast restart without rebuilding the image
 ```
 
 It never runs `db:seed` (re-seeding can overwrite live admin-edited content — see the
-`db:seed` note above), so it's safe to run after every deploy. Run
-`./scripts/vps-start.sh --help` for details.
+`db:seed` note above), so it's safe to run after every deploy, and it finishes by
+offering a walkthrough for pointing the Minecraft server's `server.properties` at the
+hosted resource pack.
 
 ### 1. Provision the VPS
 
@@ -328,6 +339,7 @@ pm2 startup   # follow the printed instructions to start pm2 on boot
 - `docs/DEPLOYMENT.md` — hosting decision rationale, full environment variable
   reference, backup internals, pre-deploy security checklist
 - `CLAUDE.md` — stack details and this dev environment's known quirks
-- `scripts/vps-setup.sh` / `scripts/vps-start.sh` — the Ubuntu VPS provisioning and
-  start/redeploy scripts referenced in "Deploying to an OVH VPS" above (each supports
-  `--help`)
+- `setup.sh` — the unified setup wizard (local dev, VPS provisioning, redeploy);
+  `scripts/vps-setup.sh` / `scripts/vps-start.sh` remain as thin wrappers for the
+  Ubuntu VPS provisioning and start/redeploy flows referenced in "Deploying to an
+  OVH VPS" above (each supports `--help`)

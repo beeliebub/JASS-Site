@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { THEME_IDS, TONES } from "@/lib/themes";
 
 /**
  * Validation for the Phase 8 page builder (Page/Block) and user management.
@@ -21,13 +22,17 @@ import { z } from "zod";
 // either, so this list is safe to check unconditionally against slug changes
 // as long as protected-page slug changes are already rejected earlier -- see
 // `assertProtectedSlugUnchanged` below).
-export const RESERVED_SLUGS = ["admin", "login", "api", "home", "rules", "features", "news"] as const;
+export const RESERVED_SLUGS = ["admin", "login", "api", "home", "rules", "features", "news", "resource"] as const;
 
 export const slugSchema = z
   .string()
   .min(1)
   .max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "slug must be lowercase kebab-case");
+
+/** One of `lib/themes.ts`' `THEME_IDS`, or `null`/absent meaning "follow
+ * visitor theme" -- see `Page.theme` in prisma/schema.prisma. */
+export const themeSchema = z.enum(THEME_IDS);
 
 function refineNotReserved<T extends { slug?: string }>(data: T, ctx: z.RefinementCtx) {
   if (data.slug && (RESERVED_SLUGS as readonly string[]).includes(data.slug)) {
@@ -41,6 +46,7 @@ export const pageCreateSchema = z
     slug: slugSchema.optional(),
     metaDescription: z.string().max(300).nullable().optional(),
     published: z.boolean().optional(),
+    theme: themeSchema.nullable().optional(),
   })
   .superRefine(refineNotReserved);
 
@@ -50,6 +56,7 @@ export const pageUpdateSchema = z
     slug: slugSchema.optional(),
     metaDescription: z.string().max(300).nullable().optional(),
     published: z.boolean().optional(),
+    theme: themeSchema.nullable().optional(),
   })
   .superRefine(refineNotReserved);
 
@@ -90,14 +97,21 @@ export type BlockType = (typeof BLOCK_TYPES)[number];
 
 const emptyDataSchema = z.object({}).strict();
 
+/** Shared block-tone enum (Phase 9) -- see `lib/themes.ts`. Widens
+ * `calloutDataSchema.variant` in place (JSON key stays `variant`, existing
+ * "warning"/"info" rows remain valid) and backs the optional `tone` field on
+ * pageHeader/ctaBanner/linkGrid below. */
+export const toneSchema = z.enum(TONES);
+
 const pageHeaderDataSchema = z.object({
   eyebrow: z.string().max(80).optional(),
   heading: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
+  tone: toneSchema.optional(),
 });
 
 const calloutDataSchema = z.object({
-  variant: z.enum(["warning", "info"]),
+  variant: toneSchema,
   body: z.string().min(1).max(2000),
 });
 
@@ -123,6 +137,7 @@ const linkGridDataSchema = z.object({
       }),
     )
     .max(20),
+  tone: toneSchema.optional(),
 });
 
 const richTextDataSchema = z.object({
@@ -140,6 +155,7 @@ const ctaBannerDataSchema = z.object({
   body: z.string().max(1000).optional(),
   buttonLabel: z.string().min(1).max(60),
   buttonHref: z.string().min(1).max(300),
+  tone: toneSchema.optional(),
 });
 
 /** Per-type `data` shape, keyed by `Block.type`. Used both to validate on
