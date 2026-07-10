@@ -144,11 +144,24 @@ const richTextDataSchema = z.object({
   markdown: z.string().max(20000),
 });
 
-const imageDataSchema = z.object({
-  src: z.string().url().max(2000),
-  alt: z.string().min(1).max(300),
-  caption: z.string().max(500).optional(),
-});
+/** `src`/`alt` may both be "" -- ImageBlock renders a "No image URL set"
+ * placeholder in that state (see components/blocks/image-block.tsx), and a
+ * freshly-added block starts out that way. Once `src` is non-empty it must
+ * be a real absolute URL, and `alt` becomes required for accessibility. */
+const imageDataSchema = z
+  .object({
+    src: z.string().max(2000),
+    alt: z.string().max(300),
+    caption: z.string().max(500).optional(),
+  })
+  .refine((data) => data.src === "" || z.string().url().safeParse(data.src).success, {
+    message: "src must be a valid absolute URL.",
+    path: ["src"],
+  })
+  .refine((data) => data.src === "" || data.alt.length > 0, {
+    message: "alt is required once an image URL is set.",
+    path: ["alt"],
+  });
 
 const ctaBannerDataSchema = z.object({
   heading: z.string().min(1).max(200),
