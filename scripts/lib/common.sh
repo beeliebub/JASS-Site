@@ -194,6 +194,49 @@ generate_auth_secret() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Compose container-state helpers, shared by vps-provision.sh (provisioning)
+# and vps-deploy.sh (redeploy). Both invoke compose via ${DOCKER_BIN:-docker}
+# so provisioning's possible "sudo docker" (set when the invoking user was
+# just added to the docker group and hasn't re-logged-in yet) is respected;
+# deploy mode never sets DOCKER_BIN, so this defaults to plain "docker" there.
+# ---------------------------------------------------------------------------
+
+# compose_service_state <service> — echoes the docker lifecycle state
+# (running|restarting|exited|created|dead|...) of the first container backing
+# the given compose service, or an empty string if no container exists yet.
+# Never fails (so it's safe to call under `set -e`).
+compose_service_state() {
+  local service="$1" cid
+  cid="$(${DOCKER_BIN:-docker} compose ps -q "$service" 2>/dev/null | head -n1 || true)"
+  [[ -n "$cid" ]] || return 0
+  ${DOCKER_BIN:-docker} inspect -f '{{.State.Status}}' "$cid" 2>/dev/null || true
+}
+
+# wait_for_service_running <service> <timeout_seconds>
+# Returns 0 once the service's container is 'running'. Returns 2 if it enters
+# a terminal/crash-loop state (exited/dead/restarting), 1 if it never comes up
+# within the timeout. Emits a clear error in the failure cases.
+wait_for_service_running() {
+  local service="$1" timeout="$2" waited=0 state=""
+  while (( waited < timeout )); do
+    state="$(compose_service_state "$service")"
+    case "$state" in
+      running)
+        return 0
+        ;;
+      restarting|exited|dead)
+        error "The '$service' container is in state '$state' — it looks like it's crash-looping or failed to start."
+        return 2
+        ;;
+    esac
+    sleep 1
+    waited=$((waited + 1))
+  done
+  error "The '$service' container did not reach state 'running' within ${timeout}s (last state: '${state:-none}')."
+  return 1
+}
+
 run_apt() {
   # Wrapper around `sudo apt-get <args>` with retry+backoff, because a fresh
   # VPS's background unattended-upgrades can transiently hold

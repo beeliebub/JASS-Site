@@ -79,13 +79,14 @@ What it does:
   6. Creates .env.production from .env.example if it doesn't already exist,
      generating a fresh AUTH_SECRET and prompting for AUTH_URL/
      MC_SERVER_HOST/MC_SERVER_PORT. Never touches an existing file.
-  7. Builds and starts the app with 'docker compose up -d --build', then
-     polls 127.0.0.1:3000 until it responds.
+  7. Builds and starts the app with 'docker compose up -d --build'.
   8. Runs 'prisma migrate deploy' and (on a fresh .env.production) 'npm run
-     db:seed' inside the container.
-  9. Optionally creates the first OWNER account (prompts for email/password).
-  10. Optionally installs the systemd jass-db-backup service+timer.
-  11. Prints the README step 11 manual verification checklist.
+     db:seed' inside the container (before the health check below, since
+     every page queries the DB and would 500 until migrations are applied).
+  9. Polls 127.0.0.1:3000 until it responds.
+  10. Optionally creates the first OWNER account (prompts for email/password).
+  11. Optionally installs the systemd jass-db-backup service+timer.
+  12. Prints the README step 11 manual verification checklist.
 EOF
 }
 

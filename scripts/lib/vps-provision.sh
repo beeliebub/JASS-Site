@@ -305,30 +305,26 @@ mkdir -p data/uploads
 
 info "About to run: $DOCKER_BIN compose up -d --build (this can take a few minutes on the first run)..."
 $DOCKER_BIN compose up -d --build || die "'$DOCKER_BIN compose up -d --build' failed. Check the build output above and '$DOCKER_BIN compose logs web'."
-
-info "Waiting for the app to respond on 127.0.0.1:3000..."
-READY=false
-for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null "http://127.0.0.1:3000"; then
-    READY=true
-    break
-  fi
-  sleep 2
-done
-
-if [[ "$READY" == true ]]; then
-  info "App is up and responding on 127.0.0.1:3000."
-else
-  die "App did not become ready on 127.0.0.1:3000 after ~60s. Check '$DOCKER_BIN compose logs web' before continuing."
-fi
 }
 
 # ---------------------------------------------------------------------------
 # Step 8: Migrate + seed
 # ---------------------------------------------------------------------------
+#
+# Deliberately runs BEFORE the HTTP health check (step_health_check, below).
+# Every page in this app queries Prisma on render (see lib/content.ts), so on
+# a fresh DB with no tables yet, the app answers every request with a 500 —
+# an HTTP health check run at this point would fail for the app's entire
+# lifetime until migrations are applied. Gate this step on the container
+# merely being 'running' (cheap, fast) rather than on the app being healthy.
 
 step_migrate_seed() {
 step "Migrate + seed"
+
+info "Confirming the web container is running before running migrations..."
+if ! wait_for_service_running web 30; then
+  die "Cannot run database migrations because the 'web' container isn't running. Check '$DOCKER_BIN compose logs web --tail=50' and '$DOCKER_BIN compose ps'."
+fi
 
 info "About to run: $DOCKER_BIN compose exec web node --no-turbofan node_modules/prisma/build/index.js migrate deploy"
 $DOCKER_BIN compose exec web node --no-turbofan node_modules/prisma/build/index.js migrate deploy \
@@ -351,7 +347,44 @@ fi
 }
 
 # ---------------------------------------------------------------------------
-# Step 9: First OWNER account
+# Step 9: HTTP health check
+# ---------------------------------------------------------------------------
+#
+# Runs AFTER migrate+seed (see the note above step_migrate_seed) so the app
+# actually has tables to query by the time we expect a 200.
+
+step_health_check() {
+step "Waiting for the app to respond on 127.0.0.1:3000"
+
+HEALTH_URL="http://127.0.0.1:3000"
+HEALTH_TIMEOUT_SECONDS=60
+HEALTH_INTERVAL_SECONDS=2
+elapsed=0
+healthy=0
+
+while [[ "$elapsed" -lt "$HEALTH_TIMEOUT_SECONDS" ]]; do
+  if curl -sf -o /dev/null "$HEALTH_URL"; then
+    healthy=1
+    break
+  fi
+  case "$(compose_service_state web)" in
+    restarting|exited|dead)
+      die "The 'web' container stopped or is crash-looping while waiting for it to respond on $HEALTH_URL. Check '$DOCKER_BIN compose logs web --tail=50'."
+      ;;
+  esac
+  sleep "$HEALTH_INTERVAL_SECONDS"
+  elapsed=$((elapsed + HEALTH_INTERVAL_SECONDS))
+done
+
+if [[ "$healthy" -ne 1 ]]; then
+  die "App did not respond on $HEALTH_URL within ${HEALTH_TIMEOUT_SECONDS}s, even after migrations ran. Check '$DOCKER_BIN compose logs web --tail=50' and '$DOCKER_BIN compose ps'."
+fi
+
+info "App is up and responding on $HEALTH_URL."
+}
+
+# ---------------------------------------------------------------------------
+# Step 10: First OWNER account
 # ---------------------------------------------------------------------------
 
 step_owner_account() {
@@ -417,7 +450,7 @@ fi
 }
 
 # ---------------------------------------------------------------------------
-# Step 10: Automatic backups
+# Step 11: Automatic backups
 # ---------------------------------------------------------------------------
 
 step_backups() {
@@ -463,7 +496,7 @@ fi
 }
 
 # ---------------------------------------------------------------------------
-# Step 11: Final verification banner
+# Step 12: Final verification banner
 # ---------------------------------------------------------------------------
 
 step_final_checklist() {
@@ -507,6 +540,7 @@ run_provision() {
   step_env_production
   step_compose_up
   step_migrate_seed
+  step_health_check
   step_owner_account
   step_backups
   step_final_checklist
