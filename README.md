@@ -12,16 +12,46 @@ Next.js (App Router, TypeScript) + Tailwind CSS + Prisma 7 (SQLite) + Auth.js v5
 
 ## Local development
 
-> **Quick start:** run `./setup.sh` and choose **Local dev** — it automates steps 1–5
-> below (including this machine's V8-crash workarounds), is idempotent, and never
-> touches an existing `.env`. The manual steps stay below as the reference path.
-
 ### Prerequisites
 
 - Node.js 20+ and npm
 - No external database — SQLite is a single file, created by Prisma migrations
 
-### 1. Clone and install
+### Quick start: `./setup.sh` (recommended)
+
+From a fresh clone, one command takes you all the way to a running dev server:
+
+```bash
+git clone <repo-url> jass
+cd jass
+./setup.sh              # interactive menu — pick "1) Local dev"
+# ...or skip the menu:
+./setup.sh --mode local
+```
+
+`local` mode is idempotent (re-run it any time — already-satisfied steps print `SKIP`)
+and it never touches an existing `.env`. It runs, in order:
+
+1. **Node ≥ 20 check** — with install guidance if Node is missing or too old.
+2. **`npm install`** — automatically retries under this machine's `--jitless`
+   V8-crash workaround (see `CLAUDE.md`) if the plain install crashes.
+3. **`.env`** — created from `.env.example` with a freshly generated `AUTH_SECRET`;
+   prompts for `MC_SERVER_HOST` / `MC_SERVER_PORT` (with defaults). Skipped, untouched,
+   if `.env` already exists.
+4. **Prisma** — `generate` + `migrate dev`, with the `--no-turbofan` fallback for the
+   V8 crash.
+5. **`npm run db:seed`** — placeholder content on a fresh database (guarded with a
+   prompt if the DB already holds content).
+6. **First `OWNER` account** — optional; hidden password prompt with confirmation.
+7. **`uploads/`** — resource-pack storage directory.
+8. **`npm run dev`** — offered at the end, then visit `http://localhost:3000`.
+
+Run `./setup.sh --help` for all modes and flags. Prefer to run the steps by hand? The
+manual path is below.
+
+### Manual setup
+
+#### 1. Clone and install
 
 ```bash
 git clone <repo-url> jass
@@ -34,7 +64,7 @@ npm install
 > `NODE_OPTIONS="--jitless" npm install` (see `CLAUDE.md`'s "Known environment issue"
 > for why). This is specific to this machine — it shouldn't happen elsewhere.
 
-### 2. Configure environment variables
+#### 2. Configure environment variables
 
 ```bash
 cp .env.example .env
@@ -49,7 +79,7 @@ Fill in `.env`:
 | `MC_SERVER_HOST` | `justasimpleserver.net` |
 | `MC_SERVER_PORT` | `25565` |
 
-### 3. Set up the database
+#### 3. Set up the database
 
 ```bash
 npx prisma migrate dev
@@ -66,7 +96,7 @@ This creates `prisma/dev.db`, applies all migrations, and loads placeholder cont
 > node --no-turbofan node_modules/prisma/build/index.js migrate dev
 > ```
 
-### 4. Create the first account
+#### 4. Create the first account
 
 The site has no public sign-up — accounts are created via CLI or invited by an existing
 `OWNER`. Create the first one as `OWNER` (see "Creating owner and admin accounts" below
@@ -76,7 +106,7 @@ for what that role can do):
 npm run create-admin -- you@example.com "a-strong-password" --role OWNER
 ```
 
-### 5. Run it
+#### 5. Run it
 
 ```bash
 npm run dev
