@@ -1,7 +1,8 @@
 # JASS — Minecraft Server Website
 
-See `PLAN.md` for the phased implementation plan (phases 0–8 complete; phases 9–11
-— themes, resource pack hosting, setup wizard — specified and pending).
+See `PLAN.md` for the phased implementation plan (all phases 0–11 complete; phases 9–11
+— themes, resource pack hosting, setup wizard — retain their full specs there as
+documentation of what was built).
 
 ## Stack
 

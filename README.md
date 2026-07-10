@@ -10,23 +10,35 @@ content lives in the database, and logged-in admins edit it in place, in real ti
 Next.js (App Router, TypeScript) + Tailwind CSS + Prisma 7 (SQLite) + Auth.js v5. See
 `CLAUDE.md` for version details and `PLAN.md` for the full phased build history.
 
-## Local development
+## Getting started: `./setup.sh`
 
-### Prerequisites
+`./setup.sh` is the single front door for everything — local development, first-time VPS
+provisioning, and redeploys. Run it with no arguments for an interactive menu, or pass
+`--mode` to jump straight to a task:
 
-- Node.js 20+ and npm
-- No external database — SQLite is a single file, created by Prisma migrations
+```bash
+./setup.sh                                                   # interactive menu
+./setup.sh --mode local                                     # local dev environment
+./setup.sh --mode provision --domain justasimpleserver.net  # one-time VPS setup
+./setup.sh --mode deploy                                    # start / redeploy a provisioned VPS
+```
 
-### Quick start: `./setup.sh` (recommended)
+`./setup.sh --help` lists every mode and flag. It's idempotent — safe to re-run at any
+time — and never overwrites an existing `.env` / `.env.production`. Everything under
+[Manual setup](#manual-setup-without-the-wizard) at the bottom is only needed if you'd
+rather run the individual steps by hand.
+
+### Local development
+
+Prerequisites: **Node.js 20+ and npm**. No external database — SQLite is a single file,
+created by Prisma migrations.
 
 From a fresh clone, one command takes you all the way to a running dev server:
 
 ```bash
 git clone <repo-url> jass
 cd jass
-./setup.sh              # interactive menu — pick "1) Local dev"
-# ...or skip the menu:
-./setup.sh --mode local
+./setup.sh --mode local     # ...or run ./setup.sh and pick "1) Local dev"
 ```
 
 `local` mode is idempotent (re-run it any time — already-satisfied steps print `SKIP`)
@@ -46,10 +58,106 @@ and it never touches an existing `.env`. It runs, in order:
 7. **`uploads/`** — resource-pack storage directory.
 8. **`npm run dev`** — offered at the end, then visit `http://localhost:3000`.
 
-Run `./setup.sh --help` for all modes and flags. Prefer to run the steps by hand? The
-manual path is below.
+**Starting the site later:** `npm run dev` (`http://localhost:3000`). Visit
+`http://localhost:3000/login` to sign in; once logged in, an "Edit mode" toggle appears
+in the header — turn it on to edit any page's content in place, manage pages/nav under
+`/admin/pages` and `/admin/nav`, and (as `OWNER`) manage accounts under `/admin/users`.
 
-### Manual setup
+### Deploying to an OVH VPS
+
+The app persists all content in a single SQLite file, so it runs as a normal
+long-running Node process on a VPS — not a serverless platform. See `docs/DEPLOYMENT.md`
+for the reasoning and the `Dockerfile`, `docker-compose.yml`, and `Caddyfile` at the
+repo root for the reference setup (Docker + a host-level Caddy reverse proxy). A simpler
+PM2-based alternative (no Docker) is in the manual section.
+
+Two prerequisites can't be scripted — creating the non-root `deploy` user and pointing
+DNS at the VPS (`setup.sh` offers guided walkthroughs for the DNS records and OVH's
+network firewall). After those, and after cloning the repo onto the box
+(`git clone <repo-url> /opt/jass && cd /opt/jass`):
+
+**One-time provisioning** — as the non-root `deploy` user, with sudo access:
+
+```bash
+./setup.sh --mode provision --domain justasimpleserver.net
+```
+
+It's idempotent — safe to re-run if it fails partway through — and never overwrites an
+existing `.env.production`. It runs the firewall, Docker, Caddy, env-file, build,
+migrate + seed, first `OWNER` account, and automatic-backup steps in order.
+
+**Starting or redeploying the site** — any time you need to bring the site up (e.g.
+after a reboot) or ship new code:
+
+```bash
+./setup.sh --mode deploy              # rebuild + start, migrate, health-check, reload Caddy
+./setup.sh --mode deploy --pull       # git pull first (fails loudly on conflicts, never force-pulls)
+./setup.sh --mode deploy --no-build   # fast restart without rebuilding the image
+```
+
+Deploy mode never runs `db:seed` (re-seeding can overwrite live admin-edited content —
+see the [`db:seed` note](#available-scripts) below), so it's safe to run after every
+deploy, and it finishes by offering a walkthrough for pointing the Minecraft server's
+`server.properties` at the hosted resource pack.
+
+> `scripts/vps-setup.sh` and `scripts/vps-start.sh` still work as thin back-compat
+> wrappers over the same code (provision and deploy respectively), with their original
+> flags and `--help` output.
+
+## Available scripts
+
+```bash
+npm run dev              # dev server (Turbopack), http://localhost:3000
+npm run build             # production build
+npm run start              # run a production build
+npm run lint                # eslint
+npm run db:seed              # load placeholder content (see note below before re-running)
+npm run db:backup             # snapshot prisma/dev.db to backups/ (VACUUM INTO, keeps last 7)
+npm run create-admin           # create/update a user; see below
+```
+
+Plus the setup wizard and two Ubuntu VPS ops scripts:
+
+```bash
+./setup.sh               # interactive setup wizard: local dev, VPS provisioning, or redeploy
+./scripts/vps-setup.sh   # one-time provisioning: firewall, Docker, Caddy, env, first deploy
+./scripts/vps-start.sh   # start/redeploy: build, migrate, health-check, reload Caddy
+```
+
+> **Re-running `npm run db:seed` against a database that already has real content**
+> (anything an admin has edited through the site) overwrites `ContentBlock`, `Rule`,
+> `Feature`, and `Post` rows back to placeholder text. Pages/nav are always safe to
+> re-run (`seedPagesAndNav()` skips itself if any `Page` already exists) — to get just
+> that safe part without touching live content, run `npm run db:seed -- --pages-only`.
+
+## Creating owner and admin accounts
+
+Two roles: **`OWNER`** and **`ADMIN`**. Both can edit all site content, pages, and
+navigation. Only `OWNER` can create, edit, or delete user accounts — an `ADMIN` cannot
+view, edit, delete, or promote/demote an `OWNER`. The last remaining `OWNER` can't be
+demoted or deleted (by themselves or anyone else), so the site can never end up with
+zero account managers.
+
+**Via the CLI** (works with no existing account — e.g. the very first user):
+
+```bash
+npm run create-admin -- <email> <password> --role OWNER
+npm run create-admin -- <email> <password> --role ADMIN   # role defaults to ADMIN if omitted
+```
+
+Re-running it with the same email updates that user's password/role instead of
+creating a duplicate.
+
+**Via the UI**, once at least one `OWNER` exists: log in as that `OWNER` and go to
+`/admin/users` to invite additional accounts, change roles, or remove accounts.
+
+## Manual setup (without the wizard)
+
+Everything above is automated by `./setup.sh`. The steps below are the equivalent work
+by hand — for when you'd rather run each step yourself, or want to understand exactly
+what the wizard does.
+
+### Local dev, step by step
 
 #### 1. Clone and install
 
@@ -99,7 +207,7 @@ This creates `prisma/dev.db`, applies all migrations, and loads placeholder cont
 #### 4. Create the first account
 
 The site has no public sign-up — accounts are created via CLI or invited by an existing
-`OWNER`. Create the first one as `OWNER` (see "Creating owner and admin accounts" below
+`OWNER`. Create the first one as `OWNER` (see "Creating owner and admin accounts" above
 for what that role can do):
 
 ```bash
@@ -117,101 +225,12 @@ logged in, an "Edit mode" toggle appears in the header — turn it on to edit an
 content in place, manage pages/nav under `/admin/pages` and `/admin/nav`, and (as
 `OWNER`) manage accounts under `/admin/users`.
 
-## Available scripts
+### VPS deploy, step by step
 
-```bash
-npm run dev              # dev server (Turbopack), http://localhost:3000
-npm run build             # production build
-npm run start              # run a production build
-npm run lint                # eslint
-npm run db:seed              # load placeholder content (see note below before re-running)
-npm run db:backup             # snapshot prisma/dev.db to backups/ (VACUUM INTO, keeps last 7)
-npm run create-admin           # create/update a user; see below
-```
+These are the individual steps that `./setup.sh --mode provision` automates (steps 3–12
+below); steps 1–2 are the external prerequisites the wizard can only walk you through.
 
-Plus the setup wizard and two Ubuntu VPS ops scripts (see "Deploying to an OVH VPS"
-below):
-
-```bash
-./setup.sh               # interactive setup wizard: local dev, VPS provisioning, or redeploy
-./scripts/vps-setup.sh   # one-time provisioning: firewall, Docker, Caddy, env, first deploy
-./scripts/vps-start.sh   # start/redeploy: build, migrate, health-check, reload Caddy
-```
-
-> **Re-running `npm run db:seed` against a database that already has real content**
-> (anything an admin has edited through the site) overwrites `ContentBlock`, `Rule`,
-> `Feature`, and `Post` rows back to placeholder text. Pages/nav are always safe to
-> re-run (`seedPagesAndNav()` skips itself if any `Page` already exists) — to get just
-> that safe part without touching live content, run `npm run db:seed -- --pages-only`.
-
-## Creating owner and admin accounts
-
-Two roles: **`OWNER`** and **`ADMIN`**. Both can edit all site content, pages, and
-navigation. Only `OWNER` can create, edit, or delete user accounts — an `ADMIN` cannot
-view, edit, delete, or promote/demote an `OWNER`. The last remaining `OWNER` can't be
-demoted or deleted (by themselves or anyone else), so the site can never end up with
-zero account managers.
-
-**Via the CLI** (works with no existing account — e.g. the very first user):
-
-```bash
-npm run create-admin -- <email> <password> --role OWNER
-npm run create-admin -- <email> <password> --role ADMIN   # role defaults to ADMIN if omitted
-```
-
-Re-running it with the same email updates that user's password/role instead of
-creating a duplicate.
-
-**Via the UI**, once at least one `OWNER` exists: log in as that `OWNER` and go to
-`/admin/users` to invite additional accounts, change roles, or remove accounts.
-
-## Deploying to an OVH VPS
-
-The app persists all content in a single SQLite file, so it runs as a normal
-long-running Node process on a VPS — not a serverless platform. See
-`docs/DEPLOYMENT.md` for the reasoning and the `Dockerfile`, `docker-compose.yml`, and
-`Caddyfile` at the repo root for the reference setup this section deploys (Docker +
-a host-level Caddy reverse proxy). A simpler PM2-based alternative (no Docker) is at
-the end.
-
-### Scripted setup (recommended)
-
-`./setup.sh` is the front door — run it with no flags for an interactive menu (local
-dev / provision / redeploy), or pass a mode directly as below. It automates everything
-in this section — read on only if you want to understand what it does or need to run
-the steps by hand. (`scripts/vps-setup.sh` and `scripts/vps-start.sh` still work as
-thin back-compat wrappers over the same code, with their original flags.)
-
-**One-time provisioning** — after step 1 and step 2 below (creating the `deploy` user
-and pointing DNS, both external and unscriptable — `setup.sh` offers guided
-walkthroughs for the DNS records and OVH's network firewall) and after cloning the
-repo onto the VPS (`git clone <repo-url> /opt/jass && cd /opt/jass`), run:
-
-```bash
-./setup.sh --mode provision --domain justasimpleserver.net
-```
-
-As the non-root `deploy` user, with sudo access. It's idempotent — safe to re-run if it
-fails partway through, and it never overwrites an existing `.env.production`. It walks
-through steps 3–12 below in order (firewall, Docker, Caddy, env file, build, migrate +
-seed, first `OWNER` account, automatic backups). Run `./setup.sh --help` for the full
-flag list.
-
-**Starting or redeploying the site** — once provisioned, use deploy mode any time you
-need to bring the site up (e.g. after a reboot) or redeploy new code:
-
-```bash
-./setup.sh --mode deploy              # rebuild + start, migrate, health-check, reload Caddy
-./setup.sh --mode deploy --pull       # git pull first (fails loudly on conflicts, never force-pulls)
-./setup.sh --mode deploy --no-build   # fast restart without rebuilding the image
-```
-
-It never runs `db:seed` (re-seeding can overwrite live admin-edited content — see the
-`db:seed` note above), so it's safe to run after every deploy, and it finishes by
-offering a walkthrough for pointing the Minecraft server's `server.properties` at the
-hosted resource pack.
-
-### 1. Provision the VPS
+#### 1. Provision the VPS
 
 From the OVH control panel, create the VPS and add your SSH public key at creation
 time (or via the panel's "SSH Keys" section) rather than relying on a mailed root
@@ -222,7 +241,7 @@ ssh root@<vps-ip>
 adduser deploy && usermod -aG sudo deploy   # avoid running everything as root
 ```
 
-### 2. Point DNS at the VPS
+#### 2. Point DNS at the VPS
 
 In OVH's **DNS Zone** editor for `justasimpleserver.net`, add/update:
 
@@ -234,7 +253,7 @@ In OVH's **DNS Zone** editor for `justasimpleserver.net`, add/update:
 DNS propagation can take a few minutes to a few hours — Caddy's automatic HTTPS (step
 7) won't succeed until the domain actually resolves to this VPS.
 
-### 3. Open the firewall
+#### 3. Open the firewall
 
 Two separate firewalls need to allow 80/443: OVH's own **network firewall** (in the
 VPS's control-panel "Network Firewall" tab — off by default, but if enabled it must
@@ -250,7 +269,7 @@ sudo ufw enable
 Do **not** expose port 3000 (the app) publicly — Caddy is the only thing that should
 face the internet; `docker-compose.yml` already binds the app to `127.0.0.1:3000` only.
 
-### 4. Install Docker
+#### 4. Install Docker
 
 ```bash
 curl -fsSL https://get.docker.com | sh
@@ -259,7 +278,7 @@ sudo usermod -aG docker deploy
 
 (Log out/in for the group change to apply.)
 
-### 5. Get the code onto the server
+#### 5. Get the code onto the server
 
 ```bash
 sudo mkdir -p /opt/jass && sudo chown deploy:deploy /opt/jass
@@ -267,7 +286,7 @@ git clone <repo-url> /opt/jass
 cd /opt/jass
 ```
 
-### 6. Configure production environment
+#### 6. Configure production environment
 
 ```bash
 cp .env.example .env.production
@@ -284,7 +303,7 @@ same variables as local dev step 2, plus `AUTH_URL`. Two must differ from dev:
 `DATABASE_URL`, `MC_SERVER_HOST`, and `MC_SERVER_PORT` keep the same values as dev. See
 `docs/DEPLOYMENT.md`'s environment variables table for the full rationale on each.
 
-### 7. Install and configure Caddy
+#### 7. Install and configure Caddy
 
 Caddy runs on the host (not in Docker) so it can bind 80/443 directly and manage TLS:
 
@@ -301,7 +320,7 @@ The repo's `Caddyfile` already targets `justasimpleserver.net`/`www.justasimples
 and reverse-proxies to `127.0.0.1:3000` with HSTS — no edits needed unless the domain
 changes.
 
-### 8. Build and start the app
+#### 8. Build and start the app
 
 ```bash
 docker compose up -d --build
@@ -312,7 +331,7 @@ inside the container per the `Dockerfile`) and starts it bound to `127.0.0.1:300
 with `./data/prisma` and `./data/backups` bind-mounted so the database survives
 rebuilds.
 
-### 9. Apply migrations and seed placeholder content
+#### 9. Apply migrations and seed placeholder content
 
 ```bash
 docker compose exec web node --no-turbofan node_modules/prisma/build/index.js migrate deploy
@@ -322,13 +341,13 @@ docker compose exec web npm run db:seed
 (`migrate deploy`, not `migrate dev` — it applies existing migrations without
 prompting or generating new ones, which is what production needs.)
 
-### 10. Create the first OWNER account
+#### 10. Create the first OWNER account
 
 ```bash
 docker compose exec web npm run create-admin -- you@example.com "a-strong-password" --role OWNER
 ```
 
-### 11. Verify
+#### 11. Verify
 
 - `https://justasimpleserver.net` loads over HTTPS with a valid Let's Encrypt cert.
 - `curl -I https://justasimpleserver.net` shows `Content-Security-Policy`,
@@ -339,13 +358,13 @@ docker compose exec web npm run create-admin -- you@example.com "a-strong-passwo
   (rotating `AUTH_SECRET`, re-checking `npm audit`) before treating this as a real
   public launch rather than a first deploy.
 
-### 12. Set up automatic backups
+#### 12. Set up automatic backups
 
 See `docs/DEPLOYMENT.md`'s "Backup story for the SQLite DB" section for the full
 cron/systemd-timer setup around `npm run db:backup` — not optional for a real deploy,
 since the SQLite file is the only copy of everything admins edit.
 
-### Alternative: PM2 instead of Docker
+#### Alternative: PM2 instead of Docker
 
 If Docker feels like overkill for a single small app on the same box as the Minecraft
 server, run the Node process directly with PM2 instead — Caddy's config is identical
@@ -365,11 +384,10 @@ pm2 startup   # follow the printed instructions to start pm2 on boot
 
 ## Further reading
 
-- `PLAN.md` — the full phased implementation plan and what's been built so far
+- `PLAN.md` — the full phased implementation plan (all phases 0–11 complete)
 - `docs/DEPLOYMENT.md` — hosting decision rationale, full environment variable
   reference, backup internals, pre-deploy security checklist
 - `CLAUDE.md` — stack details and this dev environment's known quirks
 - `setup.sh` — the unified setup wizard (local dev, VPS provisioning, redeploy);
   `scripts/vps-setup.sh` / `scripts/vps-start.sh` remain as thin wrappers for the
-  Ubuntu VPS provisioning and start/redeploy flows referenced in "Deploying to an
-  OVH VPS" above (each supports `--help`)
+  Ubuntu VPS provisioning and start/redeploy flows (each supports `--help`)

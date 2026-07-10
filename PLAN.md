@@ -1,11 +1,11 @@
 # JASS Site — Phased Implementation Plan
 
 This is the working implementation plan for the JASS (Just A Simple Server) Minecraft
-server website. Phases 0–8 are **complete** and summarized in the retrospective below
-(the full historical spec for those phases lives in git history:
-`git show 564cf60:PLAN.md`). Phases 9–11 are **pending** and specified in full detail
-so that an orchestrating model can dispatch implementation and review subagents
-directly from this document.
+server website. **All phases (0–11) are complete.** Phases 0–8 are summarized in the
+retrospective below (the full historical spec for those phases lives in git history:
+`git show 564cf60:PLAN.md`); phases 9–11 (theme system, resource-pack hosting, and the
+unified setup wizard) retain their full specs below as documentation of what was built
+and how it was verified.
 
 ---
 
@@ -100,6 +100,8 @@ All migration commands in this plan are written in the safe form.
 ---
 
 ## Phase 9 — Theme system
+
+> **Status: ✅ Complete.**
 
 ### Goal
 
@@ -295,6 +297,8 @@ then `node --no-turbofan node_modules/prisma/build/index.js generate`.
 
 ## Phase 10 — Resource pack hosting (`/resource`)
 
+> **Status: ✅ Complete.**
+
 ### Goal
 
 The site stores and delivers the server's resource pack, replacing what the old
@@ -449,6 +453,11 @@ All JSON responses use the `lib/api-response.ts` envelope. Admin = `requireAdmin
 ---
 
 ## Phase 11 — Unified interactive setup wizard (`setup.sh`)
+
+> **Status: ✅ Complete.** Verified: `shellcheck` clean and `bash -n` clean on all
+> seven files; wrapper `--help` output byte-identical to the originals; a fresh-clone
+> `./setup.sh --mode local` run taken end-to-end to a live dev server (home, `/resource`,
+> and the resource-pack + status APIs all responding).
 
 ### Goal
 
