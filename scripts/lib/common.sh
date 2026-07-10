@@ -74,7 +74,10 @@ install_err_trap() {
   # from our own entry-point scripts, never from user input); ${LINENO} and
   # $rc stay single-quoted so they expand when the trap fires.
   local script_name="$1"
-  # shellcheck disable=SC2064  # early expansion of script_name is intentional
+  # SC2064: early expansion of script_name is intentional (it names the entry
+  #   point in the message). SC2154: rc IS assigned by the `rc=$?` at the start
+  #   of the same trap body — shellcheck just can't see across the quote splice.
+  # shellcheck disable=SC2064,SC2154
   trap 'rc=$?; error "'"$script_name"' hit an unexpected failure at line ${LINENO} (exit ${rc}). Nothing here is destructive; the script is safe to re-run once the cause above is resolved."' ERR
 }
 

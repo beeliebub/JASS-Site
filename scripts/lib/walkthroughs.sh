@@ -10,9 +10,7 @@
 # against double-sourcing. Requires scripts/lib/common.sh to be sourced first
 # (info/warn/error/step, ask_yes_no, prompt_default, prompt_validated).
 
-if [[ -n "${JASS_LIB_WALKTHROUGHS_SOURCED:-}" ]]; then
-  return 0 2>/dev/null || exit 0
-fi
+[[ -n "${JASS_LIB_WALKTHROUGHS_SOURCED:-}" ]] && return 0
 JASS_LIB_WALKTHROUGHS_SOURCED=1
 
 # Source-safe: no top-level `set -Eeuo pipefail` here. The entry point that
@@ -114,23 +112,21 @@ EOF
 }
 
 walkthrough_resource_pack() {
-  # walkthrough_resource_pack [domain] — query the live resource-pack meta
-  # endpoint and print ready-to-paste server.properties lines with the actual
-  # sha1, or explain how to publish a pack first. Domain precedence: $1, then
-  # the $DOMAIN global (set by provision mode / --domain), then a prompt.
-  local domain="${1:-}"
-  if [[ -z "$domain" ]]; then
-    if [[ -n "${DOMAIN:-}" ]]; then
-      domain="$DOMAIN"
-    else
-      # Same hostname shape common.sh's validate_domain enforces; re-prompts
-      # on invalid input instead of dying (this runs after a successful
-      # deploy, so a typo should not abort the script). EOF-safe: the default
-      # matches the regex.
-      domain="$(prompt_validated "Site domain" "justasimpleserver.net" \
-        '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$' \
-        "Must be a valid hostname like example.com (letters, digits, hyphens and dots only)")"
-    fi
+  # walkthrough_resource_pack — query the live resource-pack meta endpoint and
+  # print ready-to-paste server.properties lines with the actual sha1, or
+  # explain how to publish a pack first. Domain precedence: the $DOMAIN global
+  # (set by provision mode / --domain), then an interactive prompt.
+  local domain
+  if [[ -n "${DOMAIN:-}" ]]; then
+    domain="$DOMAIN"
+  else
+    # Same hostname shape common.sh's validate_domain enforces; re-prompts
+    # on invalid input instead of dying (this runs after a successful
+    # deploy, so a typo should not abort the script). EOF-safe: the default
+    # matches the regex.
+    domain="$(prompt_validated "Site domain" "justasimpleserver.net" \
+      '^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$' \
+      "Must be a valid hostname like example.com (letters, digits, hyphens and dots only)")"
   fi
 
   step "Walkthrough: point server.properties at the hosted resource pack"

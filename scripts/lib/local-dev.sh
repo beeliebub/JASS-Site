@@ -16,9 +16,7 @@
 # the caller (setup.sh) to have set REPO_ROOT and installed the cleanup trap
 # (this file assigns the TMP_ENV_FILE global that trap cleans up).
 
-if [[ -n "${JASS_LIB_LOCAL_DEV_SOURCED:-}" ]]; then
-  return 0 2>/dev/null || exit 0
-fi
+[[ -n "${JASS_LIB_LOCAL_DEV_SOURCED:-}" ]] && return 0
 JASS_LIB_LOCAL_DEV_SOURCED=1
 
 # Source-safe: no top-level `set -Eeuo pipefail` here. The entry point that
