@@ -119,6 +119,11 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
             );
           })}
           {isAdmin && (
+            <Link href="/account" aria-current={pathname === "/account" ? "page" : undefined} className={linkClass(pathname === "/account")}>
+              Account
+            </Link>
+          )}
+          {isAdmin && (
             <Link href="/admin" aria-current={pathname === "/admin" ? "page" : undefined} className={linkClass(pathname === "/admin")}>
               Admin
             </Link>
@@ -227,6 +232,18 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
                 </div>
               );
             })}
+            {isAdmin && (
+              <Link
+                href="/account"
+                aria-current={pathname === "/account" ? "page" : undefined}
+                onClick={() => setOpen(false)}
+                className={`rounded-md px-3 py-3 text-base font-medium transition-colors ${
+                  pathname === "/account" ? "text-foreground" : "text-muted hover:text-foreground"
+                }`}
+              >
+                Account
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 href="/admin"

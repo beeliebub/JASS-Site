@@ -294,3 +294,12 @@ export const userUpdateSchema = z.object({
   name: z.string().min(1).max(200).nullable().optional(),
   role: roleSchema.optional(),
 });
+
+/** `PUT /api/account/password` body (Phase 13 self-service password change).
+ * Kept separate from `userUpdateSchema` -- that route is owner-only and
+ * touches an arbitrary user by id, this one always targets the caller's own
+ * row via `session.user.id` and requires re-proving the current password. */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8).max(200),
+});

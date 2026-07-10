@@ -731,6 +731,231 @@ landed first.
 
 ---
 
+## Phase 13 — Self-service password change
+
+**Status: implemented.**
+
+### Goal
+
+Any signed-in `ADMIN` or `OWNER` can change their own password from a dedicated
+`/account` page, without needing an `OWNER` to reset it for them via `/admin/users`.
+Today `PUT /api/users/[id]` is gated by `requireOwner()`, so a plain `ADMIN` account
+has **no route at all** to change its own password — this phase closes that gap with a
+separate self-service endpoint, not by loosening the existing owner-only
+user-management route. Per explicit direction, this lives on its own `/account` page
+(visible only to signed-in users), **not** folded into `/admin` — the admin panel stays
+scoped to site-content/user management, account self-service is a separate concern.
+
+### Prerequisite reading
+
+`auth.ts` · `lib/auth-guard.ts` · `lib/rate-limit.ts` · `app/api/users/[id]/route.ts`
+(existing password-hashing pattern to mirror) · `lib/validation/pages.ts` (Users
+section) · `app/admin/page.tsx` (redirect-if-unauthenticated pattern to clone for
+`/account`, not a place to add UI) · `components/admin/users-admin.tsx` (form-state
+conventions to clone) · `components/admin/toast.tsx` · `components/site-header.tsx`
+(nav link conventions).
+
+### Locked-in decisions
+
+1. **New route, not a reused one**: `PUT /api/account/password`, gated by `auth()`
+   returning *any* authenticated session (no role check needed — every account in this
+   app is `ADMIN`/`OWNER`, and the route only ever touches the caller's own row via
+   `session.user.id`, never a `params.id`). Body `{ currentPassword, newPassword }`.
+2. **Re-auth before rotation**: verify `bcrypt.compare(currentPassword, existing.passwordHash)`
+   before hashing/persisting `newPassword`. Wrong current password → `badRequest("Current
+   password is incorrect.")`, not `unauthorized()` (the session itself is already valid).
+3. **Validation**: new schema in `lib/validation/pages.ts` (Users section, beside
+   `userUpdateSchema`): `changePasswordSchema = z.object({ currentPassword:
+   z.string().min(1), newPassword: z.string().min(8).max(200) })`.
+4. **Brute-force guard on the current-password check**: a stolen/hijacked session
+   shouldn't get unlimited guesses at the real password. Reuse the existing generic
+   `checkRateLimit`/`resetRateLimit` from `lib/rate-limit.ts` keyed on
+   `` `password-change:${session.user.id}` `` (5 attempts / 15 min, same shape as the
+   login limiter) — reset it on a successful change.
+5. **UI**: a new `/account` page (`app/account/page.tsx`, server component, redirects
+   to `/login` if unauthenticated — same guard shape as `app/admin/page.tsx`) rendering
+   `components/account/change-password-form.tsx` (`"use client"`), for every signed-in
+   account regardless of role. Three fields (current, new, confirm-new); confirm-new
+   is checked client-side against new before submit (no server round-trip wasted on a
+   typo); toasts via the existing `useToast()`; clears all three fields on success.
+   `components/site-header.tsx` gains an "Account" link (desktop + mobile nav) shown
+   under the same condition as the existing "Admin" link — every account in this app is
+   `ADMIN`/`OWNER`, so "signed in" and "isAdmin" are the same predicate here.
+6. **No forced re-login required**: sessions are JWTs (`auth.ts`, `strategy: "jwt"`)
+   with no server-side session store, so the current session keeps working after a
+   password change — same pre-existing limitation as today's owner-driven reset (other
+   already-issued JWTs for that account, if any, remain valid until they naturally
+   expire). Not a regression introduced by this phase; just note it, don't try to fix
+   session revocation here.
+
+### API contract
+
+| Route | Auth | Behavior |
+|---|---|---|
+| `PUT /api/account/password` | any authenticated session | Validate body → rate-limit check (429-style `conflict`/`badRequest` on exceed, matching existing envelope, no new HTTP status needed — mirror how login rate-limiting responds today) → fetch own `User` row → `bcrypt.compare` current password, 400 on mismatch → `bcrypt.hash(newPassword, 12)` → update own row → reset the rate-limit entry → `200 { data: { ok: true } }`. |
+
+### Security checklist
+
+- [ ] Route reads the target user id from the session only — never accepts/trusts a
+      body-supplied user id (this is what keeps it safely separate from the
+      owner-only `/api/users/[id]`).
+- [ ] Current password re-verified server-side before any write (never trust a
+      client-side "confirmed" flag alone).
+- [ ] Rate-limited per-account against current-password brute-forcing.
+- [ ] New password re-hashed with the same `bcrypt` cost factor (12) used everywhere
+      else (`scripts/create-admin.ts`, `app/api/users/[id]/route.ts`).
+- [ ] Response never echoes either password back, even on error.
+
+### Verification
+
+1. Sign in as a plain `ADMIN` (not `OWNER`) → change own password from `/account` →
+   sign out → sign back in with the new password succeeds, old password fails.
+2. Wrong current password → clear inline error, no state change, no rate-limit
+   exhaustion after a couple of typos.
+3. New password under 8 chars → client + server both reject.
+4. Six rapid wrong-current-password attempts → 6th is blocked by the rate limit;
+   waiting out the window (or a correct attempt) clears it.
+5. `OWNER` accounts can also use this form (not just plain `ADMIN`s).
+6. Signed-out visitor hitting `/account` directly is redirected to `/login`.
+7. `npm run lint` + `npx tsc --noEmit`.
+
+### Agent dispatch
+
+Implemented via two parallel agents: one backend (schema + rate-limited
+`PUT /api/account/password`), one frontend (`/account` page, change-password form,
+`site-header.tsx` nav link).
+
+---
+
+## Phase 14 — Direct image/GIF uploads for the Image block
+
+**Status: scoped, not started.** Implementation should not begin until this section
+gets an explicit go-ahead, per the `jass_workflow_pref` memory convention.
+
+### Goal
+
+When editing an `image` block, an admin can upload a PNG/JPEG/GIF/WebP file directly
+instead of only pasting an absolute URL to an externally-hosted image. Uploaded files
+are stored server-side and served from the site's own origin. The existing "paste a
+URL" field keeps working unchanged for external images — upload is additive.
+
+### Prerequisite reading
+
+`lib/uploads.ts` and Phase 10 above in full (this phase clones its streaming-upload /
+content-addressed-storage pattern almost exactly, for images instead of a single zip)
+· `components/blocks/image-block.tsx` · `lib/validation/pages.ts` (`imageDataSchema`)
+· `components/resource/resource-pack-admin.tsx` (raw-POST upload UI to clone) ·
+`next.config.ts` (CSP `img-src` comment) · `docker-compose.yml`.
+
+### Locked-in decisions
+
+1. **Same transport as Phase 10**: raw streaming POST (the browser's `File` object
+   directly as the `fetch` body, not multipart), hashed while streaming to a temp file,
+   atomic rename to `<UPLOADS_DIR>/images/<sha1>.<ext>`. `ext`/MIME are derived
+   **server-side from magic bytes only** — the client-supplied filename is never
+   trusted for either the storage path or the served `Content-Type`.
+2. **Allowed formats: PNG, JPEG, GIF, WebP only** — validated by magic bytes (`89 50 4E
+   47` / `FF D8 FF` / `47 49 46 38` / `52 49 46 46 …WEBP`). **SVG is explicitly
+   excluded** — it's XML and can carry embedded scripts, an XSS vector other formats
+   don't have. Anything else → 400 `invalid_image`.
+3. **Size cap: 10 MiB** per image (generous even for a large GIF, far below Phase 10's
+   256 MiB pack cap), enforced twice exactly like Phase 10 (upfront `Content-Length`
+   check + a streamed byte count that aborts and unlinks the temp file on overflow).
+4. **Content-addressed, no singleton "active" row**: unlike `ResourcePack`, many
+   uploaded images are in use at once (one per Image block, potentially), so this is
+   just a dedupe table, not a with-one-active-row model. Re-uploading identical bytes
+   resolves to the existing row/file (upsert by `sha1`), matching Phase 10's
+   re-upload-doesn't-duplicate behavior.
+5. **Serving**: public `GET /api/uploads/images/[sha1]` streams the file with
+   `Content-Type` set from the row's stored `mime` (never sniffed/re-derived from
+   request input at serve time), `Cache-Control: public, max-age=31536000, immutable`
+   (safe because the URL is content-addressed — it can only ever resolve to these
+   exact bytes) and `ETag: "<sha1>"`.
+6. **Upload UI**: `components/blocks/image-block.tsx` gains a file input next to the
+   existing "Image URL" `EditableText` (e.g. "Upload image/GIF" button, client-side
+   size/type pre-check mirroring `resource-pack-admin.tsx`'s `MAX_UPLOAD_BYTES`
+   pattern). On a successful upload, call the block's existing `onSaveData({ ...data,
+   src: url })` — the upload just produces a `src` value; it flows through the same
+   block-PUT/validation path every other edit already uses. No new save path.
+7. **Infra**: no new Docker volume — `images/` is a new subdirectory under the same
+   `UPLOADS_DIR` Phase 10 already mounts (`./data/uploads:/app/uploads`), so uploaded
+   images already survive rebuilds for free.
+
+### Open design question to resolve before implementation
+
+- **Absolute vs. relative `src`**: `imageDataSchema.src` (from the "Image
+  Request-validation-failed" fix earlier) currently requires `z.string().url()` —
+  an *absolute* URL. The served upload URL is naturally root-relative
+  (`/api/uploads/images/<sha1>.<ext>`), which is simpler and has no dependency on
+  `NEXT_PUBLIC_SITE_URL`/environment config being correct (unlike Phase 10's
+  resource-pack download URL, which does need to be absolute since Minecraft clients
+  consume it directly — this is only ever consumed by our own `<img>` tag). **Proposed
+  default**: relax `imageDataSchema.src` to accept either an absolute URL *or* a
+  root-relative path (`/^\/[^\s]*$/`-ish), and have the upload route return a relative
+  URL. Confirm before implementing, since it's a change to validation semantics on a
+  schema this project has already had one bug in.
+
+### API contract
+
+| Route | Auth | Behavior |
+|---|---|---|
+| `GET /api/uploads/images/[sha1]` | public | 200 stream, `Content-Type` from the row's `mime`, long-lived immutable cache, `ETag`/`If-None-Match` → 304. 404 envelope if unknown sha1 or file missing on disk (log the drift, same as Phase 10). |
+| `POST /api/uploads/images` | admin | `requireAdmin()` → Origin-header CSRF check (same rationale as Phase 10's raw-body POST) → require `Content-Length` ≤ 10 MiB else 413 → stream to temp while hashing + counting → magic-byte check against the 4 allowed formats else 400 `invalid_image` → atomic rename to `<sha1>.<ext>` → upsert `UploadedImage` by `sha1` (`uploadedBy` = session email) → `201 { data: { url, sha1, mime, size } }`. Temp file unlinked in `finally` on every error path. |
+
+### Sketch of the DB migration
+
+```prisma
+model UploadedImage {
+  id         String   @id @default(cuid())
+  sha1       String   @unique // lowercase hex, 40 chars
+  ext        String            // derived from validated magic bytes, not client input
+  mime       String            // one of the 4 allowed values, never freeform
+  size       Int
+  uploadedAt DateTime @default(now())
+  uploadedBy String?           // uploader email, display only
+}
+```
+
+### Security checklist (carries over Phase 10's rules)
+
+- [ ] Upload gated by `requireAdmin()`; Origin check on POST (raw-body CSRF guard).
+- [ ] Magic-bytes allow-list of exactly 4 formats; **SVG and anything else rejected**.
+- [ ] Double size enforcement (`Content-Length` + streamed count); 10 MiB cap.
+- [ ] Storage paths derived only from validated sha1 — client filename never touches
+      the filesystem path or the served `Content-Type`.
+- [ ] Temp files cleaned in `finally` on all error paths.
+- [ ] Served `Content-Type` is always one of the 4 allowed values from the DB row,
+      never re-derived from a request at serve time.
+- [ ] `imageDataSchema` change (if the open design question above is confirmed) still
+      rejects non-`http(s)`/non-root-relative strings — no `javascript:`/`data:` etc.
+      sneaking into an `<img src>`.
+
+### Verification
+
+1. Upload a PNG, a JPEG, a GIF, and a WebP through the Image block editor → each
+   renders correctly and persists across reload.
+2. Upload a non-image file renamed with a `.png` extension → 400 `invalid_image`, temp
+   file cleaned up.
+3. Upload an `.svg` → explicitly rejected.
+4. Upload something over 10 MiB → 413, temp file cleaned up.
+5. Unauthenticated / non-admin POST → 401.
+6. Re-upload identical bytes → resolves to the same row/file, no duplicate storage.
+7. `docker compose up -d --build` twice → previously uploaded images still resolve
+   (uploads volume survives rebuild, per Phase 10's existing mount).
+8. `npm run lint` + `npx tsc --noEmit`.
+
+### Agent dispatch
+
+Not yet dispatched — implementation should not start until the open design question
+above is confirmed. Once confirmed, same two-track split as Phase 10: one backend agent
+(`lib/uploads.ts` extension, migration, upload + serve routes), one frontend agent
+(`image-block.tsx` upload UI). A `security-reviewer` pass over the upload/serve routes
+is mandatory before close, same reasoning as Phase 10 (file upload = highest-risk
+surface in the project). Upload progress bar remains deferred (same XHR-vs-fetch
+limitation noted in the Appendix for Phase 10).
+
+---
+
 ## Appendix — cross-phase risks & deferred items
 
 **Risks**
