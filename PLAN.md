@@ -105,7 +105,7 @@ All migration commands in this plan are written in the safe form.
 
 ### Goal
 
-Visitors can switch the whole site between four curated Minecraft-flavored themes and
+Visitors can switch the whole site between five curated Minecraft-flavored themes and
 set a **custom accent color** (color wheel + exact hex/RGB input), persisted across
 visits with no flash of default theme. Admins can force a specific theme per page and
 choose a color *tone* on emphasis-capable blocks while editing.
@@ -168,7 +168,7 @@ then `node --no-turbofan node_modules/prisma/build/index.js generate`.
 ### Steps
 
 1. **`lib/themes.ts` (new — client-safe, NO Prisma imports).**
-   `export const THEME_IDS = ["obsidian", "parchment", "deepslate", "end"] as const;`
+   `export const THEME_IDS = ["obsidian", "parchment", "deepslate", "end", "redstone"] as const;`
    `export type ThemeId = (typeof THEME_IDS)[number];` `DEFAULT_THEME = "obsidian"`,
    a `THEMES: Record<ThemeId, { label: string; description: string; swatch: string }>`
    map for pickers, localStorage keys (`STORAGE_KEY_THEME = "jass.theme"`,
@@ -215,7 +215,7 @@ then `node --no-turbofan node_modules/prisma/build/index.js generate`.
 
 6. **`components/theme/theme-picker.tsx` (new — `"use client"`).**
    Popover/panel opened from a small button in `SiteFooter` (and optionally the mobile
-   menu): four labeled theme swatches (radio semantics, keyboard navigable),
+   menu): five labeled theme swatches (radio semantics, keyboard navigable),
    `react-colorful` `HexColorPicker` for the accent, hex input, three R/G/B number
    inputs (0–255, synced both ways via `lib/color.ts`), and a "Reset accent" button.
    Follow existing focus-visible/radius/surface token styling.
@@ -259,7 +259,7 @@ then `node --no-turbofan node_modules/prisma/build/index.js generate`.
     (keep `variant: "info"`).
 
 13. **`components/admin/pages-admin.tsx`.** Add a theme `<select>` per page row
-    (Default + the four themes), PUT via the existing pages API pattern.
+    (Default + the five themes), PUT via the existing pages API pattern.
 
 ### Security checklist
 
@@ -288,7 +288,7 @@ then `node --no-turbofan node_modules/prisma/build/index.js generate`.
   layout), one for steps 9–13 (validation/API/tones/blocks/admin). Step 1–2 outputs are
   shared contracts — land them first.
 - Review: `react-reviewer` on provider/picker/script; `code-reviewer` on the rest;
-  a design pass (design-system / make-interfaces-feel-better skills) over the four
+  a design pass (design-system / make-interfaces-feel-better skills) over the five
   themes' token values — parchment must be *designed*, not naively inverted.
 - Tests: unit tests for `lib/color.ts` (luminance/foreground/darken edge cases) if a
   test runner is introduced; otherwise verify via the manual list above.
@@ -593,6 +593,144 @@ beyond function/readonly definitions).
 
 ---
 
+## Phase 12 — Admin-authored custom themes
+
+**Status: scoped, not started.** Locked-in decisions below came out of a scoping
+conversation (see the `jass_workflow_pref` memory convention this project follows) —
+implementation should not begin until this section gets an explicit go-ahead.
+
+### Goal
+
+Let `ADMIN`/`OWNER` accounts create, edit, and delete named custom themes from an admin
+panel, without touching code. A custom theme is a full ~16-token color set, same shape
+as the five built-in themes (`obsidian`, `parchment`, `deepslate`, `end`, `redstone`).
+Once created, a custom theme is selectable anywhere a built-in theme is today: the
+visitor-facing footer theme picker, and the per-page theme override in `/admin/pages`.
+
+### Locked-in decisions
+
+1. **Editor UI**: extend the existing accent-picker pattern (`react-colorful`
+   `HexColorPicker` + hex/RGB fields, from `components/theme/theme-picker.tsx`) into an
+   admin form with one such color control per token, grouped by role (surfaces:
+   background/surface/surface-2/border/border-strong; text: foreground/muted;
+   brand: primary/primary-foreground/primary-hover/accent/accent-foreground; status:
+   danger/info/online/offline), plus a name field and a live preview pane (render a
+   sample card/button/callout with the draft tokens applied). Not a from-scratch
+   builder — reuse `lib/color.ts` (`parseHex`, `rgbToHex`, `relativeLuminance`,
+   `readableForeground`) for validation and "suggest a legible foreground" affordances,
+   same as the existing picker.
+2. **Apply scope**: identical surface area to built-in themes — the visitor picker and
+   the per-page admin dropdown both list custom themes alongside the five built-ins.
+3. **Data model**: two-tier. Built-in themes stay exactly as they are today —
+   `lib/themes.ts`'s `THEME_IDS`/`THEMES` and the static `[data-theme="…"]` blocks in
+   `app/globals.css` are untouched by this phase. Custom themes are a new `CustomTheme`
+   DB model, resolved and applied at request/selection time rather than compiled into
+   CSS. This avoids any risk to the working static system and avoids dynamic CSS
+   generation (see Security checklist).
+
+### Open design questions to resolve before implementation
+
+These weren't settled in the scoping pass and need an explicit call (or a documented
+default) before agents start:
+
+- **Visitor-wide selection + no-flash**: today's blocking inline `theme-script.tsx`
+  validates against a hardcoded static ID array and applies known CSS at parse time —
+  it can't know about DB-authored themes without a fetch, which reintroduces the
+  flash-of-wrong-theme Phase 9 explicitly eliminated. Proposed default: when a visitor
+  selects a custom theme, cache its *resolved token values* (not just an ID) in
+  `localStorage` under a new key (e.g. `jass.customThemeTokens`), and extend the
+  blocking script to apply cached tokens via `style.setProperty` for all ~16 vars
+  (same technique it already uses for the single `--primary` override) if that key is
+  present — no fetch on the critical path, at the cost of staleness if an admin edits
+  a theme a visitor already has cached (acceptable: picking the theme again refreshes
+  the cache). Confirm this trade-off before building it.
+- **Per-page selection**: no flash risk here — `PageRenderer` is a server component
+  with DB access, so it can resolve `Page.customThemeId` → tokens synchronously and
+  emit them as an inline `style` attribute on the existing `data-theme` wrapper div.
+  Needs a `Page.customThemeId String?` column alongside (not replacing) the existing
+  `Page.theme String?`, since a page must be able to reference *either* a built-in id
+  or a custom theme row, mutually exclusive.
+- **Deleting a custom theme that's in use**: decide the behavior when an admin deletes
+  a theme currently assigned to one or more pages or cached in visitors' localStorage —
+  likely "block delete while any Page references it (surface the count), visitors with
+  a stale cached selection silently fall back to the default on next pick" — confirm.
+- **Uniqueness/limits**: theme name uniqueness, and whether there's a cap on how many
+  custom themes can exist (pure UI/DB hygiene, not a hard blocker).
+
+### Sketch of the DB migration
+
+```prisma
+model CustomTheme {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  background       String
+  surface          String
+  surface2         String
+  border           String
+  borderStrong     String
+  foreground       String
+  muted            String
+  primary          String
+  primaryForeground String
+  primaryHover     String
+  accent           String
+  accentForeground String
+  danger           String
+  info             String
+  online           String
+  offline          String
+  createdBy        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Page {
+  // ...existing fields...
+  customThemeId String? // mutually exclusive with `theme`; FK to CustomTheme
+}
+```
+
+(Field-by-field hex strings, not a JSON blob, so each one gets independent Zod
+validation server-side — same reasoning as every other token being validated as
+`#rrggbb` today.)
+
+### Security checklist (carries over Phase 9's rules, extended)
+
+- [ ] Every color field validated as strict `#rrggbb` hex server-side (Zod) before
+      persisting — reuse `parseHex`/the regex already in `theme-script.tsx`.
+- [ ] Custom theme tokens are applied exclusively via `style.setProperty` (client) or
+      an inline `style={{ '--token': value }}` React prop (server) with validated hex
+      values — **never** via a server-rendered `<style>` block with interpolated CSS,
+      to avoid any CSS-injection surface.
+- [ ] Create/update/delete routes gated by `requireAdmin()` (`ADMIN` or `OWNER`, per
+      `lib/auth-guard.ts`) — no owner-only restriction needed here, matching the "Admin
+      & Owner" ask.
+- [ ] No new CSP loosening required (verify `next.config.ts` unchanged) — the
+      no-`<style>`-injection rule above is what keeps this true.
+
+### Verification (draft — refine once open questions are resolved)
+
+1. `ADMIN` and `OWNER` can both create/edit/delete a custom theme; a non-admin session
+   gets 403 from the API routes.
+2. A created custom theme appears in both the footer picker and the per-page dropdown
+   immediately (no redeploy).
+3. Assigning a custom theme to a page renders that page with the custom tokens while
+   the rest of the site follows the visitor's own selection.
+4. Selecting a custom theme site-wide survives a hard reload with no flash of the
+   previous theme (validates the localStorage-cache approach above, once built).
+5. Deleting a custom theme in use is blocked (or handled per the confirmed behavior)
+   rather than silently breaking pages that reference it.
+
+### Agent dispatch
+
+Not yet dispatched — implementation should not start until the open design questions
+above are confirmed. Once confirmed, expect the same two-track split Phase 9 used: one
+agent for the DB model + validation + API routes, one for the admin editor UI +
+picker/PageRenderer integration, with `CustomTheme`'s shape as the shared contract
+landed first.
+
+---
+
 ## Appendix — cross-phase risks & deferred items
 
 **Risks**
@@ -611,7 +749,7 @@ beyond function/readonly definitions).
 5. *Parchment (light) contrast*: light theme needs re-derived border alphas and a
    darkened primary — design it, don't invert it. Flagged for the Phase 9 design pass.
 6. *Hero block on non-default themes*: it renders server-side with token classes, so
-   it themes automatically — but verify visually on all four themes.
+   it themes automatically — but verify visually on all five themes.
 
 **Deferred (explicitly out of scope for phases 9–11)**
 

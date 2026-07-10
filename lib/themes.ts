@@ -4,7 +4,7 @@
  * inline theme script, block tone selects, lib/validation/pages.ts).
  */
 
-export const THEME_IDS = ["obsidian", "parchment", "deepslate", "end"] as const;
+export const THEME_IDS = ["obsidian", "parchment", "deepslate", "end", "redstone"] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
 
@@ -30,6 +30,11 @@ export const THEMES: Record<ThemeId, { label: string; description: string; swatc
     label: "The End",
     description: "Deep purple with chorus-fruit magenta accents.",
     swatch: "#b06fe0",
+  },
+  redstone: {
+    label: "Redstone",
+    description: "Near-black with a warm red undertone, glowing redstone-dust red and torch-gold accents.",
+    swatch: "#eb4034",
   },
 };
 

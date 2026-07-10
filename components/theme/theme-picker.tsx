@@ -12,8 +12,8 @@ type RgbChannel = (typeof RGB_CHANNELS)[number];
 const CHANNEL_LABELS: Record<RgbChannel, string> = { r: "R", g: "G", b: "B" };
 
 /**
- * Footer-anchored popover: four theme swatches wired as a `radiogroup`/`radio`
- * set (single-select, "N of 4" announced to screen readers) plus the
+ * Footer-anchored popover: five theme swatches wired as a `radiogroup`/`radio`
+ * set (single-select, "N of 5" announced to screen readers) plus the
  * custom-accent controls (react-colorful wheel, hex field, R/G/B fields,
  * reset). Panel state is local -- there's no shared popover primitive
  * elsewhere in the codebase to reuse (checked components/admin/toast.tsx and

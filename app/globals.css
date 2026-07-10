@@ -170,6 +170,41 @@
   --offline: #726a80;
 }
 
+/* Redstone -- near-black background with a warm red undertone (a distinct
+   warm-dark family from obsidian's cool green, deepslate's cool blue, and
+   end's cool purple). Primary is a glowing redstone-dust red (#eb4034,
+   relative luminance ~0.216) paired with a near-black warm primary-foreground
+   (#1c0605, ~4.9:1 contrast, verified via lib/color.ts's relativeLuminance
+   formula). Accent is a torch-flame gold (#eab308, hue ~45deg) shifted
+   noticeably more yellow than obsidian's amber (#e8a94a, ~36deg),
+   deepslate's copper (#d98d4a, ~28deg), and parchment's brown-amber
+   (#8a5117, ~30deg), so it reads as its own accent hue rather than a
+   reskin (accent-foreground #1f1400 is ~9.5:1 against it). Danger is
+   pulled toward crimson/pink (#e63976, hue ~339deg) instead of true red so
+   destructive UI stays visually distinct from the red primary/brand color. */
+[data-theme="redstone"] {
+  --background: #170908;
+  --surface: #211110;
+  --surface-2: #2b1815;
+  --border: rgba(245, 230, 226, 0.1);
+  --border-strong: rgba(245, 230, 226, 0.18);
+
+  --foreground: #f5e6e2;
+  --muted: #a6847e;
+
+  --primary: #eb4034;
+  --primary-foreground: #1c0605;
+  --primary-hover: #cf382e;
+
+  --accent: #eab308;
+  --accent-foreground: #1f1400;
+
+  --danger: #e63976;
+  --info: #4a9fe8;
+  --online: #eb4034;
+  --offline: #7a6862;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
