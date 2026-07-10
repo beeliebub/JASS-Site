@@ -34,6 +34,28 @@ export function tempPackPath(): string {
   return path.join(packsDir(), `${crypto.randomUUID()}.tmp`);
 }
 
+export function imagesDir(): string {
+  const dir = path.join(uploadsDir(), "images");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * `sha1` always originates from our own hasher/DB, but re-validating here
+ * (rather than trusting the caller) means a future call site can never turn
+ * an unvalidated string into a filesystem path.
+ */
+export function imagePath(sha1: string, ext: string): string {
+  if (!SHA1_RE.test(sha1)) {
+    throw new Error(`Refusing to build an image path from invalid sha1: "${sha1}"`);
+  }
+  return path.join(imagesDir(), `${sha1}.${ext}`);
+}
+
+export function tempImagePath(): string {
+  return path.join(imagesDir(), `${crypto.randomUUID()}.tmp`);
+}
+
 function unlinkIgnoringMissing(filePath: string): void {
   try {
     fs.unlinkSync(filePath);

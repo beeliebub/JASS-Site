@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Container } from "@/components/container";
 import { siteConfig } from "@/lib/site-config";
 import { EditModeToggle } from "@/components/admin/edit-mode-toggle";
@@ -32,6 +32,28 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
   const [open, setOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
+  const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCloseTimeout = () => {
+    if (closeTimeout.current) {
+      clearTimeout(closeTimeout.current);
+      closeTimeout.current = null;
+    }
+  };
+  const openDropdownNow = (id: string) => {
+    clearCloseTimeout();
+    setOpenDropdown(id);
+  };
+  // Grace period so the menu doesn't vanish the instant the cursor dips
+  // outside its box (e.g. moving diagonally toward an item) -- cancelled
+  // if the cursor re-enters the trigger or panel within the delay.
+  const scheduleCloseDropdown = (id: string) => {
+    clearCloseTimeout();
+    closeTimeout.current = setTimeout(() => {
+      setOpenDropdown((cur) => (cur === id ? null : cur));
+    }, 300);
+  };
+  useEffect(() => clearCloseTimeout, []);
 
   const linkClass = (active: boolean) =>
     `rounded-md px-3 py-2 text-sm font-medium transition-colors ${active ? "text-foreground" : "text-muted hover:text-foreground"}`;
@@ -71,48 +93,57 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
               <div
                 key={item.id}
                 className="relative"
-                onMouseEnter={() => setOpenDropdown(item.id)}
-                onMouseLeave={() => setOpenDropdown((cur) => (cur === item.id ? null : cur))}
+                onMouseEnter={() => openDropdownNow(item.id)}
+                onMouseLeave={() => scheduleCloseDropdown(item.id)}
               >
                 <button
                   type="button"
                   aria-haspopup="true"
                   aria-expanded={expanded}
-                  onClick={() => setOpenDropdown((cur) => (cur === item.id ? null : item.id))}
-                  onFocus={() => setOpenDropdown(item.id)}
+                  onClick={() => {
+                    clearCloseTimeout();
+                    setOpenDropdown((cur) => (cur === item.id ? null : item.id));
+                  }}
+                  onFocus={() => openDropdownNow(item.id)}
                   className={`flex items-center gap-1 ${linkClass(active)}`}
                 >
                   {item.label}
                   <ChevronIcon open={expanded} />
                 </button>
                 {expanded && (
-                  <div
-                    role="menu"
-                    aria-label={item.label}
-                    onFocus={() => setOpenDropdown(item.id)}
-                    onBlur={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpenDropdown(null);
-                    }}
-                    className="nav-drop-enter absolute left-0 top-full z-10 mt-1 min-w-40 rounded-md border border-border bg-surface py-1 shadow-lg shadow-black/20"
-                  >
-                    {item.children.map((child) => {
-                      const childHref = navItemHref(child);
-                      const childActive = pathname === childHref;
-                      return (
-                        <Link
-                          key={child.id}
-                          href={childHref}
-                          role="menuitem"
-                          aria-current={childActive ? "page" : undefined}
-                          onClick={() => setOpenDropdown(null)}
-                          className={`block px-3 py-2 text-sm transition-colors ${
-                            childActive ? "text-foreground" : "text-muted hover:bg-surface-2 hover:text-foreground"
-                          }`}
-                        >
-                          {child.label}
-                        </Link>
-                      );
-                    })}
+                  // pt-1 (not mt-1) keeps this hoverable box flush against the
+                  // trigger button -- a margin gap here is dead space the cursor
+                  // has to cross, which used to fire mouseleave before it ever
+                  // reached the menu.
+                  <div className="absolute left-0 top-full z-10 pt-1">
+                    <div
+                      role="menu"
+                      aria-label={item.label}
+                      onFocus={() => openDropdownNow(item.id)}
+                      onBlur={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpenDropdown(null);
+                      }}
+                      className="nav-drop-enter min-w-40 rounded-md border border-border bg-surface py-1 shadow-lg shadow-black/20"
+                    >
+                      {item.children.map((child) => {
+                        const childHref = navItemHref(child);
+                        const childActive = pathname === childHref;
+                        return (
+                          <Link
+                            key={child.id}
+                            href={childHref}
+                            role="menuitem"
+                            aria-current={childActive ? "page" : undefined}
+                            onClick={() => setOpenDropdown(null)}
+                            className={`block px-3 py-2 text-sm transition-colors ${
+                              childActive ? "text-foreground" : "text-muted hover:bg-surface-2 hover:text-foreground"
+                            }`}
+                          >
+                            {child.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

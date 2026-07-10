@@ -147,15 +147,26 @@ const richTextDataSchema = z.object({
 /** `src`/`alt` may both be "" -- ImageBlock renders a "No image URL set"
  * placeholder in that state (see components/blocks/image-block.tsx), and a
  * freshly-added block starts out that way. Once `src` is non-empty it must
- * be a real absolute URL, and `alt` becomes required for accessibility. */
+ * be either an absolute http(s) URL (externally-hosted image) or a
+ * root-relative path (an image uploaded via `POST /api/uploads/images`,
+ * Phase 14 -- see that route's `url` response field), and `alt` becomes
+ * required for accessibility. Deliberately excludes `javascript:`, `data:`,
+ * and protocol-relative (`//host/...`) strings, none of which are safe to
+ * hand straight to an `<img src>`. */
+const isRootRelativePath = (s: string) => /^\/(?!\/)\S*$/.test(s);
+const isHttpUrl = (s: string) => {
+  const parsed = z.string().url().safeParse(s);
+  return parsed.success && (s.startsWith("http://") || s.startsWith("https://"));
+};
+
 const imageDataSchema = z
   .object({
     src: z.string().max(2000),
     alt: z.string().max(300),
     caption: z.string().max(500).optional(),
   })
-  .refine((data) => data.src === "" || z.string().url().safeParse(data.src).success, {
-    message: "src must be a valid absolute URL.",
+  .refine((data) => data.src === "" || isHttpUrl(data.src) || isRootRelativePath(data.src), {
+    message: "src must be an absolute http(s) URL or a root-relative path.",
     path: ["src"],
   })
   .refine((data) => data.src === "" || data.alt.length > 0, {

@@ -136,3 +136,18 @@ model ResourcePack {
   uploadedAt DateTime @default(now())
   uploadedBy String? // uploader email, display only
 }
+
+// Direct image uploads for the Image block (Phase 14). Content-addressed on
+// disk at <UPLOADS_DIR>/images/<sha1>.<ext> (see lib/uploads.ts) -- this row
+// is metadata only. Unlike ResourcePack there's no single "active" row: many
+// uploaded images are referenced at once, one per Image block. Re-uploading
+// identical bytes resolves to the existing row (upsert by sha1).
+model UploadedImage {
+  id         String   @id @default(cuid())
+  sha1       String   @unique // lowercase hex, 40 chars
+  ext        String            // derived from validated magic bytes, not client input
+  mime       String            // one of the 4 allowed values, never freeform
+  size       Int
+  uploadedAt DateTime @default(now())
+  uploadedBy String?           // uploader email, display only
+}

@@ -829,8 +829,7 @@ Implemented via two parallel agents: one backend (schema + rate-limited
 
 ## Phase 14 — Direct image/GIF uploads for the Image block
 
-**Status: scoped, not started.** Implementation should not begin until this section
-gets an explicit go-ahead, per the `jass_workflow_pref` memory convention.
+**Status: implemented.**
 
 ### Goal
 
@@ -881,19 +880,16 @@ content-addressed-storage pattern almost exactly, for images instead of a single
    `UPLOADS_DIR` Phase 10 already mounts (`./data/uploads:/app/uploads`), so uploaded
    images already survive rebuilds for free.
 
-### Open design question to resolve before implementation
+### Design question — resolved
 
-- **Absolute vs. relative `src`**: `imageDataSchema.src` (from the "Image
-  Request-validation-failed" fix earlier) currently requires `z.string().url()` —
-  an *absolute* URL. The served upload URL is naturally root-relative
-  (`/api/uploads/images/<sha1>.<ext>`), which is simpler and has no dependency on
-  `NEXT_PUBLIC_SITE_URL`/environment config being correct (unlike Phase 10's
-  resource-pack download URL, which does need to be absolute since Minecraft clients
-  consume it directly — this is only ever consumed by our own `<img>` tag). **Proposed
-  default**: relax `imageDataSchema.src` to accept either an absolute URL *or* a
-  root-relative path (`/^\/[^\s]*$/`-ish), and have the upload route return a relative
-  URL. Confirm before implementing, since it's a change to validation semantics on a
-  schema this project has already had one bug in.
+- **Absolute vs. relative `src`**: confirmed — relax `imageDataSchema.src` to accept
+  either an absolute `http(s)` URL *or* a root-relative path, and have the upload route
+  return a root-relative URL (`/api/uploads/images/<sha1>.<ext>`). No dependency on
+  `NEXT_PUBLIC_SITE_URL` being correct; this URL is only ever consumed by our own
+  `<img>` tag, unlike Phase 10's resource-pack download URL which Minecraft clients
+  consume directly and does need to stay absolute. The relaxed check must still reject
+  anything that isn't `http(s):` or root-relative — no `javascript:`/`data:`/protocol-
+  relative (`//host/...`) strings sneaking into an `<img src>`.
 
 ### API contract
 
@@ -946,13 +942,11 @@ model UploadedImage {
 
 ### Agent dispatch
 
-Not yet dispatched — implementation should not start until the open design question
-above is confirmed. Once confirmed, same two-track split as Phase 10: one backend agent
-(`lib/uploads.ts` extension, migration, upload + serve routes), one frontend agent
-(`image-block.tsx` upload UI). A `security-reviewer` pass over the upload/serve routes
-is mandatory before close, same reasoning as Phase 10 (file upload = highest-risk
-surface in the project). Upload progress bar remains deferred (same XHR-vs-fetch
-limitation noted in the Appendix for Phase 10).
+Implemented via two parallel agents, same split as Phase 10: one backend
+(`lib/uploads.ts` extension, `UploadedImage` migration, upload + serve routes,
+`imageDataSchema` relaxation), one frontend (`image-block.tsx` upload UI). Upload
+progress bar remains deferred (same XHR-vs-fetch limitation noted in the Appendix for
+Phase 10).
 
 ---
 

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { auth, signOut } from "@/auth";
 import { Container } from "@/components/container";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 
@@ -31,6 +31,20 @@ export default async function AccountPage() {
           <ChangePasswordForm />
         </div>
       </div>
+
+      <form
+        action={async () => {
+          "use server";
+          await signOut({ redirectTo: "/login" });
+        }}
+      >
+        <button
+          type="submit"
+          className="flex h-10 items-center justify-center rounded-md border border-border-strong px-4 text-sm font-medium text-foreground transition hover:bg-surface-2 motion-safe:active:scale-[0.97]"
+        >
+          Sign out
+        </button>
+      </form>
     </Container>
   );
 }
