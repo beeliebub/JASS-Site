@@ -13,12 +13,15 @@ services:
       - .env.production
     environment:
       # Overrides the DATABASE_URL from .env.production to match the
-      # in-container bind-mount path below.
-      DATABASE_URL: "file:/app/prisma/dev.db"
+      # in-container bind-mount path below. Deliberately /app/data, not
+      # /app/prisma -- the Dockerfile bakes schema.prisma/migrations/seed.ts
+      # into /app/prisma, and bind-mounting straight onto that path would
+      # shadow them, breaking `prisma migrate deploy` and `npm run db:seed`.
+      DATABASE_URL: "file:/app/data/dev.db"
       UPLOADS_DIR: /app/uploads
     volumes:
       # Named/bind-mounted so the SQLite file persists across
       # `docker compose up --build` redeploys.
-      - ./data/prisma:/app/prisma
+      - ./data/db:/app/data
       - ./data/backups:/app/backups
       - ./data/uploads:/app/uploads

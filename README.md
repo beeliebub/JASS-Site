@@ -328,7 +328,7 @@ docker compose up -d --build
 
 This builds the image (installing deps, running `prisma generate` and `next build`
 inside the container per the `Dockerfile`) and starts it bound to `127.0.0.1:3000`,
-with `./data/prisma` and `./data/backups` bind-mounted so the database survives
+with `./data/db` and `./data/backups` bind-mounted so the database survives
 rebuilds.
 
 #### 9. Apply migrations and seed placeholder content

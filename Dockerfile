@@ -38,13 +38,26 @@ COPY --from=build /app/app/generated ./app/generated
 COPY --from=build /app/public ./public
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.ts ./next.config.ts
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/lib ./lib
+COPY --from=build /app/components ./components
+# schema.prisma + migrations (needed by `prisma migrate deploy`) and seed.ts
+# (needed by `npm run db:seed`, which -- like create-admin/db:backup under
+# scripts/ -- runs straight from TypeScript source via tsx, not a build
+# artifact, hence lib/ and components/ above too). The SQLite DB file itself
+# is deliberately NOT baked in here -- see the /app/data note below.
+COPY --from=build /app/prisma/schema.prisma ./prisma/schema.prisma
+COPY --from=build /app/prisma/migrations ./prisma/migrations
+COPY --from=build /app/prisma/seed.ts ./prisma/seed.ts
 
-# prisma/ (the SQLite DB), backups/, and uploads/ (resource packs) are
-# bind-mounted from the host via docker-compose.yml so data survives image
-# rebuilds/redeploys — never bake prisma/dev.db or uploaded packs into the
-# image itself.
-RUN mkdir -p /app/prisma /app/backups /app/uploads
+# The SQLite DB (bind-mounted to /app/data, NOT /app/prisma -- that would
+# shadow the schema/migrations copied in above), backups/, and uploads/
+# (resource packs) are bind-mounted from the host via docker-compose.yml so
+# data survives image rebuilds/redeploys -- never bake the DB file or
+# uploaded packs into the image itself.
+RUN mkdir -p /app/data /app/backups /app/uploads
 
 EXPOSE 3000
 CMD ["npm", "run", "start"]

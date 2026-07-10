@@ -60,11 +60,15 @@ edge network or team-based preview deployments — it doesn't today.
   `next build`, then a slim runtime stage that runs `npm run start`. Comments
   inline explain the better-sqlite3 native-module consideration.
 - `docker-compose.yml` — binds the app to `127.0.0.1:3000` only (not public),
-  bind-mounts `./data/prisma` and `./data/backups` so the DB and backup
+  bind-mounts `./data/db` and `./data/backups` so the DB and backup
   snapshots survive container rebuilds, and reads `.env.production` for
-  secrets. Phase 10 adds a third bind-mount, `./data/uploads`, so resource
-  packs (`UPLOADS_DIR`, content-addressed under `resource-packs/<sha1>.zip`)
-  also survive rebuilds instead of living only inside the container layer.
+  secrets. `./data/db` maps to `/app/data` (not `/app/prisma`) because the
+  Dockerfile bakes `schema.prisma`/`migrations`/`seed.ts` into `/app/prisma`
+  in the image — bind-mounting the DB directly onto that path would shadow
+  them and break `prisma migrate deploy`/`npm run db:seed`. Phase 10 adds a
+  third bind-mount, `./data/uploads`, so resource packs (`UPLOADS_DIR`,
+  content-addressed under `resource-packs/<sha1>.zip`) also survive rebuilds
+  instead of living only inside the container layer.
 - `Caddyfile` — host-level Caddy (outside Docker) terminating TLS for
   `justasimpleserver.net` and reverse-proxying to the container. Caddy has no
   default request body size limit, so the large resource-pack uploads in
@@ -111,7 +115,7 @@ with real production values:
 
 | Variable | Notes |
 |---|---|
-| `DATABASE_URL` | `file:./prisma/dev.db` on a VPS; `file:/app/prisma/dev.db` in the Docker Compose setup above (matches the bind mount). |
+| `DATABASE_URL` | `file:./prisma/dev.db` on a VPS/PM2 host; `file:/app/data/dev.db` in the Docker Compose setup above (matches the bind mount — `docker-compose.yml` sets this itself via its `environment:` block, overriding whatever `.env.production` has). |
 | `AUTH_SECRET` | **Must be regenerated for production** — do not reuse the value currently in this repo's local `.env`, which is a dev-only secret. Generate a fresh one: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
 | `MC_SERVER_HOST` / `MC_SERVER_PORT` | Already `justasimpleserver.net` / `25565` in `.env` — carry the real values over. |
 | `NEXT_PUBLIC_SITE_URL` | Optional. Used by `app/layout.tsx` to set `metadataBase` for absolute OG/canonical URLs. Defaults to `https://justasimpleserver.net` if unset. |
@@ -241,5 +245,5 @@ storage) — not implemented here, flagged as a reasonable follow-up.
 ```bash
 # Stop the app first so nothing writes to prisma/dev.db mid-restore.
 cp backups/dev-<timestamp>.db prisma/dev.db
-# Docker Compose equivalent: cp backups/dev-<timestamp>.db data/prisma/dev.db
+# Docker Compose equivalent: cp backups/dev-<timestamp>.db data/db/dev.db
 ```

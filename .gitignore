@@ -53,6 +53,9 @@ next-env.d.ts
 # uploaded resource packs (lib/uploads.ts)
 /uploads
 
+# Docker Compose route's bind-mounted DB/backups/uploads (docker-compose.yml)
+/data
+
 # Claude Code local/machine-specific state (not shared project config)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
