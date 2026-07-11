@@ -284,7 +284,52 @@ contract before splitting.
 
 ---
 
-## Phase 18 — Per-instance block content (Post List, Rule List, Feature Grid, Hero) + news tag filtering & styling
+## Phase 18 — Per-instance block content (Post List, Rule List, Feature Grid, Hero) + news tag filtering & styling — COMPLETE
+
+Shipped 2026-07-11. Implementation notes/deviations from the original spec below, kept
+for anyone touching this area later:
+
+- **Hero live-update required splitting `components/home/hero.tsx` into a thin server
+  data-fetch wrapper plus a new client component, `components/home/hero-content.tsx`.**
+  The original plan's "`page-renderer.tsx` pre-renders `<Hero />` on the server, hands
+  the opaque result down as `block.heroContent`" approach (carried over from pre-Phase-18)
+  turned out to make the override **write-only in the same edit session**: a
+  Server-Component-rendered `ReactNode` crossing into a Client Component as a prop
+  arrives as an opaque RSC reference that cannot be introspected or `cloneElement`'d from
+  userland code (confirmed by direct testing — `isValidElement()` on it returns `false`).
+  `router.refresh()` doesn't fix this either, since `PageBlocks` (the client component
+  holding the reactive `blocks` array) owns its `useState` independently and won't
+  re-adopt fresh server props without a remount. The fix: `block.heroContent` is now
+  **plain serializable data** (`HeroContentData` — `heroName`/`heroTagline`/`serverIp`/the
+  3 `CONTENT_KEYS` strings), fetched once via `getSiteContent()` in `page-renderer.tsx`
+  alongside the existing `ruleSections`/`features`/`posts` fetches. `registry.tsx`'s
+  `hero` entry builds `<HeroContent>` itself, fresh, on every render, passing the live
+  `headingOverride`/`taglineOverride` straight off `block.data` — so editing the override
+  via `HeroOverrideControls` now updates the visible heading immediately, no reload or
+  refresh needed.
+- **Rule List numbering is computed from the full, unfiltered section list, then
+  filtered for display** (`components/rules/rules-editor.tsx`), not filtered-then-numbered
+  as originally implemented in a first pass. Numbering-after-filtering would have let a
+  filtered instance (including the canonical `/rules` page's own block, which is just a
+  normal filterable `Block` like any other) silently renumber rules relative to their
+  true site-wide position — a real risk for anyone referencing rule numbers externally
+  (Discord, moderation logs). Numbers now stay stable regardless of which subset an
+  instance shows.
+- **The Post List "Latest" badge compares against the true global most-recent post**
+  (`posts[0]` of the full, unfiltered, already-sorted list), not the first item of the
+  filtered/limited view. The original `featured={index === 0}` (keyed off the filtered
+  array) could mark a stale post "Latest" on a page filtered to an older tag while a
+  genuinely newer post (of a different tag) existed elsewhere.
+- **Post List's tag/limit filter and the Hero override both rely on `page-blocks.tsx`'s
+  `saveBlockData` for the save-failure toast** — their own `catch` blocks do local-state
+  rollback only and deliberately don't call `showError` again, matching the
+  `rules-editor.tsx`/`features-editor.tsx` convention. An earlier pass had both call
+  `showError` redundantly, producing two stacked toasts for one failed save.
+- **The Post List "Limit" number input commits on blur**, not on every keystroke — the
+  original per-keystroke `onChange` fired a `PUT` (and a full `PageBlocks` re-render) per
+  digit typed, unlike every other text field in this codebase (`EditableText`'s
+  onBlur-commit convention). A value below 1 (including the transient "0" state while
+  typing) is clamped to "no limit" rather than sent to the server.
 
 ### Goal
 

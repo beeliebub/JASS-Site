@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { Container } from "@/components/container";
+import { TagPill } from "@/components/news/tag-pill";
 import { prisma } from "@/lib/prisma";
 
 function formatDate(date: Date) {
@@ -43,7 +44,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
           <time dateTime={post.publishedAt.toISOString()} className="font-mono text-xs text-muted">
             {formatDate(post.publishedAt)}
           </time>
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted">{post.tag}</span>
+          <TagPill tag={post.tag} />
           {post.author && (
             <span className="text-[11px] font-medium uppercase tracking-wider text-muted">by {post.author}</span>
           )}

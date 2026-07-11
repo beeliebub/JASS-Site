@@ -1,9 +1,11 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ComponentType } from "react";
 import type { Feature, Rule, RuleSection } from "@/app/generated/prisma/client";
 import { Container } from "@/components/container";
-import { RulesEditor } from "@/components/rules/rules-editor";
-import { FeaturesEditor } from "@/components/features/features-editor";
-import { PostsEditor, type ClientPost } from "@/components/news/posts-editor";
+import { RulesEditor, type RuleListData } from "@/components/rules/rules-editor";
+import { FeaturesEditor, type FeatureGridData } from "@/components/features/features-editor";
+import { PostsEditor, type ClientPost, type PostListData } from "@/components/news/posts-editor";
+import { HeroOverrideControls, type HeroData } from "@/components/home/hero-override-controls";
+import { HeroContent, type HeroContentData } from "@/components/home/hero-content";
 import { PageHeaderBlock, type PageHeaderData } from "@/components/blocks/page-header-block";
 import { CalloutBlock, type CalloutData } from "@/components/blocks/callout-block";
 import { StepsBlock, type StepsData } from "@/components/blocks/steps-block";
@@ -23,14 +25,21 @@ import { BLOCK_TYPES, type BlockType } from "@/lib/validation/pages";
  * if/switch, so adding a block type later is a one-line registration").
  *
  * Data-referencing types (hero/ruleList/featureGrid/postList) render the
- * existing Phase 2/4 editor components unchanged, backed by data
- * pre-fetched server-side in page-renderer.tsx and threaded through as
- * `referenceData` -- these components (RulesEditor/FeaturesEditor/
- * PostsEditor) already accept plain serializable "initial*" props, so no
- * server/client boundary issue. `hero` is the one exception: `Hero()` is
- * itself an async Server Component with no props (it fetches its own
- * ContentBlock data), so page-renderer.tsx pre-renders `<Hero />` on the
- * server and hands the opaque result down as `block.heroContent`.
+ * existing Phase 2/4 editor components, backed by data pre-fetched
+ * server-side in page-renderer.tsx and threaded through as `referenceData`
+ * -- these components (RulesEditor/FeaturesEditor/PostsEditor) accept plain
+ * serializable "initial*" props, so no server/client boundary issue. Since
+ * Phase 18 they additionally accept `data`/`onSaveData` for their own
+ * per-instance filter (`RuleListData`/`FeatureGridData`/`PostListData`).
+ * `hero` follows the same "plain serializable data, not a rendered element"
+ * rule: `block.heroContent` is the site-wide `{heroName, heroTagline,
+ * serverIp, ...}` fetched once in page-renderer.tsx (a ReactNode pre-rendered
+ * there would arrive here as an opaque, un-cloneable RSC reference -- see
+ * components/home/hero-content.tsx's `HeroContentData` doc). This entry
+ * builds `<HeroContent>` itself from that data plus the live `headingOverride`/
+ * `taglineOverride` off `block.data`, so editing the override via
+ * `HeroOverrideControls` (rendered alongside it) updates the visible heading
+ * immediately.
  */
 
 export type SectionWithRules = RuleSection & { rules: Rule[] };
@@ -46,7 +55,7 @@ export type ClientBlock = {
   type: BlockType;
   order: number;
   data: unknown;
-  heroContent?: ReactNode;
+  heroContent?: HeroContentData;
 };
 
 export type BlockComponentProps = {
@@ -56,25 +65,50 @@ export type BlockComponentProps = {
 };
 
 export const blockComponents: Record<BlockType, ComponentType<BlockComponentProps>> = {
-  hero: ({ block }) => <>{block.heroContent}</>,
+  hero: ({ block, onSaveData }) => {
+    const heroData = block.data as HeroData;
+    if (!block.heroContent) return null;
+    return (
+      <>
+        <HeroContent
+          {...block.heroContent}
+          headingOverride={heroData.headingOverride}
+          taglineOverride={heroData.taglineOverride}
+        />
+        <HeroOverrideControls data={heroData} onSaveData={onSaveData as (next: HeroData) => Promise<void>} />
+      </>
+    );
+  },
   // These 3 (unlike hero, and unlike every data-carrying block below) don't
   // self-wrap in a Container -- RulesEditor/FeaturesEditor/PostsEditor were
   // written to be placed inside a page-level Container alongside sibling
   // JSX, matching each type's original page (app/rules|features|news) so the
   // visual rhythm carries over now that pageHeader is a separate block.
-  ruleList: ({ referenceData }) => (
+  ruleList: ({ block, referenceData, onSaveData }) => (
     <Container className="py-8 sm:py-10">
-      <RulesEditor initialSections={referenceData.ruleSections ?? []} />
+      <RulesEditor
+        initialSections={referenceData.ruleSections ?? []}
+        data={block.data as RuleListData}
+        onSaveData={onSaveData as (next: RuleListData) => Promise<void>}
+      />
     </Container>
   ),
-  featureGrid: ({ referenceData }) => (
+  featureGrid: ({ block, referenceData, onSaveData }) => (
     <Container className="py-12 sm:py-16">
-      <FeaturesEditor initialFeatures={referenceData.features ?? []} />
+      <FeaturesEditor
+        initialFeatures={referenceData.features ?? []}
+        data={block.data as FeatureGridData}
+        onSaveData={onSaveData as (next: FeatureGridData) => Promise<void>}
+      />
     </Container>
   ),
-  postList: ({ referenceData }) => (
+  postList: ({ block, referenceData, onSaveData }) => (
     <Container className="flex flex-1 flex-col py-8 sm:py-10">
-      <PostsEditor initialPosts={referenceData.posts ?? []} />
+      <PostsEditor
+        initialPosts={referenceData.posts ?? []}
+        data={block.data as PostListData}
+        onSaveData={onSaveData as (next: PostListData) => Promise<void>}
+      />
     </Container>
   ),
   pageHeader: ({ block, onSaveData }) => (
@@ -142,10 +176,10 @@ export const blockTypeLabels: Record<BlockType, string> = {
 
 /** Default `data` for a freshly-added block of `type`, sent as the POST body. */
 export const defaultBlockData: Record<BlockType, unknown> = {
-  hero: {},
-  ruleList: {},
-  featureGrid: {},
-  postList: {},
+  hero: { headingOverride: null, taglineOverride: null },
+  ruleList: { sectionIds: null },
+  featureGrid: { featureIds: null },
+  postList: { tag: null, limit: null },
   pageHeader: { heading: "New section" },
   callout: { variant: "info", body: "Add a message here." },
   steps: { items: [] },
@@ -166,11 +200,19 @@ export const defaultBlockData: Record<BlockType, unknown> = {
 
 /** Block types offered in the "Add block" picker. All `BLOCK_TYPES` are
  * addable, including the data-referencing `hero`/`ruleList`/`featureGrid`/
- * `postList` -- each of those always reads the same site-wide singleton
- * table (ContentBlock/Rule/Feature/Post) via `referenceData` regardless of
- * which page/position it's placed at, so placing a second one elsewhere
- * intentionally repeats that same content (e.g. embedding the live
- * server-status widget or the full rules list on another page) rather than
- * showing distinct per-instance data. Admins who want distinct per-instance
- * content should use `cardGrid` instead. */
+ * `postList` -- each of those still reads off the same site-wide table
+ * (ContentBlock/RuleSection+Rule/Feature/Post) via `referenceData`
+ * (`page-renderer.tsx` fetches each once per page, not per instance), but as
+ * of Phase 18 each *instance* carries its own optional display-level
+ * filter/override in `Block.data` (see `heroDataSchema`/`ruleListDataSchema`/
+ * `featureGridDataSchema`/`postListDataSchema` in `lib/validation/pages.ts`):
+ * a Rule List can show a subset of sections, a Feature Grid a subset of
+ * features, a Post List a single tag (optionally capped to N), and a Hero a
+ * heading/tagline override (the live server-status ping stays global -- it's
+ * describing the one real server, never per-instance). Unset/null on any of
+ * these means "show everything," i.e. the original site-wide behavior.
+ * Editing content (add/edit/delete a rule, feature, or post) still always
+ * affects the one real underlying row regardless of which instance you're
+ * editing from -- only the non-edit-mode filtered *view* differs per
+ * instance. */
 export const ADDABLE_BLOCK_TYPES = BLOCK_TYPES;

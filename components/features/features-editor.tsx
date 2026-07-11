@@ -8,24 +8,36 @@ import { EditableText } from "@/components/admin/editable-text";
 import { FeatureCard } from "@/components/features/feature-card";
 import { iconRegistry, resolveFeatureIcon } from "@/components/features/icon-registry";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
+import { MultiSelectChecklist } from "@/components/admin/multi-select-checklist";
 
 const ICON_KEYS = Object.keys(iconRegistry);
+
+export type FeatureGridData = { featureIds?: string[] | null };
 
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   return body?.error?.message ?? fallback;
 }
 
-export function FeaturesEditor({ initialFeatures }: { initialFeatures: Feature[] }) {
+export function FeaturesEditor({
+  initialFeatures,
+  data,
+  onSaveData,
+}: {
+  initialFeatures: Feature[];
+  data: FeatureGridData;
+  onSaveData: (next: FeatureGridData) => Promise<void>;
+}) {
   const { editMode, isAdmin } = useEditMode();
   const { showError } = useToast();
   const [features, setFeatures] = useState(initialFeatures);
   const [adding, setAdding] = useState(false);
 
   if (!isAdmin || !editMode) {
+    const visible = data.featureIds ? features.filter((f) => data.featureIds!.includes(f.id)) : features;
     return (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
-        {features.map((feature) => {
+        {visible.map((feature) => {
           const Icon = resolveFeatureIcon(feature.icon);
           return (
             <FeatureCard
@@ -40,6 +52,14 @@ export function FeaturesEditor({ initialFeatures }: { initialFeatures: Feature[]
         })}
       </div>
     );
+  }
+
+  async function saveFeatureIds(next: string[] | null) {
+    try {
+      await onSaveData({ featureIds: next });
+    } catch {
+      /* onSaveData's caller already rolled back state + showed a toast */
+    }
   }
 
   async function saveField(id: string, field: "eyebrow" | "title" | "description", value: string) {
@@ -162,6 +182,22 @@ export function FeaturesEditor({ initialFeatures }: { initialFeatures: Feature[]
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="rounded-md border border-dashed border-border-strong bg-surface p-4">
+        <p className="text-xs text-muted">
+          {data.featureIds === null || data.featureIds === undefined
+            ? `Showing all ${features.length} features on this page.`
+            : `Showing ${data.featureIds.length} of ${features.length} features on this page.`}
+        </p>
+        <div className="mt-3">
+          <MultiSelectChecklist
+            label="Features shown on this page"
+            options={features.map((f) => ({ id: f.id, label: f.title }))}
+            selectedIds={data.featureIds ?? null}
+            onChange={saveFeatureIds}
+          />
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
         {features.map((feature, i) => {
           const Icon = resolveFeatureIcon(feature.icon);

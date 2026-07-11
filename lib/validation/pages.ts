@@ -124,8 +124,6 @@ export const BLOCK_TYPES = [
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
 
-const emptyDataSchema = z.object({}).strict();
-
 /** Shared block-tone enum (Phase 9) -- see `lib/themes.ts`. Widens
  * `calloutDataSchema.variant` in place (JSON key stays `variant`, existing
  * "warning"/"info" rows remain valid) and backs the optional `tone` field on
@@ -287,13 +285,38 @@ const tocDataSchema = z.object({
     .max(30),
 });
 
+/** Phase 18: per-instance overrides for the 4 data-referencing block types
+ * (see registry.tsx's updated ADDABLE_BLOCK_TYPES doc comment). All fields
+ * optional/nullable -- unset/null means "show everything" (today's exact
+ * pre-Phase-18 behavior), so existing `{}` rows stay valid with no
+ * migration. Filtering itself happens display-side in each block component
+ * against the full array `page-renderer.tsx` already fetches once per page;
+ * these schemas only bound what an instance is allowed to *ask for*. */
+const heroDataSchema = z.object({
+  headingOverride: z.string().max(200).nullable().optional(),
+  taglineOverride: z.string().max(300).nullable().optional(),
+});
+
+const ruleListDataSchema = z.object({
+  sectionIds: z.array(z.string().min(1).max(80)).max(200).nullable().optional(),
+});
+
+const featureGridDataSchema = z.object({
+  featureIds: z.array(z.string().min(1).max(80)).max(200).nullable().optional(),
+});
+
+const postListDataSchema = z.object({
+  tag: z.string().min(1).max(80).nullable().optional(),
+  limit: z.number().int().min(1).max(200).nullable().optional(),
+});
+
 /** Per-type `data` shape, keyed by `Block.type`. Used both to validate on
  * write (POST/PUT) and to guard on read-back before rendering. */
 export const blockDataSchemas = {
-  hero: emptyDataSchema,
-  ruleList: emptyDataSchema,
-  featureGrid: emptyDataSchema,
-  postList: emptyDataSchema,
+  hero: heroDataSchema,
+  ruleList: ruleListDataSchema,
+  featureGrid: featureGridDataSchema,
+  postList: postListDataSchema,
   pageHeader: pageHeaderDataSchema,
   callout: calloutDataSchema,
   steps: stepsDataSchema,

@@ -17,6 +17,8 @@ export type ClientPost = {
   author: string | null;
 };
 
+export type PostListData = { tag?: string | null; limit?: number | null };
+
 type FormValues = {
   slug: string;
   tag: string;
@@ -237,18 +239,31 @@ function PostForm({
   );
 }
 
-export function PostsEditor({ initialPosts }: { initialPosts: ClientPost[] }) {
+export function PostsEditor({
+  initialPosts,
+  data,
+  onSaveData,
+}: {
+  initialPosts: ClientPost[];
+  data: PostListData;
+  onSaveData: (next: PostListData) => Promise<void>;
+}) {
   const { editMode, isAdmin } = useEditMode();
   const { showError } = useToast();
   const [posts, setPosts] = useState(() => sortPosts(initialPosts));
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [limitDraft, setLimitDraft] = useState(data.limit != null ? String(data.limit) : "");
 
   if (!isAdmin || !editMode) {
+    const filtered = data.tag ? posts.filter((p) => p.tag === data.tag) : posts;
+    const limited = data.limit ? filtered.slice(0, data.limit) : filtered;
+    const latestPostId = posts[0]?.id;
+
     return (
       <ol className="mt-8 flex flex-col gap-4 sm:mt-10 sm:gap-5">
-        {posts.map((post, index) => (
+        {limited.map((post) => (
           <li key={post.slug}>
-            <NewsPostItem post={{ ...post, publishedAt: new Date(post.publishedAt) }} featured={index === 0} />
+            <NewsPostItem post={{ ...post, publishedAt: new Date(post.publishedAt) }} featured={post.id === latestPostId} />
           </li>
         ))}
       </ol>
@@ -308,8 +323,86 @@ export function PostsEditor({ initialPosts }: { initialPosts: ClientPost[] }) {
     }
   }
 
+  async function changeTag(nextTag: string) {
+    try {
+      await onSaveData({ tag: nextTag || null, limit: data.limit ?? null });
+    } catch {
+      // onSaveData's caller (page-blocks.tsx) already rolled back block state + showed a toast.
+    }
+  }
+
+  async function changeLimit(nextLimit: number | null) {
+    try {
+      await onSaveData({ tag: data.tag ?? null, limit: nextLimit });
+    } catch {
+      // onSaveData's caller (page-blocks.tsx) already rolled back block state + showed a toast.
+    }
+  }
+
+  function commitLimitDraft() {
+    const raw = limitDraft.trim();
+    if (raw === "") {
+      changeLimit(null);
+      return;
+    }
+    const parsed = parseInt(raw, 10);
+    if (Number.isNaN(parsed) || parsed < 1) {
+      setLimitDraft("");
+      changeLimit(null);
+      return;
+    }
+    const clamped = Math.min(parsed, 200);
+    setLimitDraft(String(clamped));
+    changeLimit(clamped);
+  }
+
+  const distinctTags = Array.from(new Set(posts.map((p) => p.tag))).sort();
+  const totalCount = posts.length;
+  const taggedCount = data.tag ? posts.filter((p) => p.tag === data.tag).length : totalCount;
+  let indicatorText = data.tag
+    ? `Showing tag "${data.tag}" (${taggedCount} of ${totalCount}) on this page`
+    : `Showing all ${totalCount} posts on this page`;
+  if (data.limit) indicatorText += `, capped to ${data.limit}`;
+  indicatorText += ".";
+
   return (
     <div className="mt-8 flex flex-col gap-4 sm:mt-10 sm:gap-5">
+      <div className="rounded-md border border-dashed border-border-strong bg-surface p-4">
+        <p className="text-sm text-muted">{indicatorText}</p>
+        <div className="mt-3 flex flex-wrap gap-4">
+          <label className="flex flex-col gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+            Tag filter
+            <select
+              value={data.tag ?? ""}
+              onChange={(e) => changeTag(e.target.value)}
+              className="h-9 rounded-md border border-border-strong bg-surface-2 px-2 text-sm text-foreground outline-none focus-visible:border-primary"
+            >
+              <option value="">All tags</option>
+              {distinctTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+            Limit (optional)
+            <input
+              type="number"
+              min={1}
+              max={200}
+              value={limitDraft}
+              onChange={(e) => setLimitDraft(e.target.value)}
+              onBlur={commitLimitDraft}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+              className="h-9 w-28 rounded-md border border-border-strong bg-surface-2 px-2 text-sm text-foreground outline-none focus-visible:border-primary"
+            />
+          </label>
+        </div>
+      </div>
+
       {editingId === "new" ? (
         <PostForm initial={emptyForm()} onSubmit={createPost} onCancel={() => setEditingId(null)} submitLabel="Publish" />
       ) : (

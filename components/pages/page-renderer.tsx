@@ -1,6 +1,5 @@
 import type { Block, Page } from "@/app/generated/prisma/client";
-import { Hero } from "@/components/home/hero";
-import { getFeatures, getPosts, getRuleSections } from "@/lib/content";
+import { CONTENT_KEYS, getFeatures, getPosts, getRuleSections, getSiteContent } from "@/lib/content";
 import { BLOCK_TYPES, parseBlockData, type BlockType } from "@/lib/validation/pages";
 import { defaultBlockData, type ClientBlock, type ReferenceData } from "@/components/blocks/registry";
 import { PageBlocks } from "@/components/pages/page-blocks";
@@ -17,10 +16,10 @@ function isBlockType(value: string): value is BlockType {
  * (reorder/add/delete in edit mode) to the client-owned PageBlocks.
  *
  * Pre-fetches the data data-referencing blocks need server-side (hero via
- * the existing Hero() Server Component; ruleList/featureGrid/postList via
- * the same lib/content.ts reads app/rules|features|news/page.tsx already
- * used) so those unchanged Phase 2/4 editor components render exactly as
- * they did before this phase, just reachable from any Page now.
+ * getSiteContent(); ruleList/featureGrid/postList via the same lib/content.ts
+ * reads app/rules|features|news/page.tsx already used) so those unchanged
+ * Phase 2/4 editor components render exactly as they did before this phase,
+ * just reachable from any Page now.
  *
  * Does NOT apply `page.theme`/`page.customThemeId` -- as of Phase 12 that
  * override has to wrap the header and footer too, not just these blocks, so
@@ -31,10 +30,11 @@ function isBlockType(value: string): value is BlockType {
 export async function PageRenderer({ page }: { page: PageWithBlocks }) {
   const types = new Set(page.blocks.map((b) => b.type));
 
-  const [ruleSections, features, posts] = await Promise.all([
+  const [ruleSections, features, posts, siteContent] = await Promise.all([
     types.has("ruleList") ? getRuleSections() : Promise.resolve(undefined),
     types.has("featureGrid") ? getFeatures() : Promise.resolve(undefined),
     types.has("postList") ? getPosts() : Promise.resolve(undefined),
+    types.has("hero") ? getSiteContent() : Promise.resolve(undefined),
   ]);
 
   const referenceData: ReferenceData = {
@@ -49,11 +49,6 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
       return [];
     }
 
-    if (block.type === "hero") {
-      const heroBlock: ClientBlock = { id: block.id, type: "hero", order: block.order, data: {}, heroContent: <Hero /> };
-      return [heroBlock];
-    }
-
     let parsed: unknown;
     try {
       parsed = JSON.parse(block.data);
@@ -65,6 +60,28 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
     // are validated, falling back to a safe default instead of crashing.
     const result = parseBlockData(block.type, parsed);
     const data = result.success ? result.data : defaultBlockData[block.type];
+
+    if (block.type === "hero" && siteContent) {
+      // Plain serializable data, not a pre-rendered element -- registry.tsx's
+      // `hero` entry builds <HeroContent> itself, live, from this plus
+      // block.data, so the per-instance override updates immediately on
+      // save. See components/home/hero-content.tsx's HeroContentData doc.
+      const heroBlock: ClientBlock = {
+        id: block.id,
+        type: "hero",
+        order: block.order,
+        data,
+        heroContent: {
+          heroName: siteContent.heroName,
+          heroTagline: siteContent.heroTagline,
+          serverIp: siteContent.serverIp,
+          heroNameKey: CONTENT_KEYS.heroName,
+          heroTaglineKey: CONTENT_KEYS.heroTagline,
+          serverIpKey: CONTENT_KEYS.serverIp,
+        },
+      };
+      return [heroBlock];
+    }
 
     const otherBlock: ClientBlock = { id: block.id, type: block.type, order: block.order, data };
     return [otherBlock];

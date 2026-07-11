@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Post } from "@/app/generated/prisma/client";
+import { TagPill } from "@/components/news/tag-pill";
 
 function formatDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -27,9 +28,7 @@ export function NewsPostItem({
           <time dateTime={post.publishedAt.toISOString()} className="font-mono text-xs text-muted">
             {dateLabel}
           </time>
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted">
-            {post.tag}
-          </span>
+          <TagPill tag={post.tag} />
           {featured && (
             <span className="text-[11px] font-medium uppercase tracking-wider text-accent">
               Latest
