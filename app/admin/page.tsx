@@ -19,6 +19,7 @@ const managementLinks = [
   { href: "/admin/nav", title: "Navigation", description: "Header nav items and one level of dropdowns." },
   { href: "/admin/themes", title: "Themes", description: "Create and manage custom color themes." },
   { href: "/admin/settings", title: "Settings", description: "Favicon and link-share (embed) defaults." },
+  { href: "/admin/audit-log", title: "Audit log", description: "Every admin change, with one-step undo." },
 ];
 
 export default async function AdminPage() {

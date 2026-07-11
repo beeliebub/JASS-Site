@@ -4,6 +4,7 @@ import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { getSiteSettings } from "@/lib/site-settings";
 import { siteSettingsUpdateSchema } from "@/lib/validation/site-settings";
+import { recordAuditLog, siteSettingsSnapshot } from "@/lib/audit-log";
 
 const SINGLETON_ID = "singleton";
 
@@ -52,10 +53,22 @@ export async function PUT(req: Request) {
       updatedBy: user?.email,
     };
 
-    await prisma.siteSettings.upsert({
-      where: { id: SINGLETON_ID },
-      create: { id: SINGLETON_ID, ...data },
-      update: data,
+    const existingBefore = await prisma.siteSettings.findUnique({ where: { id: SINGLETON_ID } });
+
+    await prisma.$transaction(async (tx) => {
+      const upserted = await tx.siteSettings.upsert({
+        where: { id: SINGLETON_ID },
+        create: { id: SINGLETON_ID, ...data },
+        update: data,
+      });
+      await recordAuditLog(tx, {
+        entityType: "SiteSettings",
+        entityId: SINGLETON_ID,
+        action: existingBefore ? "update" : "create",
+        before: existingBefore ? siteSettingsSnapshot(existingBefore) : null,
+        after: siteSettingsSnapshot(upserted),
+        actorEmail: user?.email,
+      });
     });
 
     // Favicon/embed metadata affects every page, so hit the whole layout.

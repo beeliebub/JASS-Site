@@ -189,6 +189,26 @@ model UploadedImage {
   embedForSettings    SiteSettings[] @relation("SiteSettingsEmbed")
 }
 
+// Phase 21: audit trail + single-step undo for every admin mutation across
+// the CMS. Entity-agnostic on purpose (one table, not one per entity type) --
+// `entityType` is a string, not a Prisma enum, so this model never needs a
+// migration when a new auditable entity is added later. `before`/`after` are
+// JSON-as-string snapshots of the *logical* row (relations stripped, Block's
+// `data` pre-parsed, User's `passwordHash` always excluded -- see
+// lib/audit-log.ts), matching the `Block.data` JSON-as-string convention.
+model AuditLogEntry {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String // "create" | "update" | "delete"
+  before     String? // JSON snapshot, null for create
+  after      String? // JSON snapshot, null for delete
+  actorEmail String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
 // Site-wide favicon + link-share (embed) defaults (Phase 17). Singleton row
 // (fixed id, upsert-on-read via lib/site-settings.ts) rather than the
 // generic ContentBlock key-value store, since these fields have a stronger

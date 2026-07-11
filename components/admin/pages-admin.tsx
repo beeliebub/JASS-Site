@@ -6,8 +6,10 @@ import { useRouter } from "next/navigation";
 import type { CustomTheme, Page } from "@/app/generated/prisma/client";
 import { useToast } from "@/components/admin/toast";
 import { DeleteButton } from "@/components/admin/list-controls";
+import { EditableText } from "@/components/admin/editable-text";
 import { pagePath } from "@/lib/routes";
 import { THEME_IDS, THEMES, type ThemeId } from "@/lib/themes";
+import { slugSchema } from "@/lib/validation/pages";
 
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -94,6 +96,36 @@ export function PagesAdmin({
     }
   }
 
+  async function saveTitle(page: Page, next: string) {
+    const res = await fetch(`/api/pages/${page.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: next }),
+    });
+    if (!res.ok) throw new Error(await parseError(res, "Failed to update page title."));
+    // title isn't part of EditableText's own display state -- it also feeds
+    // deletePage's confirm dialog and other labels in this row, so update it
+    // here on success too (same reasoning as saveSlug below).
+    setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, title: next } : p)));
+  }
+
+  async function saveSlug(page: Page, next: string) {
+    const parsed = slugSchema.safeParse(next);
+    if (!parsed.success) {
+      throw new Error('Slug must be lowercase letters, numbers, and hyphens only (e.g. "about-us").');
+    }
+    const res = await fetch(`/api/pages/${page.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: parsed.data }),
+    });
+    if (!res.ok) throw new Error(await parseError(res, "Failed to update page slug."));
+    // The slug isn't part of EditableText's own display state -- it also
+    // feeds the "Edit" button href and the /-prefixed slug text below, both
+    // rendered from `pages`, so update it here on success too.
+    setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, slug: parsed.data } : p)));
+  }
+
   async function deletePage(page: Page) {
     if (typeof window !== "undefined" && !window.confirm(`Delete "${page.title}"? This can't be undone.`)) return;
     const previous = pages;
@@ -145,14 +177,34 @@ export function PagesAdmin({
             {pages.map((page) => (
               <tr key={page.id} className="bg-surface">
                 <td className="px-4 py-3 font-medium text-foreground">
-                  {page.title}
-                  {page.protected && (
-                    <span className="ml-2 rounded-full border border-border-strong px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-                      Protected
+                  <div className="flex flex-wrap items-center gap-2">
+                    <EditableText
+                      value={page.title}
+                      onSave={(next) => saveTitle(page, next)}
+                      label={`title for ${page.title}`}
+                    />
+                    {page.protected && (
+                      <span className="rounded-full border border-border-strong px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+                        Protected
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-3 font-mono text-xs text-muted">
+                  {page.protected ? (
+                    `/${page.slug === "home" ? "" : page.slug}`
+                  ) : (
+                    <span className="inline-flex items-center">
+                      /
+                      <EditableText
+                        value={page.slug}
+                        onSave={(next) => saveSlug(page, next)}
+                        label={`slug for ${page.title}`}
+                        className="font-mono text-xs"
+                      />
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-muted">/{page.slug === "home" ? "" : page.slug}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button

@@ -4,6 +4,7 @@ import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
 import { blockCreateSchema } from "@/lib/validation/pages";
 import { pagePath } from "@/lib/content";
+import { blockSnapshot, recordAuditLog } from "@/lib/audit-log";
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
@@ -24,14 +25,25 @@ export async function POST(req: Request) {
     const page = await prisma.page.findUnique({ where: { id: parsed.data.pageId } });
     if (!page) return notFound("Page");
 
-    const block = await prisma.block.create({
-      data: {
-        pageId: parsed.data.pageId,
-        type: parsed.data.type,
-        order: parsed.data.order,
-        data: JSON.stringify(parsed.data.data),
-        updatedBy: user?.email,
-      },
+    const block = await prisma.$transaction(async (tx) => {
+      const created = await tx.block.create({
+        data: {
+          pageId: parsed.data.pageId,
+          type: parsed.data.type,
+          order: parsed.data.order,
+          data: JSON.stringify(parsed.data.data),
+          updatedBy: user?.email,
+        },
+      });
+      await recordAuditLog(tx, {
+        entityType: "Block",
+        entityId: created.id,
+        action: "create",
+        before: null,
+        after: blockSnapshot(created),
+        actorEmail: user?.email,
+      });
+      return created;
     });
 
     revalidatePath(pagePath(page.slug));

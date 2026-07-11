@@ -4,6 +4,7 @@ import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { getCustomThemes } from "@/lib/custom-themes";
 import { customThemeCreateSchema } from "@/lib/validation/custom-themes";
+import { customThemeSnapshot, recordAuditLog } from "@/lib/audit-log";
 
 export async function GET() {
   try {
@@ -33,7 +34,18 @@ export async function POST(req: Request) {
     const existing = await prisma.customTheme.findUnique({ where: { name: parsed.data.name } });
     if (existing) return conflict(`A custom theme named "${parsed.data.name}" already exists.`);
 
-    const theme = await prisma.customTheme.create({ data: { ...parsed.data, createdBy: user?.email } });
+    const theme = await prisma.$transaction(async (tx) => {
+      const created = await tx.customTheme.create({ data: { ...parsed.data, createdBy: user?.email } });
+      await recordAuditLog(tx, {
+        entityType: "CustomTheme",
+        entityId: created.id,
+        action: "create",
+        before: null,
+        after: customThemeSnapshot(created),
+        actorEmail: user?.email,
+      });
+      return created;
+    });
 
     // The footer theme picker and every page's theme resolution can be
     // affected by a new custom theme, so hit the whole layout.

@@ -8,7 +8,7 @@ content lives in the database, and logged-in admins edit it in place, in real ti
 ## Tech stack
 
 Next.js (App Router, TypeScript) + Tailwind CSS + Prisma 7 (SQLite) + Auth.js v5. See
-`CLAUDE.md` for version details and `PLAN.md` for the full phased build history.
+`CLAUDE.md` for version details and this dev environment's known quirks.
 
 ## Getting started: `./setup.sh`
 
@@ -384,7 +384,6 @@ pm2 startup   # follow the printed instructions to start pm2 on boot
 
 ## Further reading
 
-- `PLAN.md` — the full phased implementation plan (all phases 0–11 complete)
 - `docs/DEPLOYMENT.md` — hosting decision rationale, full environment variable
   reference, backup internals, pre-deploy security checklist
 - `CLAUDE.md` — stack details and this dev environment's known quirks

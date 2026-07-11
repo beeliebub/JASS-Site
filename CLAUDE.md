@@ -1,9 +1,5 @@
 # JASS — Minecraft Server Website
 
-See `PLAN.md` for the phased implementation plan (all phases 0–11 complete; phases 9–11
-— themes, resource pack hosting, setup wizard — retain their full specs there as
-documentation of what was built).
-
 ## Stack
 
 Next.js (App Router, TypeScript) + Tailwind CSS + Prisma (SQLite) + Auth.js.
@@ -47,9 +43,13 @@ re-run, and `npm run db:seed -- --pages-only` skips the content-overwriting port
   `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name init`
   (`--no-turbofan` isn't allowlisted for `NODE_OPTIONS`, so it must be passed directly
   to `node` on the actual entry file, not via `npx`.)
+- The same crash also hits `npx tsc` and `npm run lint` (eslint) on this machine at
+  times. Same fix, invoke the entry directly:
+  `node --no-turbofan node_modules/typescript/lib/tsc.js --noEmit`
+  `node --no-turbofan node_modules/eslint/bin/eslint.js`
 
-If a fresh `npm install`/`npx prisma ...` fails with the fatal error above, retry with
-these flags before assuming something is actually broken.
+If a fresh `npm install`/`npx prisma ...`/`npx tsc`/`npm run lint` fails with the fatal
+error above, retry with these flags before assuming something is actually broken.
 
 ## Environment variables
 

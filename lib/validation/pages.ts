@@ -155,6 +155,9 @@ const stepsDataSchema = z.object({
     .max(20),
 });
 
+/** Phase 19: optional per-item thumbnail, same URL convention/validation as
+ * `imageDataSchema.src` (reuses the same upload pipeline, not a new one) --
+ * absent/"" = today's exact layout (no thumbnail column). */
 const linkGridDataSchema = z.object({
   heading: z.string().min(1).max(80).optional(),
   links: z
@@ -163,6 +166,13 @@ const linkGridDataSchema = z.object({
         href: z.string().min(1).max(300),
         title: z.string().min(1).max(200),
         description: z.string().min(1).max(500),
+        image: z
+          .string()
+          .max(2000)
+          .optional()
+          .refine((s) => s === undefined || s === "" || isHttpUrl(s) || isRootRelativePath(s), {
+            message: "image must be an absolute http(s) URL or a root-relative path.",
+          }),
       }),
     )
     .max(20),
@@ -188,12 +198,26 @@ const isHttpUrl = (s: string) => {
   return parsed.success && (s.startsWith("http://") || s.startsWith("https://"));
 };
 
+/** Phase 19: optional display-size override, unset/null = today's exact
+ * behavior (full-width, natural aspect ratio). `scale` only applies under
+ * `"scale"` mode, `width`/`height` only under `"custom"` -- both bounded so a
+ * typo (or a hostile direct API call) can't blow out the page layout; these
+ * are applied by ImageBlock as numeric inline `style` properties, never a
+ * passthrough string that could carry arbitrary CSS. */
+const imageSizeSchema = z.object({
+  sizeMode: z.enum(["scale", "custom"]).nullable().optional(),
+  scale: z.number().int().min(10).max(100).nullable().optional(),
+  width: z.number().int().min(1).max(2000).nullable().optional(),
+  height: z.number().int().min(1).max(2000).nullable().optional(),
+});
+
 const imageDataSchema = z
   .object({
     src: z.string().max(2000),
     alt: z.string().max(300),
     caption: z.string().max(500).optional(),
   })
+  .extend(imageSizeSchema.shape)
   .refine((data) => data.src === "" || isHttpUrl(data.src) || isRootRelativePath(data.src), {
     message: "src must be an absolute http(s) URL or a root-relative path.",
     path: ["src"],

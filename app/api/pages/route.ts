@@ -4,6 +4,7 @@ import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { pageCreateSchema, RESERVED_SLUGS } from "@/lib/validation/pages";
 import { pagePath } from "@/lib/content";
+import { pageSnapshot, recordAuditLog } from "@/lib/audit-log";
 
 function slugify(input: string) {
   return input
@@ -54,17 +55,28 @@ export async function POST(req: Request) {
     const existing = await prisma.page.findUnique({ where: { slug } });
     if (existing) return conflict(`A page with slug "${slug}" already exists.`);
 
-    const page = await prisma.page.create({
-      data: {
-        title: parsed.data.title,
-        slug,
-        metaDescription: parsed.data.metaDescription ?? null,
-        published: parsed.data.published ?? true,
-        adminOnly: parsed.data.adminOnly ?? false,
-        theme: parsed.data.theme ?? null,
-        protected: false,
-        updatedBy: user?.email,
-      },
+    const page = await prisma.$transaction(async (tx) => {
+      const created = await tx.page.create({
+        data: {
+          title: parsed.data.title,
+          slug,
+          metaDescription: parsed.data.metaDescription ?? null,
+          published: parsed.data.published ?? true,
+          adminOnly: parsed.data.adminOnly ?? false,
+          theme: parsed.data.theme ?? null,
+          protected: false,
+          updatedBy: user?.email,
+        },
+      });
+      await recordAuditLog(tx, {
+        entityType: "Page",
+        entityId: created.id,
+        action: "create",
+        before: null,
+        after: pageSnapshot(created),
+        actorEmail: user?.email,
+      });
+      return created;
     });
     revalidatePath(pagePath(slug));
     revalidatePath("/admin/pages");

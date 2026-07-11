@@ -1,13 +1,15 @@
 import { revalidatePath } from "next/cache";
 import fs from "node:fs";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, conflict, internalError, notFound, unauthorized } from "@/lib/api-response";
 import { packPath } from "@/lib/uploads";
+import { recordAuditLog, resourcePackSnapshot } from "@/lib/audit-log";
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
 
+  const user = await getSessionUser();
   const { id } = await params;
 
   try {
@@ -25,7 +27,17 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 
-    await prisma.resourcePack.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.resourcePack.delete({ where: { id } });
+      await recordAuditLog(tx, {
+        entityType: "ResourcePack",
+        entityId: id,
+        action: "delete",
+        before: resourcePackSnapshot(existing),
+        after: null,
+        actorEmail: user?.email,
+      });
+    });
 
     revalidatePath("/resource");
     return apiSuccess(null);

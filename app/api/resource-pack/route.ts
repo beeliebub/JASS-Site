@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiError, apiSuccess, badRequest, internalError, notFound, unauthorized } from "@/lib/api-response";
 import { packPath, prunePacks, tempPackPath } from "@/lib/uploads";
+import { recordAuditLog, resourcePackSnapshot } from "@/lib/audit-log";
 
 const MAX_PACK_BYTES = 268435456; // 256 MiB
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
@@ -99,12 +100,22 @@ export async function POST(req: Request) {
     const sessionUser = await getSessionUser();
 
     const pack = await prisma.$transaction(async (tx) => {
+      const existingBefore = await tx.resourcePack.findUnique({ where: { sha1 } });
       await tx.resourcePack.updateMany({ where: { active: true }, data: { active: false } });
-      return tx.resourcePack.upsert({
+      const upserted = await tx.resourcePack.upsert({
         where: { sha1 },
         create: { filename, size: bytesWritten, sha1, active: true, uploadedBy: sessionUser?.email },
         update: { active: true },
       });
+      await recordAuditLog(tx, {
+        entityType: "ResourcePack",
+        entityId: upserted.id,
+        action: existingBefore ? "update" : "create",
+        before: existingBefore ? resourcePackSnapshot(existingBefore) : null,
+        after: resourcePackSnapshot(upserted),
+        actorEmail: sessionUser?.email,
+      });
+      return upserted;
     });
     committed = true;
 

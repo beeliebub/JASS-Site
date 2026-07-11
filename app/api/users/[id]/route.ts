@@ -11,6 +11,7 @@ import {
   validationError,
 } from "@/lib/api-response";
 import { userUpdateSchema } from "@/lib/validation/pages";
+import { recordAuditLog, userSnapshot } from "@/lib/audit-log";
 
 const userSelect = { id: true, email: true, name: true, role: true, createdAt: true } as const;
 
@@ -61,15 +62,26 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const passwordHash = parsed.data.password ? await bcrypt.hash(parsed.data.password, 12) : undefined;
 
-    const user = await prisma.user.update({
-      where: { id },
-      data: {
-        ...(parsed.data.email ? { email: parsed.data.email.toLowerCase() } : {}),
-        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-        ...(parsed.data.role !== undefined ? { role: parsed.data.role } : {}),
-        ...(passwordHash ? { passwordHash } : {}),
-      },
-      select: userSelect,
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: {
+          ...(parsed.data.email ? { email: parsed.data.email.toLowerCase() } : {}),
+          ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+          ...(parsed.data.role !== undefined ? { role: parsed.data.role } : {}),
+          ...(passwordHash ? { passwordHash } : {}),
+        },
+        select: userSelect,
+      });
+      await recordAuditLog(tx, {
+        entityType: "User",
+        entityId: id,
+        action: "update",
+        before: userSnapshot(existing),
+        after: userSnapshot(updated),
+        actorEmail: sessionUser?.email,
+      });
+      return updated;
     });
     return apiSuccess(user);
   } catch (error) {
@@ -95,7 +107,17 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       return conflict("Can't delete the last remaining OWNER account.");
     }
 
-    await prisma.user.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.user.delete({ where: { id } });
+      await recordAuditLog(tx, {
+        entityType: "User",
+        entityId: id,
+        action: "delete",
+        before: userSnapshot(existing),
+        after: null,
+        actorEmail: sessionUser?.email,
+      });
+    });
     return apiSuccess({ id });
   } catch (error) {
     return internalError(error);

@@ -1,8 +1,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
 import { navItemUpdateSchema } from "@/lib/validation/nav-items";
+import { navItemSnapshot, recordAuditLog } from "@/lib/audit-log";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
@@ -19,6 +20,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const parsed = await navItemUpdateSchema.safeParseAsync(body);
   if (!parsed.success) return validationError(parsed.error);
 
+  const user = await getSessionUser();
+
   try {
     const existing = await prisma.navItem.findUnique({ where: { id }, include: { children: true } });
     if (!existing) return notFound("Nav item");
@@ -34,7 +37,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (!page) return notFound("Page");
     }
 
-    const item = await prisma.navItem.update({ where: { id }, data: parsed.data });
+    const item = await prisma.$transaction(async (tx) => {
+      const updated = await tx.navItem.update({ where: { id }, data: parsed.data });
+      await recordAuditLog(tx, {
+        entityType: "NavItem",
+        entityId: id,
+        action: "update",
+        before: navItemSnapshot(existing),
+        after: navItemSnapshot(updated),
+        actorEmail: user?.email,
+      });
+      return updated;
+    });
     revalidatePath("/", "layout");
     return apiSuccess(item);
   } catch (error) {
@@ -46,13 +60,24 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (!(await requireAdmin())) return unauthorized();
 
   const { id } = await params;
+  const user = await getSessionUser();
 
   try {
     const existing = await prisma.navItem.findUnique({ where: { id } });
     if (!existing) return notFound("Nav item");
 
     // children have onDelete: Cascade, so this also removes any dropdown items.
-    await prisma.navItem.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.navItem.delete({ where: { id } });
+      await recordAuditLog(tx, {
+        entityType: "NavItem",
+        entityId: id,
+        action: "delete",
+        before: navItemSnapshot(existing),
+        after: null,
+        actorEmail: user?.email,
+      });
+    });
     revalidatePath("/", "layout");
     return apiSuccess({ id });
   } catch (error) {

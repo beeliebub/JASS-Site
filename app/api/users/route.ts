@@ -1,8 +1,9 @@
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
-import { requireOwner } from "@/lib/auth-guard";
+import { getSessionUser, requireOwner } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { userCreateSchema } from "@/lib/validation/pages";
+import { recordAuditLog, userSnapshot } from "@/lib/audit-log";
 
 const userSelect = { id: true, email: true, name: true, role: true, createdAt: true } as const;
 
@@ -21,6 +22,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (!(await requireOwner())) return unauthorized();
+  const actor = await getSessionUser();
 
   let body: unknown;
   try {
@@ -38,9 +40,20 @@ export async function POST(req: Request) {
     if (existing) return conflict(`A user with email "${email}" already exists.`);
 
     const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-    const user = await prisma.user.create({
-      data: { email, passwordHash, name: parsed.data.name, role: parsed.data.role },
-      select: userSelect,
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { email, passwordHash, name: parsed.data.name, role: parsed.data.role },
+        select: userSelect,
+      });
+      await recordAuditLog(tx, {
+        entityType: "User",
+        entityId: created.id,
+        action: "create",
+        before: null,
+        after: userSnapshot(created),
+        actorEmail: actor?.email,
+      });
+      return created;
     });
     return apiSuccess(user, { status: 201 });
   } catch (error) {
