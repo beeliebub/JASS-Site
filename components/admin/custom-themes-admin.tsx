@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { HexColorPicker } from "react-colorful";
 import type { CustomTheme } from "@/app/generated/prisma/client";
 import { useToast } from "@/components/admin/toast";
@@ -118,12 +118,44 @@ function ColorField({
 }) {
   const [hexDraft, setHexDraft] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   function handleHexInput(raw: string) {
     setHexDraft(raw);
     const parsed = parseHex(raw);
     if (parsed) onChange(rgbToHex(parsed.r, parsed.g, parsed.b));
   }
+
+  // Same click-outside/Escape-close pattern as components/theme/theme-picker.tsx's
+  // popover: each ColorField instance owns its own ref/effect (up to 16 render per
+  // form), so multiple can be open independently -- e.g. via rapid tabbing -- and
+  // each still closes correctly on its own outside click or Escape, without
+  // interfering with sibling instances.
+  function closePicker() {
+    setPickerOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+
+    function handlePointerDown(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        closePicker();
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closePicker();
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [pickerOpen]);
 
   const legibleForeground = readableForeground(value);
   const inputId = `theme-field-${field}`;
@@ -134,8 +166,9 @@ function ColorField({
         {label}
       </label>
       <div className="flex items-center gap-2">
-        <div className="relative shrink-0">
+        <div ref={panelRef} className="relative shrink-0">
           <button
+            ref={triggerRef}
             type="button"
             onClick={() => setPickerOpen((v) => !v)}
             aria-label={`Pick ${label} color`}
@@ -153,7 +186,7 @@ function ColorField({
               <HexColorPicker color={value} onChange={onChange} />
               <button
                 type="button"
-                onClick={() => setPickerOpen(false)}
+                onClick={closePicker}
                 className="mt-2 w-full rounded-md border border-border-strong px-2 py-1 text-xs font-medium text-muted transition hover:text-foreground"
               >
                 Done

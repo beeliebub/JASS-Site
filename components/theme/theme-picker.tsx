@@ -101,7 +101,7 @@ export function ThemePicker({ customThemes }: { customThemes: CustomTheme[] }) {
           id={PANEL_ID}
           role="dialog"
           aria-label="Theme settings"
-          className="absolute bottom-full right-0 z-50 mb-2 w-72 rounded-lg border border-border-strong bg-surface-2 p-4 shadow-lg"
+          className="fixed inset-x-4 bottom-20 z-50 rounded-lg border border-border-strong bg-surface-2 p-4 shadow-lg sm:absolute sm:inset-x-auto sm:bottom-full sm:right-0 sm:mb-2 sm:w-72"
         >
           <fieldset className="mb-4">
             <legend className="mb-2 text-xs font-medium text-muted">Theme</legend>
