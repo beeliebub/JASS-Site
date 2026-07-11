@@ -92,7 +92,7 @@ export async function POST(req: Request) {
     committed = true;
 
     return apiSuccess(
-      { url: `/api/uploads/images/${sha1}.${format.ext}`, sha1, mime: image.mime, size: image.size },
+      { id: image.id, url: `/api/uploads/images/${sha1}.${format.ext}`, sha1, mime: image.mime, size: image.size },
       { status: 201 },
     );
   } catch (error) {

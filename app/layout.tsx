@@ -8,6 +8,7 @@ import { ToastProvider } from "@/components/admin/toast";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
 import { isAdminRole } from "@/lib/auth-guard";
+import { getSiteSettings } from "@/lib/site-settings";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,23 +28,53 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://justasimpleserver.n
 
 const defaultTitle = `${siteConfig.name} — Minecraft Server`;
 
-export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
-  title: defaultTitle,
-  description: siteConfig.tagline,
-  openGraph: {
-    title: defaultTitle,
-    description: siteConfig.tagline,
-    siteName: siteConfig.name,
-    type: "website",
-    locale: "en_US",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: defaultTitle,
-    description: siteConfig.tagline,
-  },
-};
+/**
+ * Phase 17 (PLAN.md): reads `SiteSettings` for the link-share (embed) image
+ * and fallback title/description text. Converted from a static `export const
+ * metadata` to `generateMetadata()` so this can read the DB at request time
+ * -- per the installed Next docs (generate-metadata.md: "Resolving
+ * generateMetadata is part of rendering the page... [if it] doesn't
+ * introduce dynamic behavior, the resulting metadata is included in the
+ * page's initial HTML"), metadata resolution and a route's own
+ * prerendering/dynamic strategy are independent, so this does not force
+ * every page in the tree into fully dynamic rendering by itself.
+ *
+ * Decision 4 (PLAN.md): `embedTitle`/`embedDescription` are ONLY used as a
+ * fallback when there's no custom embed image -- if `embedImageUrl` is set,
+ * title/description always stay the default `siteConfig` text (the custom
+ * text fields are an "in the absence of an image" fallback, not a general
+ * override). Each falls back independently. When `SiteSettings` is entirely
+ * unset (today's default state), this object is identical to the static one
+ * it replaces -- zero visible change until an admin opts in.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSiteSettings();
+
+  const title = !settings.embedImageUrl && settings.embedTitle ? settings.embedTitle : defaultTitle;
+  const description =
+    !settings.embedImageUrl && settings.embedDescription ? settings.embedDescription : siteConfig.tagline;
+  const images = settings.embedImageUrl ? [settings.embedImageUrl] : undefined;
+
+  return {
+    metadataBase: new URL(siteUrl),
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      siteName: siteConfig.name,
+      type: "website",
+      locale: "en_US",
+      ...(images ? { images } : {}),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      ...(images ? { images } : {}),
+    },
+  };
+}
 
 export default async function RootLayout({
   children,

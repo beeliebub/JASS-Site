@@ -178,11 +178,30 @@ model ResourcePack {
 // uploaded images are referenced at once, one per Image block. Re-uploading
 // identical bytes resolves to the existing row (upsert by sha1).
 model UploadedImage {
-  id         String   @id @default(cuid())
-  sha1       String   @unique // lowercase hex, 40 chars
-  ext        String            // derived from validated magic bytes, not client input
-  mime       String            // one of the 4 allowed values, never freeform
-  size       Int
-  uploadedAt DateTime @default(now())
-  uploadedBy String?           // uploader email, display only
+  id                  String         @id @default(cuid())
+  sha1                String         @unique // lowercase hex, 40 chars
+  ext                 String                  // derived from validated magic bytes, not client input
+  mime                String                  // one of the 4 allowed values, never freeform
+  size                Int
+  uploadedAt          DateTime       @default(now())
+  uploadedBy          String?                 // uploader email, display only
+  faviconForSettings  SiteSettings[] @relation("SiteSettingsFavicon")
+  embedForSettings    SiteSettings[] @relation("SiteSettingsEmbed")
+}
+
+// Site-wide favicon + link-share (embed) defaults (Phase 17). Singleton row
+// (fixed id, upsert-on-read via lib/site-settings.ts) rather than the
+// generic ContentBlock key-value store, since these fields have a stronger
+// shape (validated image references, bounded text) -- same reasoning as
+// CustomTheme's field-per-token precedent.
+model SiteSettings {
+  id               String         @id @default("singleton")
+  faviconImageId   String?
+  faviconImage     UploadedImage? @relation("SiteSettingsFavicon", fields: [faviconImageId], references: [id], onDelete: SetNull)
+  embedImageId     String?
+  embedImage       UploadedImage? @relation("SiteSettingsEmbed", fields: [embedImageId], references: [id], onDelete: SetNull)
+  embedTitle       String?
+  embedDescription String?
+  updatedAt        DateTime       @updatedAt
+  updatedBy        String?
 }

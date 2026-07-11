@@ -1,11 +1,14 @@
 # JASS Site — Phased Implementation Plan
 
-This is the working implementation plan for the JASS (Just A Simple Server) Minecraft
-server website. **All phases (0–11) are complete.** Phases 0–8 are summarized in the
-retrospective below (the full historical spec for those phases lives in git history:
-`git show 564cf60:PLAN.md`); phases 9–11 (theme system, resource-pack hosting, and the
-unified setup wizard) retain their full specs below as documentation of what was built
-and how it was verified.
+Phases 0–17 are complete and shipped (block-based CMS, theming, resource-pack hosting,
+the setup wizard, admin-authored custom themes, self-service password change, a round
+of block-builder expansion, admin chrome/mobile fixes, and site-wide favicon +
+link-share defaults). Their full specs no longer live in this file for phases 0–15 —
+`git show 8036bf5:PLAN.md` has the complete historical document if you need it; phases
+16–17 retain their full specs below as documentation of what was built. This file now
+tracks only Phases 18–21 below, scoped 2026-07-11 from a fresh batch of feature/bugfix
+requests. **None of Phases 18–21 have started implementation yet** — this is a
+locked-in scope document awaiting a separate go-ahead per phase.
 
 ---
 
@@ -13,1302 +16,686 @@ and how it was verified.
 
 ### Agent-dispatch conventions
 
-Each pending phase contains: **Goal · Prerequisite reading · DB migration · Steps
-(numbered, per-file specs) · API contracts · Security checklist · Verification · Agent
-dispatch**. When executing a phase:
+Each phase contains: **Goal · Prerequisite reading · Design/locked-in decisions · DB
+migration · Steps (numbered, per-file specs) · API contracts (where relevant) ·
+Security checklist · Verification · Agent dispatch**. When executing a phase:
 
-1. Have every dispatched agent read the phase's *Prerequisite reading* files first —
-   they define the conventions the new code must match.
-2. Dispatch implementation agents per the *Agent dispatch* subsection (backend and
-   frontend work can usually run as separate agents; steps within a group are ordered).
-3. After implementation, dispatch the named review agents (`security-reviewer`,
-   `react-reviewer` / `typescript-reviewer`, `code-reviewer`) before closing the phase.
-   Phase 10's security review is **mandatory, not optional**.
-4. Run the *Verification* list end-to-end before marking a phase done. Fix CRITICAL and
-   HIGH review findings before continuing.
+1. Have every dispatched agent read the phase's *Prerequisite reading* files first.
+2. Dispatch implementation agents per the *Agent dispatch* subsection.
+3. Run the named review agents (`security-reviewer`, `react-reviewer`/`typescript-reviewer`,
+   `code-reviewer`) before closing the phase. Where a phase marks security review
+   **mandatory**, treat that as a hard gate, not optional.
+4. Run the *Verification* list end-to-end (live, in a real browser where UI is
+   involved — not just `tsc`/`lint`) before marking a phase done.
 5. Commit per phase (conventional commits: `feat: …`), never mid-phase broken states.
 
-### Machine quirks (READ FIRST — this machine's Node crashes)
+### Machine quirks (this machine's Node crashes — see CLAUDE.md for full detail)
 
-`npm install` and some CLI tools crash with a V8 fatal error
-(`InductionVariablePhiTypeIsPrefixedPoint`) on this machine's Node install:
-
-- **npm install**: if it crashes, retry as `NODE_OPTIONS="--jitless" npm install ...`.
-  `--jitless` disables JIT and **breaks WebAssembly**, so never use it for Prisma.
-- **Prisma CLI** (needs WASM): invoke the JS entry directly with `--no-turbofan`:
-  `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name <name>`
-  (`--no-turbofan` isn't allowlisted for `NODE_OPTIONS`, so it must be passed directly
-  to `node` on the entry file, not via `npx`.)
-
-All migration commands in this plan are written in the safe form.
+- `npm install`: if it crashes with the `InductionVariablePhiTypeIsPrefixedPoint` V8
+  fatal error, retry as `NODE_OPTIONS="--jitless" npm install ...` (breaks WASM, so
+  never use it for Prisma).
+- Prisma CLI: `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name <name>`
+  (not `npx`, `--no-turbofan` must go directly on the `node` invocation).
 
 ### Project conventions every agent must follow
 
-- **API envelope**: all JSON API routes use `lib/api-response.ts` helpers
-  (`apiSuccess`, `apiError`, `unauthorized`, `notFound`, `badRequest`, `conflict`,
-  `validationError`, `internalError`). The only exception in this plan is the binary
-  pack download in Phase 10.
+- **API envelope**: all JSON API routes use `lib/api-response.ts` helpers (`apiSuccess`,
+  `apiError`, `unauthorized`, `notFound`, `badRequest`, `conflict`, `validationError`,
+  `internalError`).
 - **Auth gates**: mutations require `requireAdmin()` (or `requireOwner()`) from
   `lib/auth-guard.ts`, checked *inside the route handler* — never rely on UI gating.
 - **Validation**: Zod schemas live in `lib/validation/*`; validate every body with
-  `safeParse` and return `validationError(...)` on failure. `lib/validation/pages.ts`
-  must stay importable from client components (no Prisma imports there).
+  `safeParse` and return `validationError(...)` on failure.
 - **Cache invalidation**: call `revalidatePath()` for every path a mutation affects.
 - **Design tokens**: colors/radii are CSS custom properties in `app/globals.css`,
-  exposed to Tailwind via the `@theme inline` block (`bg-background`, `text-primary`,
-  …). New colors must be added to both places. Never hardcode hex values in components.
-- **Data layer**: server components read via `lib/content.ts` / Prisma directly — no
+  exposed to Tailwind via `@theme inline`. Never hardcode hex values in components.
+- **Data layer**: server components read via `lib/content.ts`/Prisma directly — no
   self-fetching of our own API from server code.
-- **Motion**: all animation guarded behind `prefers-reduced-motion: no-preference`
-  (see the existing motion system in `app/globals.css`).
-- **Prisma 7**: config lives in `prisma.config.ts`; client is generated into
-  `app/generated/prisma` and instantiated with the better-sqlite3 driver adapter in
+- **Uploads**: images go through the existing content-addressed `UploadedImage`
+  pipeline (`lib/uploads.ts`, `app/api/uploads/images/route.ts`) — reuse it, don't
+  invent a second upload path.
+- **Prisma 7**: config lives in `prisma.config.ts`; client generated into
+  `app/generated/prisma`, instantiated with the better-sqlite3 driver adapter in
   `lib/prisma.ts`.
 
 ---
 
-## Retrospective — completed phases
-
-- **Phase 0 — Project scaffold.** Next.js 16 App Router + TypeScript + Tailwind v4
-  toolchain, running dev environment.
-- **Phase 1 — Design system & public pages.** Dark "obsidian" visual identity and
-  token system, hardcoded placeholder content in `lib/site-config.ts`, core components
-  (header, footer, hero, feature cards, rules, news).
-- **Phase 2 — Database-backed content.** Prisma 7 + SQLite with models `ContentBlock`,
-  `RuleSection`/`Rule`, `Feature`, `Post`; re-runnable seed (`prisma/seed.ts`,
-  `npm run db:seed`, `--pages-only` flag); JSON envelope API routes with Zod validation.
-- **Phase 3 — Authentication.** Auth.js v5 credentials provider (bcrypt, JWT sessions),
-  `Role` enum `OWNER`/`ADMIN`, `lib/auth-guard.ts` gates, `scripts/create-admin.ts`
-  bootstrap.
-- **Phase 4 — In-place editors.** Edit mode (`components/admin/edit-mode-context.tsx`),
-  inline editable text, list editors for rules/features/posts, toast feedback.
-- **Phase 5 — Live server status.** `lib/mc-status.ts` (minecraft-server-util, 30s
-  cache, in-flight dedupe, never throws), public `GET /api/status`, polling status badge.
-- **Phase 6 — Polish & deployment.** Motion system (page-enter/toast/nav/icon
-  keyframes in `app/globals.css`, blanket `prefers-reduced-motion` reset), Dockerfile +
-  docker-compose (loopback bind, `./data/*` mounts), host Caddy with auto-HTTPS,
-  `scripts/vps-setup.sh` / `scripts/vps-start.sh`, backups (`scripts/backup-db.ts` +
-  systemd timer), `docs/DEPLOYMENT.md`.
-- **Phase 7 — Security hardening.** Security headers in `next.config.ts` (CSP, HSTS,
-  X-Frame-Options), login rate limiting, defense-in-depth auth gates, sanitized
-  markdown rendering.
-- **Phase 8 — Block-based page builder.** Models `Page`/`Block`/`NavItem`; block
-  registry (`components/blocks/registry.tsx`) with 11 block types; `PageRenderer`;
-  catch-all `app/[slug]`; protected pages; `/admin/pages`, `/admin/nav`, OWNER-only
-  `/admin/users`; reserved-slug + protected-slug enforcement.
-
----
-
-## Phase 9 — Theme system
-
-> **Status: ✅ Complete.**
+## Phase 16 — Admin UI stabilization (chrome, mobile theme picker, custom themes) — COMPLETE
 
 ### Goal
 
-Visitors can switch the whole site between five curated Minecraft-flavored themes and
-set a **custom accent color** (color wheel + exact hex/RGB input), persisted across
-visits with no flash of default theme. Admins can force a specific theme per page and
-choose a color *tone* on emphasis-capable blocks while editing.
+Fix three UI defects: (1) every "Site Management" admin page (`/admin/pages`,
+`/admin/nav`, `/admin/themes`, `/admin/users`) renders with no header or footer; (2)
+the visitor-facing theme picker popover overflows off the left edge of the viewport on
+narrow/mobile screens and can't be interacted with; (3) the admin custom-theme editor
+has UI stability issues and must behave identically for every user with access.
 
 ### Prerequisite reading
 
-`app/globals.css` · `app/layout.tsx` · `components/blocks/registry.tsx` ·
-`lib/validation/pages.ts` · `components/blocks/callout-block.tsx` (existing
-variant-select pattern to clone) · `components/pages/page-renderer.tsx` ·
-`next.config.ts` (CSP comment) · `app/api/pages/[id]/route.ts` ·
-`components/admin/pages-admin.tsx`.
+`components/pages/site-chrome.tsx` · `app/admin/page.tsx` (currently self-wraps in
+`SiteChrome` — becomes the one place that stops doing so) ·
+`app/admin/{pages,nav,themes,users}/page.tsx` · `components/theme/theme-picker.tsx` ·
+`components/admin/custom-themes-admin.tsx` · `components/site-footer.tsx`.
 
-### Design decisions (do not relitigate)
+### Design decisions
 
-- **No-flash persistence: localStorage + blocking inline `<script>` in `<head>`**
-  (the next-themes pattern). NOT cookies: reading `cookies()` in the root layout would
-  opt every route into dynamic rendering and break the static + `revalidatePath` model
-  the whole site relies on. The CSP already carries `script-src 'unsafe-inline'`
-  (required by RSC streaming), so the inline script costs nothing. SSR always emits
-  default-theme markup; the script corrects `<html>` before first paint.
-- **Themes are `[data-theme="…"]` token-override blocks** in `app/globals.css`.
-  `:root` stays exactly as it is today (obsidian) so no-JS visitors get the current
-  look. Selectors must be attribute-only (`[data-theme="end"]`, not
-  `html[data-theme="end"]`) so the same rules power page-level wrapper overrides.
-- **Theme set**: `obsidian` (current dark, default) · `parchment` (light) ·
-  `deepslate` (cool blue-gray dark) · `end` (dark purple, purple primary).
-  **No auto `prefers-color-scheme` switching** — dark-first is the brand (documented
-  non-goal); the picker is one click away.
-- **Custom accent**: `react-colorful`'s `HexColorPicker` (~2.8 kB, zero deps,
-  keyboard-accessible) plus a hex text field and three R/G/B number inputs. The accent
-  sets `--primary`, `--primary-hover`, `--primary-foreground` as **inline style
-  custom properties on `<html>`**. Foreground is auto-picked (dark `#05130a` vs light
-  `#edf2ec`) by WCAG relative luminance; hover is derived by darkening.
-- **`Page.theme` is a forced override**: when non-null, that page renders in that theme
-  regardless of visitor choice. Implemented as a `data-theme` wrapper div in
-  `PageRenderer` — the wrapper's `[data-theme]` rule re-declares tokens closer to the
-  content than the `<html>` inline accent vars, so it wins by cascade proximity. No JS
-  arbitration needed. Visitor accent intentionally yields on such pages.
-- **Block tones**: one shared enum `["neutral","primary","accent","info","warning","danger"]`.
-  The existing `callout.variant` (`z.enum(["warning","info"])` in
-  `lib/validation/pages.ts`) is **extended in place** to the full enum — the JSON key
-  stays `variant`, so existing Block rows remain valid with **no data migration**.
-  `pageHeader`, `ctaBanner`, and `linkGrid` gain an optional `tone` field
-  (absent = `neutral` = exactly today's look, so existing rows stay valid too).
+1. **Root cause of the missing chrome**: there is no `app/admin/layout.tsx`. Only
+   `app/admin/page.tsx` renders `<SiteChrome>` itself; every other `/admin/**` route
+   just renders a bare `<Container>` inside the root layout's `<body>`, with no
+   `SiteHeader`/`SiteFooter` at all. **Fix**: add `app/admin/layout.tsx` wrapping every
+   admin route in one `<SiteChrome theme={null} customThemeTokens={null}>` — the
+   single per-route-group integration point, matching how every other route already
+   gets its chrome. `app/admin/page.tsx` must stop wrapping itself (drop its own
+   `SiteChrome` import/usage) to avoid a doubled header/footer. Each page's own
+   `auth()`-based redirect-to-`/login` guard stays exactly where it is (per-page, not
+   hoisted) — not in scope to change.
+2. **Root cause of the mobile overflow**: `theme-picker.tsx`'s panel is
+   `absolute bottom-full right-0 ... w-72`, anchored to its trigger button at the
+   right edge of the footer's flex row. On any viewport narrower than roughly 288px
+   plus the trigger's offset from the left edge, the fixed-width panel runs off the
+   left of the screen with nothing clamping it back into view. **Fix**: make the panel
+   `fixed inset-x-4 bottom-20` (viewport-clamped) below the `sm:` breakpoint, and keep
+   today's `absolute bottom-full right-0 w-72` from `sm:` up — i.e.
+   `className="fixed inset-x-4 bottom-20 z-50 ... sm:absolute sm:inset-x-auto sm:bottom-full sm:right-0 sm:mb-2 sm:w-72"`.
+   Desktop stays pixel-identical; only small screens change.
+3. **Custom themes admin stability**: known-suspect area to fix first —
+   `ColorField`'s per-swatch picker popovers (`custom-themes-admin.tsx`) have no
+   click-outside/Escape handling, unlike `theme-picker.tsx`'s panel, so multiple can be
+   left open simultaneously and stack unpredictably. Add the same
+   click-outside/Escape-close `useEffect` pattern `theme-picker.tsx` already uses.
+   Beyond that specific bug, reproduce the reported "buggy"/"not uniform across users"
+   behavior live in a real browser before deciding on further fixes — don't assume the
+   data flow (`getCustomThemes()` fetched fresh per page load, mutated through the API)
+   is the problem without confirming it.
 
 ### DB migration
 
-Add to `prisma/schema.prisma`:
-
-```prisma
-model Page {
-  // ...existing fields...
-  theme String? // one of lib/themes.ts THEME_IDS; null = follow visitor theme
-}
-```
-
-Run: `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name page_theme`
-then `node --no-turbofan node_modules/prisma/build/index.js generate`.
+None.
 
 ### Steps
 
-1. **`lib/themes.ts` (new — client-safe, NO Prisma imports).**
-   `export const THEME_IDS = ["obsidian", "parchment", "deepslate", "end", "redstone"] as const;`
-   `export type ThemeId = (typeof THEME_IDS)[number];` `DEFAULT_THEME = "obsidian"`,
-   a `THEMES: Record<ThemeId, { label: string; description: string; swatch: string }>`
-   map for pickers, localStorage keys (`STORAGE_KEY_THEME = "jass.theme"`,
-   `STORAGE_KEY_ACCENT = "jass.accent"`), and
-   `export const TONES = ["neutral", "primary", "accent", "info", "warning", "danger"] as const;`
-   with `type Tone`.
-
-2. **`lib/color.ts` (new — pure functions, unit-testable, no deps).**
-   `parseHex(hex): {r,g,b} | null` (accept `#rgb`/`#rrggbb`), `rgbToHex(r,g,b)`,
-   `relativeLuminance({r,g,b})` (WCAG 2.x formula), `readableForeground(hex)` →
-   `"#05130a"` when luminance > ~0.4 else `"#edf2ec"`, `darken(hex, amount)` (for
-   `--primary-hover`, ~12%). Clamp/validate all inputs.
-
-3. **`app/globals.css`.**
-   - Add an `--info` token to `:root` (readable blue on obsidian, e.g. `#4aa8e8`
-     family) and `--color-info: var(--info)` to `@theme inline`.
-   - Add three full token-override blocks: `[data-theme="parchment"]` (light surfaces,
-     dark foreground, **darkened** emerald primary that hits ≥ 4.5:1 on the light
-     background, border alphas flipped to dark), `[data-theme="deepslate"]` (cool
-     blue-gray dark family), `[data-theme="end"]` (deep purple background, purple
-     primary, chorus-fruit magenta accent). Each block must override *every* color
-     token `:root` defines (`--background`, `--surface`, `--surface-2`, `--border`,
-     `--border-strong`, `--foreground`, `--muted`, `--primary`, `--primary-foreground`,
-     `--primary-hover`, `--accent`, `--accent-foreground`, `--danger`, `--info`,
-     `--online`, `--offline`) — partial overrides create Frankenstein themes.
-   - Do NOT emit a `[data-theme="obsidian"]` block; obsidian is `:root`.
-
-4. **`components/theme/theme-script.tsx` (new — server component).**
-   Renders `<script>{INLINE}</script>` where `INLINE` is a **static string literal**
-   (no interpolation of any dynamic value — zero injection surface): reads the two
-   localStorage keys inside `try/catch`; validates theme against a hardcoded ID array
-   and accent against `/^#[0-9a-fA-F]{6}$/`; sets
-   `document.documentElement.dataset.theme` (omit for obsidian) and
-   `style.setProperty("--primary"|"--primary-hover"|"--primary-foreground", …)` using
-   inlined minimal copies of the luminance/darken math. Keep it dependency-free and
-   under ~1 kB.
-
-5. **`components/theme/theme-provider.tsx` (new — `"use client"`).**
-   Context `{ theme, accent, setTheme, setAccent, resetAccent }`. Setters write
-   localStorage and mutate `<html>` (same operations as the inline script, but
-   importing from `lib/themes.ts` + `lib/color.ts`). Initial state read from the DOM
-   (`document.documentElement`) in a lazy `useState` initializer so provider state and
-   the script-applied DOM agree.
-
-6. **`components/theme/theme-picker.tsx` (new — `"use client"`).**
-   Popover/panel opened from a small button in `SiteFooter` (and optionally the mobile
-   menu): five labeled theme swatches (radio semantics, keyboard navigable),
-   `react-colorful` `HexColorPicker` for the accent, hex input, three R/G/B number
-   inputs (0–255, synced both ways via `lib/color.ts`), and a "Reset accent" button.
-   Follow existing focus-visible/radius/surface token styling.
-   Install: `npm install react-colorful` (fallback:
-   `NODE_OPTIONS="--jitless" npm install react-colorful`).
-
-7. **`app/layout.tsx`.** Add `suppressHydrationWarning` to `<html>`; render
-   `<ThemeScript />` as the first child of `<body>` (Next 16 executes it before
-   paint; keep it above all visible markup) or via an explicit `<head>` — whichever
-   the installed Next docs (`node_modules/next/dist/docs/`) recommend for blocking
-   scripts; wrap the existing provider stack with `<ThemeProvider>`.
-
-8. **`components/pages/page-renderer.tsx`.** When `page.theme` is set, wrap the block
-   list: `<div data-theme={page.theme} className="bg-background text-foreground">`
-   (re-asserting bg/text so the wrapper actually repaints). All protected pages and
-   `app/[slug]` funnel through PageRenderer, so this is the single integration point.
-
-9. **`lib/validation/pages.ts`.**
-   `export const themeSchema = z.enum(THEME_IDS);` — add
-   `theme: themeSchema.nullable().optional()` to `pageCreateSchema` and
-   `pageUpdateSchema`. `export const toneSchema = z.enum(TONES);` — change
-   `calloutDataSchema.variant` to `toneSchema`, add `tone: toneSchema.optional()` to
-   `pageHeaderDataSchema`, `ctaBannerDataSchema`, `linkGridDataSchema`.
-
-10. **`app/api/pages/route.ts` + `app/api/pages/[id]/route.ts`.** Persist `theme` on
-    create/update; `revalidatePath` the page's path (existing pattern).
-
-11. **`components/blocks/tones.ts` (new).**
-    `TONE_STYLES: Record<Tone, { container: string; title: string; icon?: ReactNode }>`
-    mapping tones to token classes (e.g. info → `border-info/30 bg-info/10 text-info`;
-    danger → danger tokens; neutral → current default styling). Export a shared
-    `<ToneSelect value onChange>` edit-mode control cloned from callout's existing
-    variant `<select>`.
-
-12. **Block components.** `callout-block.tsx`: replace its two-variant style map with
-    `TONE_STYLES` + per-tone icon; keep JSON key `variant`. `page-header-block.tsx`:
-    tone tints the eyebrow/heading accent. `cta-banner-block.tsx`: tone tints panel +
-    button. `link-grid-block.tsx`: tone tints hover border/title. Each shows
-    `<ToneSelect>` only in edit mode. Leave `defaultBlockData` in `registry.tsx`
-    unchanged (absent tone = neutral) unless a default is needed for callout
-    (keep `variant: "info"`).
-
-13. **`components/admin/pages-admin.tsx`.** Add a theme `<select>` per page row
-    (Default + the five themes), PUT via the existing pages API pattern.
+1. `app/admin/layout.tsx` (new) — `SiteChrome` wrapper per decision 1.
+2. `app/admin/page.tsx` — remove its own `SiteChrome` wrap.
+3. `components/theme/theme-picker.tsx` — responsive positioning fix per decision 2.
+4. `components/admin/custom-themes-admin.tsx` — click-outside/Escape handling on
+   `ColorField`'s popover; fix whatever else reproduces live per decision 3.
 
 ### Security checklist
 
-- [ ] Inline theme script is a static literal — no user data interpolated.
-- [ ] Accent validated as `#rrggbb` hex before any `style.setProperty` (script,
-      provider, and picker all validate).
-- [ ] `theme` strings validated against the enum server-side (Zod) and client-side.
-- [ ] No new CSP loosening required (verify `next.config.ts` unchanged).
+- [ ] Every `/admin/**` page still redirects unauthenticated visitors to `/login` —
+      the new layout must not bypass any per-page `auth()` check.
 
 ### Verification
 
-1. `npm run lint` and `npx tsc --noEmit` pass.
-2. Set each theme, hard-reload with devtools CPU throttling — **no flash** of obsidian
-   before the chosen theme.
-3. Disable JS → site renders obsidian correctly.
-4. Set `Page.theme = "end"` on a test page → that page is purple while the rest of the
-   site follows the visitor's theme; visitor accent does not leak into that page.
-5. Set accent `#ffff00` on parchment → button text auto-flips dark; on obsidian too.
-6. Existing callout blocks (variant `info`/`warning`) render unchanged (backward-compat).
-7. Each tone spot-checked on each theme for contrast (especially parchment).
-8. Reduced-motion and keyboard navigation of the picker verified.
+1. `/admin/pages`, `/admin/nav`, `/admin/themes`, `/admin/users` all render header +
+   footer, identical to every other page.
+2. `/admin` itself shows exactly one header and one footer (no doubling).
+3. On a real mobile viewport (or ≤375px devtools emulation), the footer theme picker
+   opens fully on-screen with every control reachable/tappable.
+4. Two admin sessions (or one hard-refreshed) see identical custom-theme behavior.
+5. `npm run lint` + `npx tsc --noEmit`.
 
 ### Agent dispatch
 
-- Implementation: one frontend agent for steps 1–8 (tokens/script/provider/picker/
-  layout), one for steps 9–13 (validation/API/tones/blocks/admin). Step 1–2 outputs are
-  shared contracts — land them first.
-- Review: `react-reviewer` on provider/picker/script; `code-reviewer` on the rest;
-  a design pass (design-system / make-interfaces-feel-better skills) over the five
-  themes' token values — parchment must be *designed*, not naively inverted.
-- Tests: unit tests for `lib/color.ts` (luminance/foreground/darken edge cases) if a
-  test runner is introduced; otherwise verify via the manual list above.
+Single frontend agent — small, contained. `code-reviewer` pass after.
 
 ---
 
-## Phase 10 — Resource pack hosting (`/resource`)
+## Phase 17 — Site settings: favicon + link-share (embed) defaults — COMPLETE
 
-> **Status: ✅ Complete.**
+Shipped 2026-07-11. Implementation notes/deviations from the original spec below, kept
+for anyone touching this area later:
+
+- `POST /api/uploads/images`' response gained an `id` field (the `UploadedImage` row's
+  id, alongside the existing `url`/`sha1`/`mime`/`size`) -- the admin settings UI needs
+  a real id to send as `faviconImageId`/`embedImageId`, which the original response
+  shape didn't carry. Additive/backward-compatible; `image-block.tsx` only ever read
+  `url`.
+- `app/opengraph-image.tsx` (a pre-existing Phase 9 file-based OG image route) had to be
+  taught to render the custom embed image, in addition to `app/layout.tsx`'s
+  `generateMetadata()` -- Next.js gives file-based image metadata conventions strict
+  priority over `openGraph.images` set via the metadata object/`generateMetadata`, so
+  the embed image would never have shown up in a real link preview otherwise. See
+  `getEmbedImageAsset()` in `lib/site-settings.ts`.
+- `app/page.tsx` (Home) layers the same embed-text fallback as the root layout, on top
+  of its own existing CMS-driven title/description -- per-segment `generateMetadata`
+  fully replaces (not merges with) the parent layout's `title`/`description`/
+  `openGraph`/`twitter`, so without this the fallback text would have had zero visible
+  effect on `/`, the site's most commonly shared link. Rules/Features/News/custom pages
+  were left untouched (their titles are page-specific content, not "the site's" generic
+  identity).
+- Both `app/icon.tsx` and `app/opengraph-image.tsx` export `dynamic = "force-dynamic"`
+  -- these code-based image Route Handlers are cached by default, and a plain
+  `await prisma...` call does not by itself opt a route out of that caching (unlike
+  Server Component pages). Without this, both served stale renders after a
+  `SiteSettings` change until the cache happened to be invalidated.
 
 ### Goal
 
-The site stores and delivers the server's resource pack, replacing what the old
-justasimpleserver.net site did. Public `/resource` page shows a download button, the
-**date of the last upload**, and the pack's **SHA-1 digest in lowercase hexadecimal**
-(the exact format `server.properties` wants), plus a copyable `server.properties`
-snippet. Admins upload new packs through the UI; a stable URL serves the active pack
-to Minecraft clients. Packs survive Docker rebuilds.
+Give admins a place to (a) change the browser-tab icon, and (b) control what a Discord
+(or Slack/iMessage/etc.) link preview shows when someone shares a link to the site — a
+custom preview image, and, when no image is set, custom fallback title/description
+text. Both are **site-wide** settings (per the locked-in scope decision — not
+per-page), configured from a new admin area.
 
 ### Prerequisite reading
 
-`lib/api-response.ts` · `lib/auth-guard.ts` · `app/api/blocks/route.ts` (route
-conventions) · `docker-compose.yml` · `Dockerfile` · `lib/validation/pages.ts`
-(RESERVED_SLUGS) · `components/admin/toast.tsx` · `components/admin/edit-mode-context.tsx`
-· `docs/DEPLOYMENT.md`.
+`prisma/schema.prisma` (`UploadedImage`) · `lib/uploads.ts` ·
+`app/api/uploads/images/route.ts` · `components/blocks/image-block.tsx` (upload-widget
+pattern to reuse) · `app/layout.tsx` (current static `metadata`) · `lib/site-config.ts`
+· `lib/content.ts` (`getSiteContent`'s upsert-on-read pattern to mirror) ·
+`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/01-metadata/app-icons.md`
+(Next 16's dynamic icon file convention — read before writing `app/icon.tsx`).
 
-### Design decisions (do not relitigate)
+### Design decisions
 
-- **Upload transport: raw streaming POST** — the browser sends the `File` object
-  directly as the `fetch` body; the route handler streams `request.body` to disk
-  through a SHA-1 hasher. Next 16 route handlers stream request bodies with no size
-  config (`bodySizeLimit` applies only to Server Actions). No multipart parser dep.
-  Original filename travels in an `X-Filename` header, sanitized server-side.
-- **Size cap 256 MiB (268435456 bytes)**, enforced **twice**: reject upfront on the
-  (required) `Content-Length` header, and count bytes while streaming — on overflow
-  abort, unlink the temp file, return 413. (Content-Length alone is spoofable;
-  counting alone wastes bandwidth.)
-- **Content-addressed storage**: `<UPLOADS_DIR>/resource-packs/<sha1>.zip`, where
-  `UPLOADS_DIR` env defaults to `path.join(process.cwd(), "uploads")`. Stream to
-  `<name>.tmp`, then atomic `rename`. Free dedupe, natural ETags, no filename-derived
-  paths. **Keep the newest 3 packs** (rollback headroom on a small VPS); exactly one
-  DB row is `active`.
-- **Download URL: `GET /api/resource-pack`** — one canonical, stable URL for
-  `server.properties`. Streams from disk (`fs.createReadStream` → `Readable.toWeb`),
-  direct 200 (no redirects — MC clients handle them poorly), `ETag: "<sha1>"` with
-  `If-None-Match` → 304 support.
+1. New `SiteSettings` singleton row (fixed id, upsert-only) rather than overloading the
+   generic `ContentBlock` key-value store — these fields have a stronger shape
+   (validated image references, bounded text) that benefits from real columns and one
+   Zod schema, matching the `CustomTheme` field-per-token precedent.
+2. **Favicon**: reuses the existing `UploadedImage` pipeline — `SiteSettings.faviconImageId`
+   is a nullable FK. Served via Next's dynamic `app/icon.tsx` (read the doc above for
+   the exact API), which reads `SiteSettings` at request time and streams the uploaded
+   image, falling back to the existing static `app/favicon.ico` when unset (that file
+   is never deleted — it's the permanent fallback).
+3. **Embed image**: same pipeline, `SiteSettings.embedImageId`. When set, it feeds
+   `app/layout.tsx`'s `metadata.openGraph.images`/`metadata.twitter.images`. This
+   requires turning (or supplementing) the layout's currently-static `export const
+   metadata` into a `generateMetadata()` that reads `SiteSettings` — verify against the
+   installed Next docs that this doesn't force the whole tree into dynamic rendering
+   (metadata generation and page-rendering strategy are independent in Next, but
+   confirm rather than assume, echoing Phase 9's care around the root layout).
+4. **Fallback text**: `SiteSettings.embedTitle`/`embedDescription`, both nullable —
+   null means "use today's hardcoded `siteConfig.name`/`siteConfig.tagline`", so this
+   ships with zero visible change until an admin opts in. Only used when
+   `embedImageId` is null, per the original ask ("in the absence of an image").
+5. New `/admin/settings` page (added to `app/admin/page.tsx`'s `managementLinks`),
+   `requireAdmin()`-gated like every other management surface (no owner-only carve-out).
 
 ### DB migration
 
 ```prisma
-model ResourcePack {
-  id         String   @id @default(cuid())
-  filename   String            // sanitized original name, display only
-  size       Int               // bytes; 256 MiB max fits Int comfortably
-  sha1       String   @unique  // lowercase hex, 40 chars
-  active     Boolean  @default(false)
-  uploadedAt DateTime @default(now())
-  uploadedBy String?           // uploader email, display only
+model SiteSettings {
+  id               String         @id @default("singleton")
+  faviconImageId   String?
+  faviconImage     UploadedImage? @relation("SiteSettingsFavicon", fields: [faviconImageId], references: [id], onDelete: SetNull)
+  embedImageId     String?
+  embedImage       UploadedImage? @relation("SiteSettingsEmbed", fields: [embedImageId], references: [id], onDelete: SetNull)
+  embedTitle       String?
+  embedDescription String?
+  updatedAt        DateTime       @updatedAt
+  updatedBy        String?
 }
 ```
 
-Run: `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name resource_pack`
-then regenerate the client.
-
-### API contracts
-
-All JSON responses use the `lib/api-response.ts` envelope. Admin = `requireAdmin()`.
-
-| Route | Auth | Behavior |
-|---|---|---|
-| `GET /api/resource-pack` | public | **Binary.** 200 zip stream of the active pack: `Content-Type: application/zip`, `Content-Length`, `Content-Disposition: attachment; filename="<filename>"`, `ETag: "<sha1>"`, `Cache-Control: public, no-cache`. 304 when `If-None-Match` matches. 404 envelope when no active pack **or file missing on disk** (log the drift loudly). |
-| `GET /api/resource-pack/meta` | public | 200 `{ data: { filename, size, sha1, uploadedAt } \| null }`. |
-| `POST /api/resource-pack` | admin | Raw body stream. Pipeline: `requireAdmin()` → **Origin header must match the site origin** (CSRF guard: raw-body POSTs are not covered by Auth.js form CSRF) → require `Content-Length` ≤ 268435456 else 413 → stream to temp while hashing (`crypto.createHash("sha1")`) and counting; first 4 bytes must be `50 4B 03 04` ("PK\x03\x04") else 400 `invalid_zip`; overflow → abort/unlink → 413 → atomic rename to `<sha1>.zip` → transaction: `updateMany({ where: { active: true }, data: { active: false } })` + upsert by sha1 (`create` new or re-activate existing — re-upload of a known sha1 must NOT duplicate) with `uploadedBy` = session email → `prunePacks(3)` → `revalidatePath("/resource")` → 201 `{ data: pack }`. Temp file unlinked in `finally` on every error path. |
-| `GET /api/resource-pack/history` | admin | 200 `{ data: ResourcePack[] }` newest-first. |
-| `POST /api/resource-pack/[id]/activate` | admin | Verify the row's file exists on disk (else 409 `conflict` with drift message); transaction: deactivate others, activate this; `revalidatePath("/resource")`; 200 `{ data: pack }`; 404 unknown id. |
-| `DELETE /api/resource-pack/[id]` | admin | 409 `conflict` if row is active; delete row + file (ignore ENOENT); 200. |
+(Add the two named back-relations to `UploadedImage`.) Run via the `--no-turbofan`
+command from CLAUDE.md.
 
 ### Steps
 
-1. **`lib/uploads.ts` (new — first line `import "server-only";`).**
-   `uploadsDir()` (env `UPLOADS_DIR` fallback `./uploads`; `mkdirSync` recursive),
-   `packsDir()`, `packPath(sha1)` — **re-validate `/^[a-f0-9]{40}$/` before
-   `path.join`** (defense in depth even though sha1 comes from our own DB),
-   `tempPackPath()`, `prunePacks(keep = 3)` (delete rows + files beyond the newest 3,
-   never deleting the active row).
-2. **API routes** per the contract table: `app/api/resource-pack/route.ts` (GET binary
-   + POST upload), `app/api/resource-pack/meta/route.ts`,
-   `app/api/resource-pack/history/route.ts`,
-   `app/api/resource-pack/[id]/activate/route.ts`,
-   `app/api/resource-pack/[id]/route.ts` (DELETE).
-   Filename sanitization: `path.basename`, strip control chars, cap 200 chars, must
-   end `.zip`, fallback `"resource-pack.zip"`. Never used for storage paths.
-3. **`app/resource/page.tsx` (new — server component).** Reads the active
-   `ResourcePack` row via Prisma directly. Static metadata ("Resource Pack — JASS").
-   Renders `ResourcePackView` (+ `ResourcePackAdmin`, which self-hides outside edit
-   mode). Absolute download URL built from `NEXT_PUBLIC_SITE_URL` (same fallback
-   pattern as `app/layout.tsx`).
-4. **`components/resource/resource-pack-view.tsx` (new).** Download button (primary
-   token styling), uploaded date (human-readable + `<time dateTime>`), SHA-1 in mono
-   (`font-mono`, lowercase, copy button), and a copyable snippet:
-
-   ```
-   resource-pack=https://<site>/api/resource-pack
-   resource-pack-sha1=<sha1>
-   ```
-
-   Empty state when no pack yet ("No resource pack uploaded yet").
-5. **`components/resource/resource-pack-admin.tsx` (new — `"use client"`).** Rendered
-   only when `useEditMode()` is active: file input (`accept=".zip"`, client-side size
-   pre-check with a friendly error), upload via
-   `fetch("/api/resource-pack", { method: "POST", body: file, headers: { "X-Filename": file.name, "Content-Type": "application/zip" } })`
-   with pending/disabled state (XHR progress bar is deferred — see appendix), then
-   `router.refresh()`; history table (filename, size, date, sha1 prefix, active badge)
-   with Activate/Delete actions; toasts via existing `ToastProvider`.
-6. **`lib/validation/pages.ts`.** Add `"resource"` to `RESERVED_SLUGS` (a builder Page
-   must never shadow the new static route).
-7. **Infra.** `docker-compose.yml`: volume `./data/uploads:/app/uploads` + env
-   `UPLOADS_DIR: /app/uploads`. `Dockerfile` runner stage: `mkdir -p /app/uploads`.
-   `.gitignore`: `uploads/`. `.env.example`: document `UPLOADS_DIR` (optional, default
-   `./uploads`).
-8. **Docs + nav.** `docs/DEPLOYMENT.md`: uploads mount, and note Caddy has no default
-   body limit (optionally add `request_body { max_size 300MB }` to the Caddyfile as an
-   explicit cap). Optional: seed a "Resource Pack" NavItem → `/resource` in
-   `prisma/seed.ts` (upsert style, `--pages-only`-safe).
+1. Schema + migration above.
+2. `lib/site-settings.ts` (new) — `getSiteSettings()` (upsert-on-read so the row always
+   exists), returning resolved favicon/embed-image URLs in the same
+   `/api/uploads/images/<sha1>.<ext>` shape the Image block already produces.
+3. `lib/validation/site-settings.ts` (new) — `siteSettingsUpdateSchema`:
+   `embedTitle`/`embedDescription` nullable, capped ~70/~200 chars (standard OG/Twitter
+   card limits); `faviconImageId`/`embedImageId` nullable cuid strings, re-validated
+   server-side against real `UploadedImage` rows before saving (never trust a
+   client-supplied id blindly).
+4. `app/api/site-settings/route.ts` — `GET` (public) + `PUT` (admin), `revalidatePath("/", "layout")`
+   on update since it affects every page's metadata/icon.
+5. `app/icon.tsx` (new) — dynamic icon per decision 2.
+6. `app/layout.tsx` — extend metadata generation per decision 3, falling back to
+   today's `siteConfig` values exactly when `SiteSettings` fields are unset.
+7. `components/admin/site-settings-admin.tsx` (new) + `app/admin/settings/page.tsx`
+   (new) — favicon upload, embed image upload (both reusing `image-block.tsx`'s
+   file-input pattern), embed title/description fields (visibly disabled/hinted
+   "falls back to the image above" when an embed image is set).
+8. `app/admin/page.tsx` — add the Settings entry to `managementLinks`.
 
 ### Security checklist
 
-- [ ] Upload/activate/delete/history behind `requireAdmin()`; Origin check on POST.
-- [ ] Magic-bytes check (`PK\x03\x04`) + double size enforcement.
-- [ ] Storage paths derived only from validated sha1 — user filename never touches
-      the filesystem path.
-- [ ] Temp files cleaned in `finally` on all error paths.
-- [ ] Zips are opaque bytes — never extracted or parsed server-side.
-- [ ] Download re-validates sha1 format before path join; 404s cleanly on drift.
-- [ ] No secrets/params leak into error messages (use envelope codes).
+- [ ] `PUT /api/site-settings` behind `requireAdmin()`.
+- [ ] `faviconImageId`/`embedImageId` re-validated against real `UploadedImage` rows
+      server-side.
+- [ ] `app/icon.tsx` only serves bytes for a `sha1`/`ext` pulled from the DB row
+      (already validated on write) — same defense-in-depth re-validation `lib/uploads.ts`
+      already does elsewhere.
+- [ ] Embed title/description only ever rendered through Next's `Metadata` API
+      (auto-escaped) — never interpolated into a raw HTML string.
 
 ### Verification
 
-1. Upload a real pack (ideally ~100 MB) locally; `sha1sum pack.zip` matches the
-   displayed digest exactly (lowercase hex).
-2. `curl -I http://localhost:3000/api/resource-pack` → 200 with all headers; repeat
-   with `If-None-Match: "<sha1>"` → 304.
-3. Watch process RSS during the large upload — memory stays flat (true streaming).
-4. `docker compose up -d --build` twice → pack + metadata survive rebuilds.
-5. Unauthenticated POST → 401 envelope. Oversized Content-Length → 413. Non-zip
-   bytes → 400. After each failure the temp dir is empty.
-6. Re-upload the same file → no duplicate row; it re-activates.
-7. Activate an older pack → download + page reflect it after refresh.
-8. Point a real MC server's `server.properties` at the deployed URL + sha1 and join
-   (manual; the Phase 11 walkthrough automates the instructions).
-9. `npm run lint` + `npx tsc --noEmit`.
+1. Upload a custom favicon → tab icon changes site-wide; unset → falls back to the
+   original static icon.
+2. Set a custom embed image → a link-preview debugger (or pasting into Discord) shows
+   it.
+3. Clear the embed image, set custom title/description → preview falls back to that
+   text, not `siteConfig` defaults.
+4. Neither set → preview behaves exactly as before this phase (regression check).
+5. Non-admin hitting `PUT /api/site-settings` → 401/403 envelope.
+6. `npm run lint` + `npx tsc --noEmit`.
 
 ### Agent dispatch
 
-- Implementation: one backend agent (steps 1–2, 6–7), one frontend agent (steps 3–5, 8).
-- Review: **`security-reviewer` over the upload/download routes is mandatory before
-  phase close** (file upload + raw body + streaming = highest-risk surface in the
-  project). `typescript-reviewer`/`code-reviewer` on the rest.
-- The large-file streaming test (verification 3) must be explicitly reported, not
-  assumed.
+One backend agent (schema/validation/API/`lib/site-settings.ts`), one frontend agent
+(admin UI + `app/icon.tsx` + layout metadata) — fix the `SiteSettings` shape as the
+contract before splitting.
 
 ---
 
-## Phase 11 — Unified interactive setup wizard (`setup.sh`)
-
-> **Status: ✅ Complete.** Verified: `shellcheck` clean and `bash -n` clean on all
-> seven files; wrapper `--help` output byte-identical to the originals; a fresh-clone
-> `./setup.sh --mode local` run taken end-to-end to a live dev server (home, `/resource`,
-> and the resource-pack + status APIs all responding).
+## Phase 18 — Per-instance block content (Post List, Rule List, Feature Grid, Hero) + news tag filtering & styling
 
 ### Goal
 
-One entry point — `./setup.sh` — that interactively walks a human from zero to a
-running site in any of three modes: **local dev**, **VPS first-time provision**,
-**VPS redeploy/update**. Everything automatable is automated (idempotently, safe to
-re-run); everything that isn't (DNS, OVH cloud firewall, `server.properties` on the
-Minecraft server) becomes a guided, numbered walkthrough with pauses and verification
-commands. Existing `vps-setup.sh` / `vps-start.sh` keep working as thin wrappers.
+Today `hero`, `ruleList`, `featureGrid`, and `postList` are intentional site-wide
+singletons (a Phase 15 design decision, documented in `registry.tsx`'s
+`ADDABLE_BLOCK_TYPES` comment): every instance of a given type, anywhere on the site,
+renders identical content, because `PageRenderer` fetches each referenced table once
+per page and hands the full result to every block of that type. **Per explicit scope
+decision, this phase reverses that** for all four block types: each instance gets its
+own optional display-level filter/override, so two instances of the same block type on
+different pages can show different subsets. The driving concrete case: Post List
+instances can be filtered to one tag, and tags get real visual styling instead of
+plain muted text.
 
 ### Prerequisite reading
 
-`scripts/vps-setup.sh` (all 709 lines) · `scripts/vps-start.sh` (all 460 lines) ·
-`CLAUDE.md` (machine quirks) · `prisma/seed.ts` · `scripts/create-admin.ts` ·
-`.env.example` · `docs/DEPLOYMENT.md` · `README.md` (setup sections).
+`components/blocks/registry.tsx` (the `ADDABLE_BLOCK_TYPES` comment this phase
+partially supersedes) · `components/pages/page-renderer.tsx` ·
+`components/news/{posts-editor.tsx,news-post-item.tsx,posts-data.ts}` ·
+`components/rules/rules-editor.tsx` · `components/features/features-editor.tsx` ·
+`components/home/hero.tsx` · `lib/validation/pages.ts` (block data schemas) ·
+`prisma/schema.prisma` (`Post.tag`).
 
-### Design decisions (do not relitigate)
+### Locked-in decisions
 
-- **Refactor into sourced lib files.** The two VPS scripts duplicate ~200 lines of
-  helpers (logging, traps, prompt helpers, `set_env_var`, xtrace secret guards,
-  `generate_auth_secret`, validators, `run_apt`). A dispatcher that merely `exec`s
-  them couldn't share state (domain, env values, step results) across modes.
-- **Extraction is verbatim and behavior-preserving.** Function bodies move unchanged
-  — no "improvements" during the move. This is the top regression control.
-- **Back-compat wrappers.** `vps-setup.sh` and `vps-start.sh` become thin wrappers
-  that source the libs and run their mode with identical flags (`--domain`, `--pull`,
-  `--no-build`, `--help`) and identical `--help` output.
+1. **Filtering is display-time, layered on the existing global fetch — not a
+   data-model change.** `PageRenderer` keeps fetching the full `ruleSections`/
+   `features`/`posts` arrays once per page exactly as today (cheap for a single
+   Minecraft server's dataset). Each block instance's own `Block.data` gains optional
+   filter fields; the block component applies the filter to the already-fetched full
+   array before rendering. Smallest change that satisfies the ask without touching the
+   underlying tables.
+2. **Editors keep managing the full global list in edit mode, unchanged.** Adding/
+   editing/deleting a rule, feature, or post from any instance still affects the one
+   real underlying row — structured data stays in shared tables, per the original
+   Phase 8 CMS principle. Only the non-edit-mode (visitor-facing) view is filtered.
+   In edit mode, each editor additionally shows a "Showing: `<selection>` (N of M)"
+   indicator plus the new selection control, so admins aren't confused about content
+   that's hidden from the live view but still fully editable.
+3. **Per-block-type filter shape** — all new fields optional; unset/null = show
+   everything, i.e. today's exact behavior (no data migration; existing `Block` rows
+   stay valid):
+   - `postList`: `{ tag?: string | null; limit?: number | null }`. `tag` matches
+     `Post.tag` exactly (case-sensitive, freeform, matching today's values); `limit`
+     caps the displayed count, most-recent-first. Tag options offered in the
+     edit-mode `<select>` come from the distinct values already present in the
+     `posts` array already threaded through as `referenceData` — no new API call.
+   - `ruleList`: `{ sectionIds?: string[] | null }` — checklist of existing
+     `RuleSection`s from `referenceData.ruleSections`; unset/empty = all sections.
+   - `featureGrid`: `{ featureIds?: string[] | null }` — same pattern against
+     `referenceData.features`.
+   - `hero`: no natural "subset" (it's one live-status widget, not a list) — instead
+     `{ headingOverride?: string | null; taglineOverride?: string | null }`. Set =
+     this instance shows the override text instead of the global `ContentBlock` hero
+     text; the live server-status ping itself stays global (there's only one server —
+     it can never be "unique per instance"). Unset = renders exactly as today.
+4. **Tag visual styling**: `NewsPostItem`'s tag (currently bare
+   `text-[11px] ... text-muted` text, `components/news/news-post-item.tsx`) becomes a
+   pill/badge. Reuse the token approach from `components/blocks/tones.ts` rather than a
+   new hardcoded color, so it themes correctly across every built-in and custom theme.
+   Default: one consistent accent-tinted pill (`border-accent/30 bg-accent/10
+   text-accent`, matching the existing "Latest" badge's color family) — no per-tag
+   color mapping (freeform tag text has no fixed palette to map from; out of scope).
+5. Update `registry.tsx`'s `ADDABLE_BLOCK_TYPES` doc comment to describe the new
+   per-instance-filter behavior instead of "always the same site-wide content."
 
-### Layout
+### DB migration
 
-```
-setup.sh                      # dispatcher: interactive menu ("1) Local dev
-                              # 2) Provision VPS  3) Redeploy") + --mode local|provision|deploy,
-                              # --domain / --pull / --no-build passthrough, --help
-scripts/lib/common.sh         # moved verbatim: colors, info/warn/error/die/step, EXIT/ERR
-                              # traps, hide_xtrace/restore_xtrace, ask_yes_no,
-                              # prompt_default, prompt_validated, is_valid_port,
-                              # validate_domain, set_env_var, generate_auth_secret, run_apt
-scripts/lib/local-dev.sh      # NEW mode (steps below)
-scripts/lib/vps-provision.sh  # vps-setup.sh steps 1-11 as step_* functions
-scripts/lib/vps-deploy.sh     # vps-start.sh tasks as step_* functions
-scripts/lib/walkthroughs.sh   # guided manual steps (below)
-scripts/vps-setup.sh          # thin wrapper → provision mode (back-compat)
-scripts/vps-start.sh          # thin wrapper → deploy mode (back-compat)
-```
-
-All files `set -Eeuo pipefail`; libs must be source-safe (no top-level side effects
-beyond function/readonly definitions).
+None — all new fields live inside the existing `Block.data` JSON string, validated by
+extending the relevant Zod schemas.
 
 ### Steps
 
-1. **Extract `scripts/lib/common.sh`** from the shared helpers of both VPS scripts
-   (verbatim). Where the two scripts' copies differ trivially, keep the more defensive
-   variant and note it in the commit message.
-2. **Extract `scripts/lib/vps-provision.sh`** — each existing numbered step of
-   `vps-setup.sh` becomes `step_sanity`, `step_dns_check`, `step_firewall`,
-   `step_docker`, `step_caddy`, `step_env_production`, `step_compose_up`,
-   `step_migrate_seed`, `step_owner_account`, `step_backups`, `step_final_checklist`,
-   orchestrated by `run_provision "$DOMAIN"`. Add `mkdir -p data/uploads` beside the
-   existing data-dir handling (Phase 10).
-3. **Extract `scripts/lib/vps-deploy.sh`** — `step_sanity`, `step_git_pull`,
-   `step_compose_up`, `step_migrate_deploy`, `step_health_check`,
-   `step_caddy_reload`, `step_status_report`, orchestrated by `run_deploy`. Also
-   `mkdir -p data/uploads`. After a successful deploy, offer the resource-pack
-   walkthrough (step 6).
-4. **Write `scripts/lib/local-dev.sh`** — `run_local_dev` with idempotent steps that
-   print `SKIP` when already satisfied:
-   1. Node ≥ 20 check (`node --version`), with install guidance if missing/old.
-   2. `npm install`; on nonzero exit, retry **once** with
-      `NODE_OPTIONS="--jitless" npm install`, warning that jitless breaks WASM (so
-      Prisma steps below use the separate workaround).
-   3. `.env` from `.env.example` if absent: generate `AUTH_SECRET`
-      (`generate_auth_secret` under the xtrace guard), prompt for
-      `MC_SERVER_HOST`/`MC_SERVER_PORT` with defaults. Never touch an existing `.env`.
-   4. Prisma generate + `migrate dev`: try `npx prisma …` first; on the V8 crash
-      signature fall back to
-      `node --no-turbofan node_modules/prisma/build/index.js …`.
-   5. `npm run db:seed` (skip with a warning if the DB already has content unless the
-      user confirms; mention `--pages-only`).
-   6. Offer OWNER account creation via `npm run create-admin -- <email> <pw> --role OWNER`
-      (password prompted with confirmation, hidden input, min 8 chars).
-   7. `mkdir -p uploads` (Phase 10 local storage).
-   8. Offer to start `npm run dev`.
-5. **Write `setup.sh`** (repo root, executable): parses `--mode`/`--domain`/`--pull`/
-   `--no-build`/`--help`; with no `--mode`, shows the interactive menu; sources
-   `scripts/lib/*.sh`; dispatches to `run_local_dev` / `run_provision` / `run_deploy`.
-6. **Write `scripts/lib/walkthroughs.sh`** — each walkthrough prints numbered
-   instructions, pauses with "Press Enter when done", then runs an optional
-   verification command:
-   - `walkthrough_dns`: A/AAAA records for `@` and `www` at the registrar; verify with
-     `dig +short <domain>` vs detected public IP.
-   - `walkthrough_ovh_firewall`: exact OVH console path to open 80/443 in the network
-     firewall (in addition to ufw).
-   - `walkthrough_resource_pack`: after deploy, `curl -fsS https://<domain>/api/resource-pack/meta`;
-     if a pack exists, print ready-to-paste lines pre-filled with the live sha1:
-     `resource-pack=https://<domain>/api/resource-pack` and
-     `resource-pack-sha1=<sha1>`; mention `require-resource-pack=true` as optional;
-     if no pack yet, explain uploading via `/resource` in edit mode first.
-7. **Rewrite `scripts/vps-setup.sh` / `vps-start.sh` as thin wrappers** (keep flags
-   and `--help` text identical).
-8. **Update `README.md` + `docs/DEPLOYMENT.md`**: `./setup.sh` is now the front door;
-   old script names still work.
+1. `lib/validation/pages.ts` — extend the four data-referencing types' schemas with
+   the optional fields from decision 3 (confirm their current shape first — they may
+   validate as bare `{}` today — and extend in place).
+2. `components/blocks/registry.tsx` — `defaultBlockData` for the four types gains the
+   new fields, defaulted unset/null; update the doc comment per decision 5.
+3. `components/news/posts-editor.tsx` — accept optional `filterTag`/`limit` props;
+   filter only in the non-edit-mode view; in edit mode show the "Showing X of Y"
+   indicator plus a `<select>`/number input wired to `onSaveData`, following the exact
+   persistence pattern `link-grid-block.tsx`'s `ToneSelect`/`saveHeading` already use.
+4. `components/rules/rules-editor.tsx` / `components/features/features-editor.tsx` —
+   same pattern via a new small shared `components/admin/multi-select-checklist.tsx`.
+5. `components/home/hero.tsx` — accept optional heading/tagline overrides. Note `Hero()`
+   is currently a props-less async Server Component (`page-renderer.tsx` calls it bare
+   and hands the result down as `block.heroContent`, ignoring `block.data` entirely) —
+   `page-renderer.tsx`'s `hero` branch must read `block.data` before calling `<Hero />`.
+6. `components/blocks/registry.tsx`'s `blockComponents` entries for the four types —
+   wire the new props through from `block.data`.
+7. `components/news/news-post-item.tsx` — pill-style tag per decision 4.
+8. `components/pages/page-renderer.tsx` — no change to the fetch strategy (decision 1);
+   only what's passed into each block instance changes (steps 3–5 read it off
+   `block.data` directly).
 
 ### Security checklist
 
-- [ ] `AUTH_SECRET` / passwords never echoed and never leak under `bash -x`
-      (`hide_xtrace` guards preserved around every secret-handling block).
-- [ ] `.env` / `.env.production` created atomically (mktemp 0600 → mv), existing
-      files never overwritten.
-- [ ] Domain/port inputs still pass `validate_domain` / `is_valid_port` before being
-      written into Caddyfile/.env (shell-injection guard).
-- [ ] No `curl | sh` beyond what already exists (Docker's get.docker.com — unchanged).
+- [ ] `sectionIds`/`featureIds`/`tag` validated server-side as plain strings/string
+      arrays with length caps — filter keys only, never rendered as HTML or used in
+      raw queries.
+- [ ] `headingOverride`/`taglineOverride` render through React's normal escaping, same
+      as every other `EditableText`-driven field — no new sanitization needed.
 
 ### Verification
 
-1. `bash -n` on all seven files; `shellcheck` clean (or annotated) on each.
-2. Diff every extracted function against its original — must be verbatim.
-3. Fresh clone → `./setup.sh --mode local` runs to a working dev server; run it again
-   → every step prints SKIP; `.env` untouched.
-4. `./scripts/vps-setup.sh --help` and `./scripts/vps-start.sh --help` byte-identical
-   to before the refactor.
-5. Menu works with piped/EOF stdin (the existing EOF-safe prompt behavior preserved).
-6. On the VPS (or a container): provision mode end-to-end, then deploy mode, then the
-   resource-pack walkthrough against the live meta endpoint.
-
-### Agent dispatch
-
-- Implementation: one bash-focused agent for the mechanical extraction (steps 1–3, 7
-  — instruct explicitly: *move function bodies verbatim, no improvements*); a second
-  agent for `local-dev.sh`, `walkthroughs.sh`, and `setup.sh` (steps 4–6, 8).
-- Review: `code-reviewer` pass focused on trap/ERR/xtrace integrity and idempotency;
-  spot-check that no secret can appear in xtrace output.
-
----
-
-## Phase 12 — Admin-authored custom themes
-
-**Status: ✅ Complete.** `CustomTheme` Prisma model + `Page.customThemeId`, full CRUD
-API (`app/api/custom-themes/**`), admin editor (`/admin/themes`), per-page dropdown
-wiring (`components/admin/pages-admin.tsx`), and the visitor-facing footer picker all
-shipped. Also includes, per an additional requirement given alongside the go-ahead, a
-restructuring so a page-level theme override (both the pre-existing `Page.theme` and
-the new `Page.customThemeId`) now colors the **entire page**, header and footer
-included, not just the content blocks — see "Implementation note" below. Verified live
-end-to-end (Puppeteer + Edge): created a custom theme through the real admin UI,
-assigned it to a page (entire page — header/content/footer — reflected it), selected
-it site-wide via the footer picker (persisted with no flash across a hard reload), and
-deleted it (the assigned page silently fell back to the visitor's own theme, per the
-confirmed delete-in-use decision).
-
-### Implementation note: entire-page theme overrides (beyond original scope)
-
-Phase 9's original `PageRenderer` wrapped only the block list in the forced-theme
-`data-theme` div — `SiteHeader`/`SiteFooter` rendered once in `app/layout.tsx`, outside
-that wrapper, so they always followed the visitor's own theme even on a page with an
-override. Fixing this required moving where header/footer render, since React Context
-set inside a page's own subtree can't reach `SiteHeader`/`SiteFooter` (they're siblings
-rendered before/after `{children}` in the root layout, not descendants of it), and
-`app/layout.tsx` can't resolve a specific route's `Page` row itself without reading
-`headers()`/the pathname — which would opt every route into dynamic rendering,
-exactly what Phase 9's design notes said to avoid.
-
-**Fix**: `components/pages/site-chrome.tsx` (new) is now the single per-route
-integration point — it renders `SiteHeader` + `<main>` + `SiteFooter` itself, wrapped
-in the theme-override div when one applies (built-in via `data-theme`, custom via
-inline `style` custom properties from `lib/custom-themes.ts`'s `resolvePageTheme()`).
-Every route file that used to render bare (`app/page.tsx`, `app/rules/page.tsx`,
-`app/features/page.tsx`, `app/news/page.tsx`, `app/[slug]/page.tsx`, plus the
-non-CMS `app/login/page.tsx`, `app/admin/page.tsx`, `app/account/page.tsx`,
-`app/resource/page.tsx`) now wraps its content in `<SiteChrome theme={...}
-customThemeTokens={...}>`. `app/layout.tsx` no longer renders `SiteHeader`/`SiteFooter`
-directly — it's back to `<html>`/`<head>`(`ThemeScript`)/`<body>` plus the
-visitor-theme/toast/edit-mode providers, with `{children}` being whatever `SiteChrome`
-instance the current route rendered. `PageRenderer` no longer applies any theme
-wrapper itself — it only renders blocks now.
-
-The visitor-facing side got the equivalent extension: `theme-provider.tsx` gained
-`customTheme`/`setCustomTheme`/`clearCustomTheme` (mutually exclusive with a built-in
-`theme` selection, matching decision 4's localStorage-cached-tokens approach — see
-`STORAGE_KEY_CUSTOM_THEME_TOKENS` in `lib/themes.ts`), `theme-script.tsx`'s blocking
-inline script was extended (still a static string literal, no interpolation) to apply
-cached custom-theme tokens before first paint, and `theme-picker.tsx` lists custom
-themes (fetched server-side by `SiteChrome` and threaded through `SiteFooter`) in a
-second radiogroup below the built-in swatches.
-
-Verified live (Puppeteer + Edge): a page with `theme: "end"` now renders header,
-content, and footer all in the "end" palette; a page with no override still follows
-the visitor's own theme end-to-end, including the header/footer.
-
-### Goal
-
-Let `ADMIN`/`OWNER` accounts create, edit, and delete named custom themes from an admin
-panel, without touching code. A custom theme is a full ~16-token color set, same shape
-as the five built-in themes (`obsidian`, `parchment`, `deepslate`, `end`, `redstone`).
-Once created, a custom theme is selectable anywhere a built-in theme is today: the
-visitor-facing footer theme picker, and the per-page theme override in `/admin/pages`.
-
-### Locked-in decisions
-
-1. **Editor UI**: extend the existing accent-picker pattern (`react-colorful`
-   `HexColorPicker` + hex/RGB fields, from `components/theme/theme-picker.tsx`) into an
-   admin form with one such color control per token, grouped by role (surfaces:
-   background/surface/surface-2/border/border-strong; text: foreground/muted;
-   brand: primary/primary-foreground/primary-hover/accent/accent-foreground; status:
-   danger/info/online/offline), plus a name field and a live preview pane (render a
-   sample card/button/callout with the draft tokens applied). Not a from-scratch
-   builder — reuse `lib/color.ts` (`parseHex`, `rgbToHex`, `relativeLuminance`,
-   `readableForeground`) for validation and "suggest a legible foreground" affordances,
-   same as the existing picker.
-2. **Apply scope**: identical surface area to built-in themes — the visitor picker and
-   the per-page admin dropdown both list custom themes alongside the five built-ins.
-3. **Data model**: two-tier. Built-in themes stay exactly as they are today —
-   `lib/themes.ts`'s `THEME_IDS`/`THEMES` and the static `[data-theme="…"]` blocks in
-   `app/globals.css` are untouched by this phase. Custom themes are a new `CustomTheme`
-   DB model, resolved and applied at request/selection time rather than compiled into
-   CSS. This avoids any risk to the working static system and avoids dynamic CSS
-   generation (see Security checklist).
-4. **Visitor-wide selection + no-flash**: today's blocking inline `theme-script.tsx`
-   validates against a hardcoded static ID array and applies known CSS at parse time —
-   it can't know about DB-authored themes without a fetch, which would reintroduce the
-   flash-of-wrong-theme Phase 9 explicitly eliminated. **Confirmed default**: when a
-   visitor selects a custom theme, cache its *resolved token values* (not just an ID)
-   in `localStorage` under a new key `jass.customThemeTokens`, and extend the blocking
-   script to apply cached tokens via `style.setProperty` for all ~16 vars (same
-   technique it already uses for the single `--primary` override) if that key is
-   present — no fetch on the critical path, at the cost of staleness if an admin edits
-   a theme a visitor already has cached (accepted: picking the theme again refreshes
-   the cache).
-5. **Per-page selection**: no flash risk here — `PageRenderer` is a server component
-   with DB access, so it can resolve `Page.customThemeId` → tokens synchronously and
-   emit them as an inline `style` attribute on the existing `data-theme` wrapper div.
-   Needs a `Page.customThemeId String?` column alongside (not replacing) the existing
-   `Page.theme String?`, since a page must be able to reference *either* a built-in id
-   or a custom theme row, mutually exclusive.
-6. **Deleting a custom theme that's in use**: **confirmed** — delete is unconditional,
-   not blocked. Deleting a `CustomTheme` sets `Page.customThemeId` to `null` on every
-   page that referenced it (that page falls back to following the visitor's own theme
-   selection, same as any page with no override, no warning surfaced). A visitor whose
-   `localStorage` still holds that theme's cached tokens keeps seeing them until they
-   next open the theme picker and pick something else, at which point the stale cache
-   is overwritten (no active reconciliation needed — same accepted-staleness model as
-   decision 4).
-7. **Uniqueness/limits**: `CustomTheme.name` is `@unique` (already reflected in the
-   migration sketch below); create/update routes reject a duplicate name via Zod +
-   a `conflict()` envelope response, mirroring the existing `Page.slug` uniqueness
-   pattern. No cap on total custom themes.
-
-### Sketch of the DB migration
-
-```prisma
-model CustomTheme {
-  id               String   @id @default(cuid())
-  name             String   @unique
-  background       String
-  surface          String
-  surface2         String
-  border           String
-  borderStrong     String
-  foreground       String
-  muted            String
-  primary          String
-  primaryForeground String
-  primaryHover     String
-  accent           String
-  accentForeground String
-  danger           String
-  info             String
-  online           String
-  offline          String
-  createdBy        String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-}
-
-model Page {
-  // ...existing fields...
-  customThemeId String? // mutually exclusive with `theme`; FK to CustomTheme
-}
-```
-
-(Field-by-field hex strings, not a JSON blob, so each one gets independent Zod
-validation server-side — same reasoning as every other token being validated as
-`#rrggbb` today.)
-
-### Security checklist (carries over Phase 9's rules, extended)
-
-- [ ] Every color field validated as strict `#rrggbb` hex server-side (Zod) before
-      persisting — reuse `parseHex`/the regex already in `theme-script.tsx`.
-- [ ] Custom theme tokens are applied exclusively via `style.setProperty` (client) or
-      an inline `style={{ '--token': value }}` React prop (server) with validated hex
-      values — **never** via a server-rendered `<style>` block with interpolated CSS,
-      to avoid any CSS-injection surface.
-- [ ] Create/update/delete routes gated by `requireAdmin()` (`ADMIN` or `OWNER`, per
-      `lib/auth-guard.ts`) — no owner-only restriction needed here, matching the "Admin
-      & Owner" ask.
-- [ ] Delete route nulls out `Page.customThemeId` for every referencing page in the
-      same transaction as the `CustomTheme` row delete — no page left pointing at a
-      deleted row.
-- [ ] No new CSP loosening required (verify `next.config.ts` unchanged) — the
-      no-`<style>`-injection rule above is what keeps this true.
-
-### Verification
-
-1. `ADMIN` and `OWNER` can both create/edit/delete a custom theme; a non-admin session
-   gets 403 from the API routes.
-2. A created custom theme appears in both the footer picker and the per-page dropdown
-   immediately (no redeploy).
-3. Assigning a custom theme to a page renders that page with the custom tokens while
-   the rest of the site follows the visitor's own selection.
-4. Selecting a custom theme site-wide survives a hard reload with no flash of the
-   previous theme (validates the localStorage-cache approach in decision 4 above).
-5. Deleting a custom theme currently assigned to a page immediately reverts that page
-   to following the visitor's own theme (decision 6) — no dangling reference, no error.
-6. Creating a second custom theme with a name that already exists is rejected with a
-   `conflict()` response; the admin form surfaces the error inline.
-
-### Agent dispatch
-
-Go-ahead given. DB model + validation + `SiteChrome`/`PageRenderer`/`app/layout.tsx`
-restructuring (the shared contract, including the entire-page-override fix above) and
-the visitor-facing picker/provider/script extension were done directly rather than
-delegated, since they touch the root layout and every route file — cross-cutting
-enough that getting it wrong would break the whole site. Dispatched in parallel on top
-of that foundation: one agent for the CustomTheme CRUD API routes +
-`components/admin/pages-admin.tsx`'s per-page dropdown, one for the new
-`/admin/themes` editor UI (`components/admin/custom-themes-admin.tsx`), coordinated
-against a fixed API contract specified up front so neither waited on the other.
-
----
-
-## Phase 13 — Self-service password change
-
-**Status: implemented.**
-
-### Goal
-
-Any signed-in `ADMIN` or `OWNER` can change their own password from a dedicated
-`/account` page, without needing an `OWNER` to reset it for them via `/admin/users`.
-Today `PUT /api/users/[id]` is gated by `requireOwner()`, so a plain `ADMIN` account
-has **no route at all** to change its own password — this phase closes that gap with a
-separate self-service endpoint, not by loosening the existing owner-only
-user-management route. Per explicit direction, this lives on its own `/account` page
-(visible only to signed-in users), **not** folded into `/admin` — the admin panel stays
-scoped to site-content/user management, account self-service is a separate concern.
-
-### Prerequisite reading
-
-`auth.ts` · `lib/auth-guard.ts` · `lib/rate-limit.ts` · `app/api/users/[id]/route.ts`
-(existing password-hashing pattern to mirror) · `lib/validation/pages.ts` (Users
-section) · `app/admin/page.tsx` (redirect-if-unauthenticated pattern to clone for
-`/account`, not a place to add UI) · `components/admin/users-admin.tsx` (form-state
-conventions to clone) · `components/admin/toast.tsx` · `components/site-header.tsx`
-(nav link conventions).
-
-### Locked-in decisions
-
-1. **New route, not a reused one**: `PUT /api/account/password`, gated by `auth()`
-   returning *any* authenticated session (no role check needed — every account in this
-   app is `ADMIN`/`OWNER`, and the route only ever touches the caller's own row via
-   `session.user.id`, never a `params.id`). Body `{ currentPassword, newPassword }`.
-2. **Re-auth before rotation**: verify `bcrypt.compare(currentPassword, existing.passwordHash)`
-   before hashing/persisting `newPassword`. Wrong current password → `badRequest("Current
-   password is incorrect.")`, not `unauthorized()` (the session itself is already valid).
-3. **Validation**: new schema in `lib/validation/pages.ts` (Users section, beside
-   `userUpdateSchema`): `changePasswordSchema = z.object({ currentPassword:
-   z.string().min(1), newPassword: z.string().min(8).max(200) })`.
-4. **Brute-force guard on the current-password check**: a stolen/hijacked session
-   shouldn't get unlimited guesses at the real password. Reuse the existing generic
-   `checkRateLimit`/`resetRateLimit` from `lib/rate-limit.ts` keyed on
-   `` `password-change:${session.user.id}` `` (5 attempts / 15 min, same shape as the
-   login limiter) — reset it on a successful change.
-5. **UI**: a new `/account` page (`app/account/page.tsx`, server component, redirects
-   to `/login` if unauthenticated — same guard shape as `app/admin/page.tsx`) rendering
-   `components/account/change-password-form.tsx` (`"use client"`), for every signed-in
-   account regardless of role. Three fields (current, new, confirm-new); confirm-new
-   is checked client-side against new before submit (no server round-trip wasted on a
-   typo); toasts via the existing `useToast()`; clears all three fields on success.
-   `components/site-header.tsx` gains an "Account" link (desktop + mobile nav) shown
-   under the same condition as the existing "Admin" link — every account in this app is
-   `ADMIN`/`OWNER`, so "signed in" and "isAdmin" are the same predicate here.
-6. **No forced re-login required**: sessions are JWTs (`auth.ts`, `strategy: "jwt"`)
-   with no server-side session store, so the current session keeps working after a
-   password change — same pre-existing limitation as today's owner-driven reset (other
-   already-issued JWTs for that account, if any, remain valid until they naturally
-   expire). Not a regression introduced by this phase; just note it, don't try to fix
-   session revocation here.
-
-### API contract
-
-| Route | Auth | Behavior |
-|---|---|---|
-| `PUT /api/account/password` | any authenticated session | Validate body → rate-limit check (429-style `conflict`/`badRequest` on exceed, matching existing envelope, no new HTTP status needed — mirror how login rate-limiting responds today) → fetch own `User` row → `bcrypt.compare` current password, 400 on mismatch → `bcrypt.hash(newPassword, 12)` → update own row → reset the rate-limit entry → `200 { data: { ok: true } }`. |
-
-### Security checklist
-
-- [ ] Route reads the target user id from the session only — never accepts/trusts a
-      body-supplied user id (this is what keeps it safely separate from the
-      owner-only `/api/users/[id]`).
-- [ ] Current password re-verified server-side before any write (never trust a
-      client-side "confirmed" flag alone).
-- [ ] Rate-limited per-account against current-password brute-forcing.
-- [ ] New password re-hashed with the same `bcrypt` cost factor (12) used everywhere
-      else (`scripts/create-admin.ts`, `app/api/users/[id]/route.ts`).
-- [ ] Response never echoes either password back, even on error.
-
-### Verification
-
-1. Sign in as a plain `ADMIN` (not `OWNER`) → change own password from `/account` →
-   sign out → sign back in with the new password succeeds, old password fails.
-2. Wrong current password → clear inline error, no state change, no rate-limit
-   exhaustion after a couple of typos.
-3. New password under 8 chars → client + server both reject.
-4. Six rapid wrong-current-password attempts → 6th is blocked by the rate limit;
-   waiting out the window (or a correct attempt) clears it.
-5. `OWNER` accounts can also use this form (not just plain `ADMIN`s).
-6. Signed-out visitor hitting `/account` directly is redirected to `/login`.
+1. A second Post List block on a custom page, filtered to one tag, shows only that
+   tag's posts; the original News page's (unfiltered) Post List still shows everything.
+2. In edit mode on the filtered instance, the "Showing tag X (N of M)" indicator
+   appears and any post (including ones outside the filter) is still fully editable.
+3. Same pattern verified for a filtered Rule List and a filtered Feature Grid on a
+   custom page.
+4. A Hero block with a heading override shows the custom heading; the live
+   server-status ping still reflects the real server.
+5. Existing Home/Rules/Features/News pages (pre-existing rows, no new fields set)
+   render identically to before this phase.
+6. Tags render as a visible, legible pill on the News page and inside Post List
+   blocks — spot-checked on every built-in theme plus at least one custom theme.
 7. `npm run lint` + `npx tsc --noEmit`.
 
 ### Agent dispatch
 
-Implemented via two parallel agents: one backend (schema + rate-limited
-`PUT /api/account/password`), one frontend (`/account` page, change-password form,
-`site-header.tsx` nav link).
+Split by shared dependency: one agent builds `multi-select-checklist.tsx` first (both
+Rule List and Feature Grid depend on it), then in parallel — one agent for
+Rule List + Feature Grid, one for Post List + news tag styling, one for Hero
+(touches the shared `page-renderer.tsx`, so keep it isolated and careful). `code-reviewer`
+plus a live-verification pass before closing (no automated test suite covers this).
 
 ---
 
-## Phase 14 — Direct image/GIF uploads for the Image block
-
-**Status: implemented.**
+## Phase 19 — Image sizing controls + Link Grid images
 
 ### Goal
 
-When editing an `image` block, an admin can upload a PNG/JPEG/GIF/WebP file directly
-instead of only pasting an absolute URL to an externally-hosted image. Uploaded files
-are stored server-side and served from the site's own origin. The existing "paste a
-URL" field keeps working unchanged for external images — upload is additive.
+Let admins control an Image block's displayed size (exact pixel dimensions, or a
+proportional scale), and add an optional image to each Link Grid item (shown to the
+left of its title/description, sized to the grid cell).
 
 ### Prerequisite reading
 
-`lib/uploads.ts` and Phase 10 above in full (this phase clones its streaming-upload /
-content-addressed-storage pattern almost exactly, for images instead of a single zip)
-· `components/blocks/image-block.tsx` · `lib/validation/pages.ts` (`imageDataSchema`)
-· `components/resource/resource-pack-admin.tsx` (raw-POST upload UI to clone) ·
-`next.config.ts` (CSP `img-src` comment) · `docker-compose.yml`.
+`components/blocks/image-block.tsx` · `components/blocks/link-grid-block.tsx` ·
+`lib/validation/pages.ts` (`imageDataSchema`, `linkGridDataSchema`).
 
-### Locked-in decisions
+### Design decisions
 
-1. **Same transport as Phase 10**: raw streaming POST (the browser's `File` object
-   directly as the `fetch` body, not multipart), hashed while streaming to a temp file,
-   atomic rename to `<UPLOADS_DIR>/images/<sha1>.<ext>`. `ext`/MIME are derived
-   **server-side from magic bytes only** — the client-supplied filename is never
-   trusted for either the storage path or the served `Content-Type`.
-2. **Allowed formats: PNG, JPEG, GIF, WebP only** — validated by magic bytes (`89 50 4E
-   47` / `FF D8 FF` / `47 49 46 38` / `52 49 46 46 …WEBP`). **SVG is explicitly
-   excluded** — it's XML and can carry embedded scripts, an XSS vector other formats
-   don't have. Anything else → 400 `invalid_image`.
-3. **Size cap: 10 MiB** per image (generous even for a large GIF, far below Phase 10's
-   256 MiB pack cap), enforced twice exactly like Phase 10 (upfront `Content-Length`
-   check + a streamed byte count that aborts and unlinks the temp file on overflow).
-4. **Content-addressed, no singleton "active" row**: unlike `ResourcePack`, many
-   uploaded images are in use at once (one per Image block, potentially), so this is
-   just a dedupe table, not a with-one-active-row model. Re-uploading identical bytes
-   resolves to the existing row/file (upsert by `sha1`), matching Phase 10's
-   re-upload-doesn't-duplicate behavior.
-5. **Serving**: public `GET /api/uploads/images/[sha1]` streams the file with
-   `Content-Type` set from the row's stored `mime` (never sniffed/re-derived from
-   request input at serve time), `Cache-Control: public, max-age=31536000, immutable`
-   (safe because the URL is content-addressed — it can only ever resolve to these
-   exact bytes) and `ETag: "<sha1>"`.
-6. **Upload UI**: `components/blocks/image-block.tsx` gains a file input next to the
-   existing "Image URL" `EditableText` (e.g. "Upload image/GIF" button, client-side
-   size/type pre-check mirroring `resource-pack-admin.tsx`'s `MAX_UPLOAD_BYTES`
-   pattern). On a successful upload, call the block's existing `onSaveData({ ...data,
-   src: url })` — the upload just produces a `src` value; it flows through the same
-   block-PUT/validation path every other edit already uses. No new save path.
-7. **Infra**: no new Docker volume — `images/` is a new subdirectory under the same
-   `UPLOADS_DIR` Phase 10 already mounts (`./data/uploads:/app/uploads`), so uploaded
-   images already survive rebuilds for free.
-
-### Design question — resolved
-
-- **Absolute vs. relative `src`**: confirmed — relax `imageDataSchema.src` to accept
-  either an absolute `http(s)` URL *or* a root-relative path, and have the upload route
-  return a root-relative URL (`/api/uploads/images/<sha1>.<ext>`). No dependency on
-  `NEXT_PUBLIC_SITE_URL` being correct; this URL is only ever consumed by our own
-  `<img>` tag, unlike Phase 10's resource-pack download URL which Minecraft clients
-  consume directly and does need to stay absolute. The relaxed check must still reject
-  anything that isn't `http(s):` or root-relative — no `javascript:`/`data:`/protocol-
-  relative (`//host/...`) strings sneaking into an `<img src>`.
-
-### API contract
-
-| Route | Auth | Behavior |
-|---|---|---|
-| `GET /api/uploads/images/[sha1]` | public | 200 stream, `Content-Type` from the row's `mime`, long-lived immutable cache, `ETag`/`If-None-Match` → 304. 404 envelope if unknown sha1 or file missing on disk (log the drift, same as Phase 10). |
-| `POST /api/uploads/images` | admin | `requireAdmin()` → Origin-header CSRF check (same rationale as Phase 10's raw-body POST) → require `Content-Length` ≤ 10 MiB else 413 → stream to temp while hashing + counting → magic-byte check against the 4 allowed formats else 400 `invalid_image` → atomic rename to `<sha1>.<ext>` → upsert `UploadedImage` by `sha1` (`uploadedBy` = session email) → `201 { data: { url, sha1, mime, size } }`. Temp file unlinked in `finally` on every error path. |
-
-### Sketch of the DB migration
-
-```prisma
-model UploadedImage {
-  id         String   @id @default(cuid())
-  sha1       String   @unique // lowercase hex, 40 chars
-  ext        String            // derived from validated magic bytes, not client input
-  mime       String            // one of the 4 allowed values, never freeform
-  size       Int
-  uploadedAt DateTime @default(now())
-  uploadedBy String?           // uploader email, display only
-}
-```
-
-### Security checklist (carries over Phase 10's rules)
-
-- [ ] Upload gated by `requireAdmin()`; Origin check on POST (raw-body CSRF guard).
-- [ ] Magic-bytes allow-list of exactly 4 formats; **SVG and anything else rejected**.
-- [ ] Double size enforcement (`Content-Length` + streamed count); 10 MiB cap.
-- [ ] Storage paths derived only from validated sha1 — client filename never touches
-      the filesystem path or the served `Content-Type`.
-- [ ] Temp files cleaned in `finally` on all error paths.
-- [ ] Served `Content-Type` is always one of the 4 allowed values from the DB row,
-      never re-derived from a request at serve time.
-- [ ] `imageDataSchema` change (if the open design question above is confirmed) still
-      rejects non-`http(s)`/non-root-relative strings — no `javascript:`/`data:` etc.
-      sneaking into an `<img src>`.
-
-### Verification
-
-1. Upload a PNG, a JPEG, a GIF, and a WebP through the Image block editor → each
-   renders correctly and persists across reload.
-2. Upload a non-image file renamed with a `.png` extension → 400 `invalid_image`, temp
-   file cleaned up.
-3. Upload an `.svg` → explicitly rejected.
-4. Upload something over 10 MiB → 413, temp file cleaned up.
-5. Unauthenticated / non-admin POST → 401.
-6. Re-upload identical bytes → resolves to the same row/file, no duplicate storage.
-7. `docker compose up -d --build` twice → previously uploaded images still resolve
-   (uploads volume survives rebuild, per Phase 10's existing mount).
-8. `npm run lint` + `npx tsc --noEmit`.
-
-### Agent dispatch
-
-Implemented via two parallel agents, same split as Phase 10: one backend
-(`lib/uploads.ts` extension, `UploadedImage` migration, upload + serve routes,
-`imageDataSchema` relaxation), one frontend (`image-block.tsx` upload UI). Upload
-progress bar remains deferred (same XHR-vs-fetch limitation noted in the Appendix for
-Phase 10).
-
----
-
-## Phase 15 — Block expansion, admin-only pages, and live-preview fixes
-
-**Status: ✅ Complete.** Scope locked in via a clarifying-questions pass with the user
-on 2026-07-10; implemented the same day via 3 parallel agents, then verified live end
--to-end with Playwright (all 7 checks below PASS — tone/variant live update, nav
-dropdown live refresh, editable headings, admin-only gate, full "Add block" picker,
-all 5 new block types working for a real anonymous visitor, and the footer text).
-
-### Goal
-
-Six independent pieces of work, bundled into one phase because they all touch the
-same block-builder surface:
-
-1. Two live-preview bugs: editing `tone`/`variant` on `pageHeader`/`callout`/
-   `ctaBanner` blocks requires a manual reload to show; editing the header nav
-   (specifically adding/reordering/promoting dropdown children in `/admin/nav`) also
-   requires a manual reload before other pages' headers reflect it.
-2. Two hardcoded, unremovable section headings become admin-editable: "Get oriented"
-   on `linkGrid` blocks and "Getting started" on `steps` blocks — same bug shape in
-   both, neither heading is part of the block's data today.
-3. Admins can mark any builder `Page` as **admin+ only** (hidden/404 to the public,
-   visible to signed-in `ADMIN`/`OWNER`), mirroring the existing `published` gate.
-4. Five new block types: a generic reusable **Card Grid** (so the Features-style
-   card layout becomes truly addable, not a Features-page singleton), **Code block**,
-   **Accordion/FAQ**, **Table**, and **Table of contents** — aimed at tutorial/wiki
-   pages.
-5. The four singleton blocks currently excluded from the "Add block" picker —
-   **Hero**, **Rule list**, **Feature grid**, **Post list** — become addable anywhere,
-   alongside (not instead of) the new Card Grid from item 4.
-6. The footer's "not affiliated" disclaimer gains **Hypixel Studios**.
-
-### Prerequisite reading
-
-`components/blocks/registry.tsx` · `lib/validation/pages.ts` · `components/blocks/tones.tsx`
-· `components/blocks/steps-block.tsx` and `components/blocks/link-grid-block.tsx`
-(closest existing array-shaped block patterns to clone) · `components/pages/page-blocks.tsx`
-(`saveBlockData`/`moveBlock`/`deleteBlock` — the bug and the pattern that already fixes
-it live side by side here) · `components/admin/nav-admin.tsx` · `app/api/nav-items/route.ts`
-and `app/api/nav-items/[id]/route.ts` · `app/[slug]/page.tsx` (existing `published` gate
-to clone for `adminOnly`) · `lib/auth-guard.ts` · `components/admin/pages-admin.tsx` ·
-`components/features/icon-registry.ts` and `components/features/feature-card.tsx`
-(icon picker + card visuals to reuse for Card Grid) · `components/admin/editable-text.tsx`
-· `components/admin/list-controls.tsx` · `components/site-footer.tsx` (the copyright
-line) · `components/blocks/registry.tsx`'s `ADDABLE_BLOCK_TYPES` comment (explains why
-`hero`/`ruleList`/`featureGrid`/`postList` are excluded today — the exact filter this
-phase relaxes).
-
-### Locked-in decisions (from the 2026-07-10 clarifying pass)
-
-1. **Card Grid is a new, independent block type (`cardGrid`)** — not a change to the
-   existing `featureGrid` block. `featureGrid` stays exactly as-is: a singleton wrapper
-   around the site-wide `Feature` table, excluded from `ADDABLE_BLOCK_TYPES`, used only
-   on the Features page. The new `cardGrid` block stores its own cards per instance
-   (like `steps`/`linkGrid` already do), so it can be placed multiple times across the
-   site with different content each time.
-2. **Out of scope for this phase**: converting `/resource` into a block, and splitting
-   the live server-status widget out of the `hero` block into its own block. Both
-   confirmed explicitly deferred — revisit separately later if wanted.
-3. **New block types, confirmed**: Code block, Accordion/FAQ, Table, Table of contents.
-   (Video embed and a separate note/tip block were considered and dropped — `callout`
-   already covers note/tip via its tone enum.)
-4. **The reported "dropdown status doesn't update" bug is the header nav editor**
-   (`/admin/nav`), not a not-yet-built accordion block. Root-caused below.
-5. **Table of contents is admin-curated, not auto-derived from headings.** Scanning
-   other blocks' markdown/headings for anchors would require injecting stable heading
-   IDs across every block type (`richText` markdown, `pageHeader`, etc.) — real
-   complexity for a "wiki nice-to-have." Simpler default: the `toc` block stores its own
-   `items: {label, anchor}[]`, admin-typed, same array-editing pattern as every other
-   list-shaped block. Anchors are plain `#anchor-id` fragment links the admin types to
-   match an `id` they've put on a target block (see step 7).
-6. **Code block has no syntax-highlighting engine in this pass** — a themed
-   monospace `<pre><code>` with a language label and copy-to-clipboard button, styled
-   like `image`/`richText` blocks. Real highlighting (e.g. `shiki`) is a clean drop-in
-   later if wanted; skipping it now avoids a new client-bundle dependency for a v1.
-7. **`hero`/`ruleList`/`featureGrid`/`postList` become addable everywhere, added by a
-   follow-up request.** This deliberately embraces the exact "same site-wide singleton
-   content repeats at every placement" tradeoff decision 1 avoided for Card Grid — and
-   that's fine here, because the two options now serve different needs: Card Grid gives
-   admins *distinct* per-instance cards, while these four give admins a way to reuse
-   *the same* Home/Rules/Features/News content elsewhere (e.g. embedding the live
-   server-status widget or the full rules list on another page). No schema or component
-   changes to these four blocks — they keep using `emptyDataSchema` and reading their
-   singleton table via `referenceData` exactly as they do today; this is purely removing
-   them from the exclusion filter in `components/blocks/registry.tsx`.
-8. **Footer disclaimer gains "Hypixel Studios"** — pure copy change,
-   `components/site-footer.tsx` line 18, no logic touched.
-
-### Root cause — live-preview bugs (both diagnosed, no further investigation needed)
-
-- **Tone/variant not updating**: `saveBlockData` in `components/pages/page-blocks.tsx`
-  only does the `fetch(PUT)` — it never calls `setBlocks(...)`. Compare `moveBlock` and
-  `deleteBlock` in the same file, which already do
-  optimistic-`setBlocks`-then-persist-then-rollback-on-failure correctly. `ToneSelect`
-  (`components/blocks/tones.tsx`) is a fully controlled, stateless component — it only
-  shows a new value when the `data` prop it's fed actually changes, which never happens
-  today because `blocks` state in `PageBlocks` is never touched by `saveBlockData`.
-  **Fix**: make `saveBlockData` follow the same optimistic pattern as its two neighbors
-  in the same file. This one change fixes `pageHeader`, `callout`, and `ctaBanner`
-  simultaneously, since all three funnel through it.
-- **Nav dropdown edits not updating elsewhere**: `nav-admin.tsx`'s own mutations
-  (`createTop`/`createChild`/`updateItem`/`deleteItem`/`moveTop`/`moveChild`) already
-  update their local `items` state correctly, and the API routes
-  (`app/api/nav-items/route.ts`, `app/api/nav-items/[id]/route.ts`) already call
-  `revalidatePath("/", "layout")` on every mutation — both are correct and don't need
-  changing. The gap: nav mutations go through plain `fetch()` to a Route Handler, not a
-  Server Action — Next's automatic client-side Router Cache invalidation only fires for
-  Server Action round-trips, not `fetch()`-to-Route-Handler ones. So `revalidatePath`
-  correctly busts the server-side Data Cache, but an already-mounted `SiteHeader` on any
-  other page the admin has open in the same tab keeps showing the stale Router Cache
-  entry until a hard reload (or enough time passes). **Fix**: add a `router.refresh()`
-  call (`useRouter` from `next/navigation`) after every successful nav mutation in
-  `nav-admin.tsx`, alongside the existing local-state update — cheap, matches Next's own
-  recommended pattern for fetch-based mutations that affect shared layout data, and
-  forces the Router Cache to drop stale entries for the current tab. **Verify live in
-  the browser** during implementation (edit a dropdown, navigate to another page in the
-  same tab without a manual reload, confirm the header reflects it) — the theory is
-  strong from code inspection but wasn't confirmed by driving the actual UI.
+1. **Image block sizing**: two modes, both optional (unset = today's exact behavior —
+   full-width, `object-cover`, natural aspect ratio in a `max-w-2xl` figure).
+   `ImageData` gains `sizeMode?: "scale" | "custom"`, `scale?: number` (percentage,
+   e.g. 10–100, only meaningful when `sizeMode === "scale"` — the "proper scaling"
+   ask: a percentage of the block's natural container width, responsive), `width?:
+   number` / `height?: number` (pixels, only meaningful when `sizeMode === "custom"` —
+   the "direct specification" ask; either may be set alone to preserve aspect ratio via
+   `auto`, or both for an exact box; capped at a sane max, e.g. 2000px, so a typo can't
+   blow out the layout).
+2. **Link Grid images**: `QuickLink` gains `image?: string` (same URL convention as
+   `ImageData.src` — reuses the identical upload widget from `image-block.tsx`, not a
+   new upload path). Rendered as a fixed-size thumbnail to the left of the title +
+   description (flex row instead of today's flex column) within each grid cell, sized
+   to roughly the cell's height. Absent `image` = today's exact layout.
 
 ### DB migration
 
-Add to `prisma/schema.prisma`:
-
-```prisma
-model Page {
-  // ...existing fields...
-  adminOnly Boolean @default(false) // mirrors `published`; gates app/[slug]/page.tsx
-}
-```
-
-Run: `node --no-turbofan node_modules/prisma/build/index.js migrate dev --name page_admin_only`
-then regenerate the client.
+None — both are new optional fields inside existing `Block.data` JSON.
 
 ### Steps
 
-1. **Fix `saveBlockData`** in `components/pages/page-blocks.tsx` — optimistic
-   `setBlocks` update before the `fetch`, rollback + `showError` on failure, mirroring
-   `moveBlock`/`deleteBlock` in the same file exactly.
-2. **Fix nav live-refresh** — add `router.refresh()` in `components/admin/nav-admin.tsx`
-   after every successful mutation. Drive it live in a browser to confirm before
-   marking done (see root-cause note above).
-3. **Editable singleton-block headings — `linkGrid` and `steps`.** Same fix, two
-   blocks: `lib/validation/pages.ts`: add `heading: z.string().min(1).max(80).optional()`
-   to both `linkGridDataSchema` and `stepsDataSchema`.
-   `components/blocks/link-grid-block.tsx`: replace both hardcoded `<h2>Get
-   oriented</h2>` occurrences (visitor branch and edit-mode branch) with
-   `<EditableText value={data.heading ?? "Get oriented"} onSave={...} as="h2" .../>`
-   wired through the block's existing `onSaveData`.
-   `components/blocks/steps-block.tsx`: same treatment for both hardcoded
-   `<h2>Getting started</h2>` occurrences (lines 34 and 85), default `"Getting started"`.
-   In both blocks, an absent `heading` renders exactly today's text — no data
-   migration, existing rows stay valid.
-4. **`adminOnly` page gate.** `lib/validation/pages.ts`: add
-   `adminOnly: z.boolean().optional()` to `pageCreateSchema` and `pageUpdateSchema`.
-   `app/api/pages/route.ts`: include `adminOnly: parsed.data.adminOnly ?? false` in the
-   `POST` create call. `app/api/pages/[id]/route.ts`'s `PUT` already spreads
-   `parsed.data` — no route-code change needed there. `app/[slug]/page.tsx`: alongside
-   the existing `if (!page.published) { ... requireAdmin() ... }` block, add the same
-   shape for `page.adminOnly` (either a second `if` or merged into one admin-gate check
-   with a distinct banner, e.g. "Admin+ only — not visible to the public"). Note the
-   same pre-existing limitation `published` already has: the 4 protected/static pages
-   (home/rules/features/news) render via their own dedicated route files, not
-   `app/[slug]/page.tsx`, so this gate — like `published` today — only actually applies
-   to custom builder pages. Not a new gap introduced by this phase.
-5. **`adminOnly` admin UI.** `components/admin/pages-admin.tsx`: add a
-   `toggleAdminOnly(page)` function mirroring the existing `togglePublished` (same
-   optimistic-update/rollback shape, `PUT` `{ adminOnly: !page.adminOnly }`), with a
-   toggle/badge in the table next to the existing Published status control.
-6. **Make `hero`/`ruleList`/`featureGrid`/`postList` addable.**
-   `components/blocks/registry.tsx`: remove all four from the `ADDABLE_BLOCK_TYPES`
-   filter (lines 138-141) and update its preceding comment (it currently explains why
-   they're excluded — replace with a note that they're intentionally addable
-   site-wide-singleton blocks, per decision 7 above). No other code changes: all four
-   already have entries in `blockTypeLabels`/`defaultBlockData`, and their components
-   already read from `referenceData`/singleton tables regardless of which page they're
-   rendered on.
-7. **Footer disclaimer.** `components/site-footer.tsx` line 18: change
-   `Not affiliated with Mojang or Microsoft.` to
-   `Not affiliated with Mojang, Microsoft, or Hypixel Studios.`
-8. **New block type: `cardGrid`.** `lib/validation/pages.ts`: `cardGridDataSchema =
-   z.object({ heading: z.string().max(80).optional(), tone: toneSchema.optional(), cards:
-   z.array(z.object({ icon: z.string().optional(), title: z.string().min(1).max(80),
-   description: z.string().min(1).max(400) })).max(20) })`. New
-   `components/blocks/card-grid-block.tsx` cloning `steps-block.tsx`'s
-   local-state/persist/add/delete/move pattern, reusing `components/features/icon-registry.ts`
-   for the icon picker and `components/features/feature-card.tsx`'s visual styling
-   (extract shared card presentation if it's a clean lift; don't force it if the two
-   diverge). Register in `components/blocks/registry.tsx` (`blockComponents`,
-   `blockTypeLabels`, `defaultBlockData`) — included in `ADDABLE_BLOCK_TYPES`
-   automatically.
-9. **New block type: `code`.** `codeDataSchema = z.object({ code: z.string().min(1).max(20000),
-   language: z.string().max(40).optional(), caption: z.string().max(200).optional() })`.
-   New `components/blocks/code-block.tsx`: themed `<pre><code>` (monospace, wrapped for
-   long lines), optional language label pill, copy-to-clipboard button (client-side
-   `navigator.clipboard`), `EditableText multiline` for the code body in edit mode.
-   Register in the registry same as above.
-10. **New block type: `accordion`.** `accordionDataSchema = z.object({ tone:
-   toneSchema.optional(), items: z.array(z.object({ question: z.string().min(1).max(200),
-   answer: z.string().min(1).max(4000) })).max(20) })`. New
-   `components/blocks/accordion-block.tsx`: open/closed state is pure client `useState`
-   per item (not persisted — no reactivity-bug risk, matches how `SiteHeader`'s own
-   visitor-facing dropdown already works), editable Q/A list via the
-   add/delete/move-button pattern. Register same as above.
-11. **New block type: `table`.** `tableDataSchema = z.object({ caption: z.string().max(200).optional(),
-   headers: z.array(z.string().max(80)).max(12), rows: z.array(z.array(z.string().max(400))).max(50)
-   }).refine(data => data.rows.every(r => r.length === data.headers.length), "Row length must match header count")`.
-   New `components/blocks/table-block.tsx`: semantic `<table>` for visitors; edit mode
-   adds add/delete row and add/delete column controls plus per-cell `EditableText`.
-   This is the most structurally involved of the four new blocks — budget more review
-   time for it. Register same as above.
-12. **New block type: `toc`.** `tocDataSchema = z.object({ heading: z.string().max(80).optional(),
-    items: z.array(z.object({ label: z.string().min(1).max(80), anchor: z.string().min(1).max(80)
-    })).max(30) })`. New `components/blocks/toc-block.tsx`: renders an anchor-link list;
-    edit mode is the standard add/delete/move label+anchor list. Register same as above.
-    Document (in the block's own edit-mode UI, a short hint line) that `anchor` should
-    match an `id` the admin has put on a target block/heading elsewhere on the page —
-    this phase does not add automatic `id` generation to other block types.
+1. `lib/validation/pages.ts` — extend `imageDataSchema` with `sizeMode`/`scale`/
+   `width`/`height` (bounded per decision 1). Extend `linkGridDataSchema`'s per-item
+   shape with optional `image: z.string().max(2000).optional()`.
+2. `components/blocks/image-block.tsx` — edit-mode controls: mode toggle
+   (Scale / Custom size / Original), percentage input for Scale, width/height number
+   inputs for Custom, applied via inline `style` (numeric `width`/`height` px, or
+   `width: "<scale>%"` + `height: "auto"` for Scale) — not Tailwind classes, since
+   values are admin-chosen numbers.
+3. `components/blocks/link-grid-block.tsx` — per-item image upload control (mirroring
+   `image-block.tsx`'s file-input + `/api/uploads/images` pattern); render a
+   fixed-size thumbnail (e.g. `h-16 w-16`, `object-cover`, rounded) to the left of the
+   title/description column when `link.image` is set.
 
 ### Security checklist
 
-- [ ] `adminOnly` validated as boolean server-side (Zod); gate checked with
-      `requireAdmin()` inside `app/[slug]/page.tsx`, never trusted from client state.
-- [ ] All five new block data schemas enforce max lengths/array sizes (no unbounded
-      strings/arrays reaching the DB).
-- [ ] `code` block content is rendered as text (`<pre><code>{code}</code></pre>` via
-      React, never `dangerouslySetInnerHTML`) — no new HTML-injection surface even
-      though it displays arbitrary user-authored text.
-- [ ] `table` cell content likewise rendered as plain React children, not raw HTML.
-- [ ] `toc` anchors are plain strings rendered into `href="#..."` — no `javascript:`
-      or other scheme values reaching an `<a href>` (mirror the existing `imageDataSchema`
-      URL-safety refinement pattern if a stricter check is warranted).
+- [ ] `width`/`height`/`scale` are numeric, bounded, and applied only via numeric
+      inline `style` properties — validated as numbers server-side, never a
+      passthrough string that could carry arbitrary CSS.
+- [ ] Link Grid images reuse the exact same upload pipeline/validation as the Image
+      block — no new upload surface.
 
 ### Verification
 
-1. Edit a `pageHeader`/`callout`/`ctaBanner` block's tone/variant — new styling applies
-   immediately, no reload, and persists after a real reload too.
-2. In `/admin/nav`, add a dropdown child (or promote/demote an item) then navigate to
-   another page in the same tab without a manual reload — the header reflects the
-   change. If `router.refresh()` alone doesn't fully fix it live, dig further before
-   marking this step done — the fix is a strong theory, not a confirmed-live fact yet.
-3. `linkGrid` blocks: edit the "Get oriented" heading to custom text, confirm it saves
-   and persists; a `linkGrid` block created before this migration (no `heading` in its
-   stored `data`) still renders "Get oriented" unchanged. Repeat identically for
-   `steps` blocks and "Getting started".
-4. Mark a page `adminOnly` — logged-out visitor gets 404, `ADMIN`/`OWNER` sees it
-   (with a distinguishing banner, same UX precedent as the unpublished-draft banner).
-5. Add a `cardGrid` block to two different pages with different cards on each — both
-   render independently (unlike `featureGrid`, which would show the same list twice).
-6. Each of the 4 new tutorial blocks: add one via the block picker, edit its content in
-   edit mode, confirm visitor view renders correctly, confirm content survives reload.
-7. `hero`/`ruleList`/`featureGrid`/`postList` all appear in the "Add block" picker;
-   add one of each to a second page and confirm it shows the same live singleton
-   content as its home page (expected, not a bug) and that the original page is
-   unaffected.
-8. Footer text reads "Not affiliated with Mojang, Microsoft, or Hypixel Studios." on
-   every page.
-9. `npm run lint` and `npx tsc --noEmit` pass.
+1. Image block at Scale 50% → renders at half its container width, aspect ratio
+   preserved, responsive on resize.
+2. Image block at Custom 400×300 → renders at exactly that box.
+3. An existing Image block with sizing unset → renders exactly as before this phase.
+4. A Link Grid item with an image → thumbnail appears to the left, consistent with
+   its siblings; an item with no image looks exactly as it does today.
+5. `npm run lint` + `npx tsc --noEmit`.
 
-### Agent dispatch (parallel, per explicit request)
+### Agent dispatch
 
-- One agent: the two live-preview bug fixes (steps 1–2) — small, self-contained,
-  should land and be verified live first since later block work doesn't depend on them.
-- One agent: `adminOnly` pages (steps 4–5) + the `linkGrid`/`steps` heading fix
-  (step 3) + making the four singleton blocks addable (step 6) + the footer text
-  (step 7) — schema/API/admin-UI/registry/copy work, all small and mechanical, bundled
-  into one agent since none of it depends on the new block types below.
-- One agent: Card Grid (step 8), since it's the most visually/architecturally novel
-  (icon picker reuse) and benefits from focused attention.
-- One agent: the four remaining tutorial blocks — Code, Accordion/FAQ, Table, ToC
-  (steps 9–12) — mechanical repetition of one established pattern (array-shaped block
-  cloning `steps-block.tsx`), well-suited to a single agent working through a list.
-- Review: `code-reviewer` over all block additions (schema/registry consistency);
-  a focused pass on the `table` block specifically (most structurally involved); confirm
-  step 2's fix against a live browser, not just code review, before phase close.
+Single frontend agent (both blocks are small, self-contained changes); `code-reviewer`
+after.
 
 ---
 
-## Appendix — cross-phase risks & deferred items
+## Phase 20 — Editable page slug & browser-tab title in /admin/pages
 
-**Risks**
+### Goal
 
-1. *Inline theme script vs future nonce-CSP*: if CSP is ever tightened to nonces, the
-   Phase 9 script needs the nonce plumbed through — note this beside the CSP comment
-   in `next.config.ts` when implementing.
-2. *Large uploads through the full stack*: streaming behavior in `next start` and
-   through Caddy (buffering/timeouts) is an **acceptance criterion** (Phase 10
-   verification 3), not an assumption.
-3. *DB/disk drift* for packs (file deleted but row active): mitigated by existence
-   checks in download/activate; a consistency check in the wizard's deploy mode is a
-   nice-to-have.
-4. *Bash refactor regressions*: mitigated by verbatim extraction, shellcheck,
-   wrapper back-compat, and help-output diffing.
-5. *Parchment (light) contrast*: light theme needs re-derived border alphas and a
-   darkened primary — design it, don't invert it. Flagged for the Phase 9 design pass.
-6. *Hero block on non-default themes*: it renders server-side with token classes, so
-   it themes automatically — but verify visually on all five themes.
+Let admins change a (non-protected) page's slug and its browser-tab title
+(`Page.title`, already used by `generateMetadata` as the `<title>`) directly from the
+`/admin/pages` table, at any time — today `title` is only set once via a
+`window.prompt()` at creation, and slug has no edit UI at all.
 
-**Deferred (explicitly out of scope for phases 9–11)**
+### Prerequisite reading
 
-- Upload progress bar (needs XHR; fetch has no upload progress) — revisit after
-  Phase 10 ships.
-- Pack version diffing / changelogs.
-- Full per-block theme overrides (only tones for now).
-- Cookie-based SSR theming (would force dynamic rendering).
-- Automated test suite / CI — worth its own phase; manual verification lists above
-  are the interim gate.
+`components/admin/pages-admin.tsx` · `app/api/pages/[id]/route.ts` ·
+`lib/validation/pages.ts` (`pageUpdateSchema`, `protectedSlugChangeError`) ·
+`app/[slug]/page.tsx` (`generateMetadata`).
+
+### Design decisions
+
+1. **No backend work needed** — confirmed `PUT /api/pages/[id]` already accepts and
+   validates both `title` and `slug` in `pageUpdateSchema`, already re-checks
+   `protectedSlugChangeError` (protected-page slug changes already rejected
+   server-side), and already rejects slug collisions with `conflict()`. This phase is
+   UI-only.
+2. Reuse the existing `EditableText` component for both fields (matching every other
+   inline-editable field in the CMS) rather than inventing a new edit affordance.
+3. On success, refresh so the slug column and any cross-linked "Edit" button href
+   update immediately; surface server errors via the existing `showError` toast
+   pattern already used throughout `pages-admin.tsx`.
+4. Protected pages' slug cell stays plain text (not editable) — the server already
+   rejects the change, and an editable control that always fails is a bad dead end.
+   Title stays editable even for protected pages (only slug is protected).
+
+### DB migration
+
+None. No new API routes — reuses `PUT /api/pages/[id]` exactly as it exists today.
+
+### Steps
+
+1. `components/admin/pages-admin.tsx` — replace the static title cell with an
+   `EditableText` bound to a new `saveTitle` handler (optimistic update + revert on
+   error, matching every other mutator already in this file). Replace the static slug
+   cell (non-protected pages only) with an `EditableText` bound to a new `saveSlug`
+   handler, with a friendly client-side format pre-check (full enforcement stays
+   server-side).
+
+### Security checklist
+
+- [ ] Confirm — don't just assume — `protectedSlugChangeError` is still enforced with
+      no regression after the UI change.
+- [ ] Title/slug still validated server-side (`pageUpdateSchema`) regardless of any
+      client-side pre-check.
+
+### Verification
+
+1. Rename a custom page's title inline → tab title reflects the change on next
+   navigation; the "New page" creation flow still works.
+2. Change a custom page's slug inline → old URL 404s, new URL serves the page; any
+   NavItem pointing at that page still resolves (it's keyed by `pageId`, not a cached
+   slug string — confirm this holds).
+3. Protected page → no editable slug control shown (or, if attempted directly via
+   API, still rejected).
+4. Slug collision with an existing page → inline error via toast, no partial state
+   change.
+5. `npm run lint` + `npx tsc --noEmit`.
+
+### Agent dispatch
+
+Single frontend agent, small scope; `code-reviewer` after.
+
+---
+
+## Phase 21 — Audit log with single-step undo
+
+### Goal
+
+Every admin mutation across the CMS (pages, blocks, nav items, custom themes, users,
+resource pack, and Phase 17's site settings) is recorded in an audit log visible in the
+admin panel, and any entry can be undone — reverting that specific entity to its state
+immediately before that mutation. **Per explicit scope decision this is single-step
+revert per entity, not a branching/redo-capable history**: undoing an entry always
+restores the stored "before" snapshot for that one entity, regardless of what's
+happened to it since.
+
+### Prerequisite reading
+
+Every mutation route this phase instruments — `app/api/pages/route.ts` + `[id]/route.ts`,
+`app/api/blocks/**`, `app/api/nav-items/**` (confirm exact route names from
+`components/admin/nav-admin.tsx`), `app/api/custom-themes/**`,
+`app/api/users/[id]/route.ts`, `app/api/resource-pack/**`,
+`app/api/site-settings/route.ts` (Phase 17) — plus `lib/api-response.ts`,
+`lib/auth-guard.ts`.
+
+### Locked-in decisions
+
+1. **One `AuditLogEntry` model**, entity-agnostic: `entityType`
+   (`"Page" | "Block" | "NavItem" | "CustomTheme" | "User" | "ResourcePack" | "SiteSettings"`),
+   `entityId`, `action` (`"create" | "update" | "delete"`), `before` (JSON string, null
+   for `create`), `after` (JSON string, null for `delete`), `actorEmail`, `createdAt`.
+   Same JSON-as-string convention `Block.data` already uses.
+2. **Snapshots exclude secrets, always**: the `User` entity type's `before`/`after`
+   snapshots must never include `passwordHash` — only `email`/`name`/`role`. Hard
+   rule, not a nice-to-have.
+3. **Writing an entry is the mutation route's own responsibility**, inside the same
+   Prisma transaction as the mutation. A helper `lib/audit-log.ts`'s
+   `recordAuditLog(tx, { entityType, entityId, action, before, after, actorEmail })`
+   is called from every route in the Prerequisite-reading list — the single largest
+   mechanical part of this phase.
+4. **Undo mechanics per action type**:
+   - Undo an `update` → re-applies the stored `before` JSON, re-validated through that
+     entity's existing Zod schema before writing (schemas may have evolved since the
+     snapshot was taken; reject with a clear error rather than write invalid data).
+   - Undo a `delete` → recreates the row from the stored pre-delete snapshot with the
+     same id, re-validated the same way; if recreation fails (e.g. a unique
+     constraint collision since), reject with a clear `conflict()`, never partially
+     apply.
+   - Undo a `create` → deletes the entity if it still exists.
+   - Undoing an already-undone entry, or one whose entity has changed since: **allowed,
+     not blocked** — the UI shows a non-blocking staleness warning but doesn't prevent
+     the action.
+   - Cascades (e.g. undoing a Page delete restoring its Blocks) are **out of scope for
+     v1**: undoing a Page delete restores the Page row only, not its cascade-deleted
+     Blocks. Document this limitation directly in the admin UI next to the Page
+     entity's undo action, not just here.
+5. **Admin UI**: new `/admin/audit-log` page (added to `managementLinks`),
+   `requireAdmin()`-gated like every other management surface, paginated table (entity
+   type, action, actor, timestamp, expandable before/after diff, an "Undo" button with
+   a confirm dialog surfacing the staleness warning from decision 4 when applicable).
+6. **Retention**: no automatic pruning in v1 (unlike `ResourcePack`'s keep-3 policy) —
+   a known future concern, not solved here; the single-step-revert scope explicitly
+   bounds this phase's effort.
+
+### DB migration
+
+```prisma
+model AuditLogEntry {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String   // "create" | "update" | "delete"
+  before     String?  // JSON snapshot, null for create
+  after      String?  // JSON snapshot, null for delete
+  actorEmail String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+```
+
+### API contracts
+
+| Route | Auth | Behavior |
+|---|---|---|
+| `GET /api/audit-log` | admin | Paginated `{ data: AuditLogEntry[], nextCursor }`, newest-first, optional `?entityType=`/`?entityId=` filters. |
+| `POST /api/audit-log/[id]/undo` | admin | Loads the entry, dispatches to the per-entity-type undo handler (decision 4), writes a **new** audit entry recording the undo itself (undoing is itself audited), `revalidatePath` for whatever the reverted entity affects (reuse each entity's existing revalidation targets), `200 { data: { entityType, entityId, result: "reverted" } }` or `conflict()` on failure. |
+
+### Steps
+
+1. Schema + migration above.
+2. `lib/audit-log.ts` (new) — `recordAuditLog(tx, entry)` helper; per-entity-type
+   `undoHandlers` map implementing decision 4, each re-validating via that entity's
+   existing Zod schema.
+3. Instrument every mutation route in the Prerequisite-reading list: wrap existing
+   Prisma calls in `$transaction` where not already transactional, call
+   `recordAuditLog` with before/after state. Mechanical but touches ~8–10 route files —
+   the biggest time cost in this phase.
+4. `app/api/audit-log/route.ts` (new, `GET`), `app/api/audit-log/[id]/undo/route.ts`
+   (new, `POST`).
+5. `components/admin/audit-log-admin.tsx` (new) + `app/admin/audit-log/page.tsx` (new).
+6. `app/admin/page.tsx` — add the Audit log entry to `managementLinks`.
+7. Relies on Phase 16's `app/admin/layout.tsx` for header/footer — no extra chrome
+   work needed if Phase 16 has landed first.
+
+### Security checklist
+
+- [ ] `User` snapshots never include `passwordHash` (decision 2) — verify explicitly
+      in the `User` entity's audit-write code path, not just by convention.
+- [ ] `GET`/`POST /api/audit-log/**` both behind `requireAdmin()`.
+- [ ] Undo re-validates restored data through the entity's existing Zod schema before
+      writing — never a raw trust-the-snapshot write.
+- [ ] Undo of a `delete` re-checks unique constraints (slug, name, email, sha1, etc.)
+      the same way the original create path did, surfacing `conflict()` rather than
+      crashing or silently corrupting state.
+- [ ] The undo endpoint itself writes a new audit entry — undo is never a silent,
+      untracked bypass of the audit trail.
+
+### Verification
+
+1. Edit a page's title → audit log shows an `update` entry with before/after → Undo
+   reverts the title.
+2. Delete a non-protected page → `delete` entry → Undo recreates the Page row (its
+   Blocks do not come back, per the documented v1 limitation — confirm the UI actually
+   surfaces this, not just PLAN.md).
+3. Create a new custom theme → Undo removes it.
+4. Change a user's role → inspect the raw DB row and confirm `passwordHash` never
+   appears in either snapshot.
+5. Undo an entry for an entity modified again afterward → staleness warning appears,
+   undo still proceeds.
+6. Non-admin hitting either audit-log route → 401/403 envelope.
+7. `npm run lint` + `npx tsc --noEmit`.
+
+### Agent dispatch
+
+Do not split carelessly — `lib/audit-log.ts`'s contract (step 2) must land first and
+be fixed before any route instrumentation starts, since every other agent's work
+depends on its exact function signature. Suggested split: one agent for
+`lib/audit-log.ts` + schema + the two new API routes + the admin UI; a second agent (or
+several, working file-by-file since routes are independent of each other)
+instrumenting the existing mutation routes per step 3, once the helper's signature is
+fixed. **`security-reviewer` pass is mandatory before this phase closes** (undo of
+arbitrary past state, re-validation of stale data, and the secrets-in-snapshots rule
+are all real risk surfaces) — matching Phase 10's mandatory review for its
+highest-risk surface.
