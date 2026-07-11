@@ -25,10 +25,12 @@ const tokenFieldsSchema = Object.fromEntries(
 
 export const customThemeCreateSchema = z.object({
   name: z.string().min(1).max(80),
+  showInPicker: z.boolean().optional(),
   ...tokenFieldsSchema,
 });
 
 export const customThemeUpdateSchema = z.object({
   name: z.string().min(1).max(80).optional(),
+  showInPicker: z.boolean().optional(),
   ...Object.fromEntries(CUSTOM_THEME_TOKEN_FIELDS.map((field) => [field, hexColorSchema.optional()])),
 });

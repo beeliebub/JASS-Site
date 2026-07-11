@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { auth } from "@/auth";
 import { isAdminRole } from "@/lib/auth-guard";
 import { getNavTree } from "@/lib/content";
-import { getCustomThemes } from "@/lib/custom-themes";
+import { getVisibleCustomThemes } from "@/lib/custom-themes";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { THEME_IDS, type ThemeId } from "@/lib/themes";
@@ -38,7 +38,7 @@ export async function SiteChrome({
   customThemeTokens?: CustomThemeTokens | null;
   children: ReactNode;
 }) {
-  const [session, navItems, customThemes] = await Promise.all([auth(), getNavTree(), getCustomThemes()]);
+  const [session, navItems, customThemes] = await Promise.all([auth(), getNavTree(), getVisibleCustomThemes()]);
   const isAdmin = isAdminRole(session?.user?.role);
 
   const chrome = (

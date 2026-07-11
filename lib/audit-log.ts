@@ -139,7 +139,7 @@ export function customThemeSnapshot(row: CustomTheme) {
     CustomThemeTokenField,
     string
   >;
-  return { id: row.id, name: row.name, ...tokens };
+  return { id: row.id, name: row.name, showInPicker: row.showInPicker, ...tokens };
 }
 
 /** NEVER includes `passwordHash` -- decision 2 is a hard rule, not a

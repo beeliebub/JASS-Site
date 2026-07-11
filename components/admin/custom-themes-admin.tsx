@@ -367,6 +367,25 @@ export function CustomThemesAdmin({ initialThemes }: { initialThemes: CustomThem
     }
   }
 
+  async function toggleVisible(theme: CustomTheme) {
+    const previous = themes;
+    setThemes((prev) => prev.map((t) => (t.id === theme.id ? { ...t, showInPicker: !t.showInPicker } : t)));
+    try {
+      const res = await fetch(`/api/custom-themes/${theme.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ showInPicker: !theme.showInPicker }),
+      });
+      if (!res.ok) {
+        const { message } = await parseApiError(res, "Failed to update theme visibility.");
+        throw new Error(message);
+      }
+    } catch (error) {
+      setThemes(previous);
+      showError(error instanceof Error ? error.message : "Failed to update theme visibility.");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="overflow-hidden rounded-md border border-border">
@@ -375,13 +394,14 @@ export function CustomThemesAdmin({ initialThemes }: { initialThemes: CustomThem
             <tr>
               <th className="px-4 py-2.5 font-medium">Name</th>
               <th className="px-4 py-2.5 font-medium">Swatches</th>
+              <th className="px-4 py-2.5 font-medium">Picker</th>
               <th className="px-4 py-2.5 font-medium">&nbsp;</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {themes.length === 0 && (
               <tr className="bg-surface">
-                <td colSpan={3} className="px-4 py-6 text-center text-sm text-muted">
+                <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted">
                   No custom themes yet.
                 </td>
               </tr>
@@ -401,6 +421,21 @@ export function CustomThemesAdmin({ initialThemes }: { initialThemes: CustomThem
                       />
                     ))}
                   </div>
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleVisible(theme)}
+                    aria-pressed={theme.showInPicker}
+                    title="Whether visitors can select this theme from the site's footer theme picker"
+                    className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                      theme.showInPicker
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border-strong text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {theme.showInPicker ? "Visible" : "Hidden"}
+                  </button>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">

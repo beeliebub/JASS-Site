@@ -33,9 +33,20 @@ export async function resolvePageTheme(
   return { theme: page.theme, customThemeTokens: null };
 }
 
-/** Full theme list for the visitor-facing footer picker and the per-page
- * admin dropdown -- both need every token (picker caches resolved tokens in
- * localStorage; admin dropdown just needs id/name but reuses the same read). */
+/** Full theme list -- includes themes an admin hasn't opted into the
+ * visitor-facing picker yet. Used by the admin-only surfaces (the
+ * /admin/themes editor, and the per-page theme-assignment dropdown in
+ * /admin/pages): an admin can assign *any* theme to a page regardless of
+ * its picker visibility, since that's content authoring, not the visitor
+ * switcher. For the visitor-facing footer picker, use
+ * `getVisibleCustomThemes()` instead. */
 export async function getCustomThemes() {
   return prisma.customTheme.findMany({ orderBy: { name: "asc" } });
+}
+
+/** Themes an admin has explicitly opted into the visitor-facing footer
+ * picker (`showInPicker: true`) -- everything else stays assignable to
+ * pages but hidden from that list until toggled on in /admin/themes. */
+export async function getVisibleCustomThemes() {
+  return prisma.customTheme.findMany({ where: { showInPicker: true }, orderBy: { name: "asc" } });
 }

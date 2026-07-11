@@ -72,6 +72,12 @@ model CustomTheme {
   info              String
   online            String
   offline           String
+  // Off by default: a newly-created theme is available to assign to specific
+  // pages immediately, but only appears as an option in the visitor-facing
+  // footer theme picker once an admin explicitly opts it in from
+  // /admin/themes. Doesn't affect a visitor who already has this theme
+  // active via localStorage (see lib/custom-themes.ts's getVisibleCustomThemes).
+  showInPicker      Boolean  @default(false)
   createdBy         String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
