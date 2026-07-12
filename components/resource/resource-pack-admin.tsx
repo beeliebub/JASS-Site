@@ -6,9 +6,10 @@ import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { DeleteButton } from "@/components/admin/list-controls";
 import { Container } from "@/components/container";
+import { formatBytes } from "@/lib/format";
 
-// Mirrors the server-side cap in lib/uploads.ts / the POST route (PLAN.md
-// Phase 10) -- checked here too so we never start a doomed upload.
+// Mirrors the server-side cap in lib/uploads.ts / the POST route
+// -- checked here too so we never start a doomed upload.
 const MAX_UPLOAD_BYTES = 268435456;
 
 type HistoryPack = {
@@ -24,18 +25,6 @@ type HistoryPack = {
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   return body?.error?.message ?? fallback;
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
 function formatDate(iso: string) {

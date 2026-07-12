@@ -2,9 +2,10 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { useToast } from "@/components/admin/toast";
+import { summarizeAuditEntry } from "@/lib/audit-log-summary";
 
 /**
- * Phase 21 admin UI for the audit trail (`GET /api/audit-log`) and its
+ * Admin UI for the audit trail (`GET /api/audit-log`) and its
  * single-step undo (`POST /api/audit-log/[id]/undo`). Mirrors
  * components/admin/pages-admin.tsx's conventions: local `useState` + `fetch`,
  * `useToast()` for feedback, a `parseError`-shaped helper reading
@@ -26,6 +27,7 @@ const ENTITY_TYPES = [
   "User",
   "ResourcePack",
   "SiteSettings",
+  "UploadedImage",
 ] as const;
 
 type AuditEntityType = (typeof ENTITY_TYPES)[number];
@@ -148,7 +150,7 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
   }
 
   /**
-   * Best-effort staleness check (PLAN.md Phase 21 decision 4): flags an entry
+   * Best-effort staleness check: flags an entry
    * whose entity shows up again with a later timestamp among the
    * currently-loaded entries. There's no server-computed "is this stale"
    * flag, and this only sees pages already fetched -- an even-newer entry
@@ -241,9 +243,12 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
                     <tr className="bg-surface">
                       <td className="px-4 py-3">
                         <div className="flex flex-col">
-                          <span className="font-medium text-foreground">{entry.entityType}</span>
-                          <span className="font-mono text-xs text-muted" title={entry.entityId}>
-                            {entry.entityId.slice(0, 10)}
+                          <span className="font-medium text-foreground">{summarizeAuditEntry(entry)}</span>
+                          <span className="text-xs text-muted">
+                            {entry.entityType} ·{" "}
+                            <span className="font-mono" title={entry.entityId}>
+                              {entry.entityId.slice(0, 10)}
+                            </span>
                           </span>
                         </div>
                       </td>

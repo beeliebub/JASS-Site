@@ -5,10 +5,11 @@ import { useEditMode } from "@/components/admin/edit-mode-context";
 import { EditableText } from "@/components/admin/editable-text";
 import { useToast } from "@/components/admin/toast";
 import { Container } from "@/components/container";
+import { formatBytes } from "@/lib/format";
 
-/** `sizeMode`/`scale`/`width`/`height` are Phase 19's display-size override --
+/** `sizeMode`/`scale`/`width`/`height` are the display-size override --
  * see `imageSizeSchema` in lib/validation/pages.ts for the exact bounds
- * mirrored here. All optional/nullable; unset = today's exact pre-Phase-19
+ * mirrored here. All optional/nullable; unset = the original
  * behavior (full-width, object-cover, natural aspect ratio, max-w-2xl
  * figure). */
 export type ImageData = {
@@ -21,23 +22,11 @@ export type ImageData = {
   height?: number | null;
 };
 
-// Mirrors the server-side cap in the POST /api/uploads/images route (PLAN.md
-// Phase 14) -- checked here too so we never start a doomed upload.
+// Mirrors the server-side cap in the POST /api/uploads/images route
+// -- checked here too so we never start a doomed upload.
 const MAX_UPLOAD_BYTES = 10485760;
 
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  return `${value.toFixed(1)} ${units[unitIndex]}`;
-}
 
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -101,7 +90,7 @@ export function ImageBlock({
   const showEditable = isAdmin && editMode;
 
   // Draft strings for the number inputs -- committed on blur (not per
-  // keystroke) per the Post List "Limit" convention (PLAN.md Phase 18;
+  // keystroke) per the Post List "Limit" convention (see
   // components/news/posts-editor.tsx's commitLimitDraft).
   const [scaleDraft, setScaleDraft] = useState(data.scale != null ? String(data.scale) : "");
   const [widthDraft, setWidthDraft] = useState(data.width != null ? String(data.width) : "");

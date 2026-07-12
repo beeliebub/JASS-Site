@@ -18,19 +18,19 @@ import { CodeBlock, type CodeData } from "@/components/blocks/code-block";
 import { AccordionBlock, type AccordionData } from "@/components/blocks/accordion-block";
 import { TableBlock, type TableData } from "@/components/blocks/table-block";
 import { TocBlock, type TocData } from "@/components/blocks/toc-block";
-import { BLOCK_TYPES, type BlockType } from "@/lib/validation/pages";
+import { BLOCK_TYPES, blockTypeLabels, type BlockType } from "@/lib/validation/pages";
 
 /**
- * Type -> component lookup (per PLAN.md: "a lookup object, not a long
+ * Type -> component lookup ("a lookup object, not a long
  * if/switch, so adding a block type later is a one-line registration").
  *
  * Data-referencing types (hero/ruleList/featureGrid/postList) render the
- * existing Phase 2/4 editor components, backed by data pre-fetched
+ * existing editor components, backed by data pre-fetched
  * server-side in page-renderer.tsx and threaded through as `referenceData`
  * -- these components (RulesEditor/FeaturesEditor/PostsEditor) accept plain
  * serializable "initial*" props, so no server/client boundary issue.
  * ruleList/featureGrid/postList also get a `blockId` prop (their owning
- * block's own id) since PLAN.md Phases 25-27: each instance's
+ * block's own id) since each instance's
  * sections/features/posts are rows it owns outright (`blockId` FK on
  * RuleSection/Feature/Post), not a filtered view into one shared, site-wide
  * table -- `referenceData.ruleSectionsByBlockId`/`featuresByBlockId`/
@@ -55,7 +55,7 @@ import { BLOCK_TYPES, type BlockType } from "@/lib/validation/pages";
 
 export type SectionWithRules = RuleSection & { rules: Rule[] };
 
-/** PLAN.md Phases 25-27: ruleList/featureGrid/postList blocks each own their
+/** ruleList/featureGrid/postList blocks each own their
  * rows via `blockId` now, so `page-renderer.tsx` fetches per the set of
  * block ids on the page and keys the results back by block id -- each
  * block's registry entry below reads only its own `block.id` entry out of
@@ -100,14 +100,14 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
   // written to be placed inside a page-level Container alongside sibling
   // JSX, matching each type's original page (app/rules|features|news) so the
   // visual rhythm carries over now that pageHeader is a separate block.
-  // No `data`/`onSaveData` forwarded here -- `RuleListData` is empty (PLAN.md
-  // Phase 26), there's nothing left for a Rule List instance to save.
+  // No `data`/`onSaveData` forwarded here -- `RuleListData` is empty,
+  // there's nothing left for a Rule List instance to save.
   ruleList: ({ block, referenceData }) => (
     <Container className="py-8 sm:py-10">
       <RulesEditor blockId={block.id} initialSections={referenceData.ruleSectionsByBlockId?.[block.id] ?? []} />
     </Container>
   ),
-  // Same as ruleList above -- `FeatureGridData` is empty (PLAN.md Phase 27).
+  // Same as ruleList above -- `FeatureGridData` is empty.
   featureGrid: ({ block, referenceData }) => (
     <Container className="py-12 sm:py-16">
       <FeaturesEditor blockId={block.id} initialFeatures={referenceData.featuresByBlockId?.[block.id] ?? []} />
@@ -167,24 +167,11 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
   ),
 };
 
-export const blockTypeLabels: Record<BlockType, string> = {
-  hero: "Hero",
-  ruleList: "Rule list",
-  featureGrid: "Feature grid",
-  postList: "Post list",
-  pageHeader: "Page header",
-  callout: "Callout",
-  steps: "Steps",
-  linkGrid: "Link grid",
-  richText: "Rich text",
-  image: "Image",
-  ctaBanner: "CTA banner",
-  cardGrid: "Card grid",
-  code: "Code block",
-  accordion: "Accordion / FAQ",
-  table: "Table",
-  toc: "Table of contents",
-};
+// blockTypeLabels moved to lib/validation/pages.ts (re-exported here so
+// existing imports of it from this module keep working) -- lightweight
+// consumers like lib/audit-log-summary.ts need the label lookup without
+// pulling in every block component this file also imports.
+export { blockTypeLabels };
 
 /** Default `data` for a freshly-added block of `type`, sent as the POST body. */
 export const defaultBlockData: Record<BlockType, unknown> = {
@@ -203,7 +190,7 @@ export const defaultBlockData: Record<BlockType, unknown> = {
   // codeDataSchema requires `code` non-empty (`min(1)`, matching every other
   // required-text-field default elsewhere in this object, e.g. ctaBanner's
   // heading) -- "" here would fail blockCreateSchema validation immediately
-  // on add, unlike PLAN.md's literal `{ code: "" }` example.
+  // on add, unlike a literal `{ code: "" }` default would.
   code: { code: "// Add code here", language: "", caption: "" },
   accordion: { items: [] },
   table: { caption: "", headers: ["Column 1", "Column 2"], rows: [["", ""]] },
@@ -212,7 +199,7 @@ export const defaultBlockData: Record<BlockType, unknown> = {
 
 /** Block types offered in the "Add block" picker. All `BLOCK_TYPES` are
  * addable, including the data-referencing `hero`/`ruleList`/`featureGrid`/
- * `postList`. As of PLAN.md Phases 25-27, `ruleList`/`featureGrid`/`postList`
+ * `postList`. `ruleList`/`featureGrid`/`postList`
  * each own their rows outright (`RuleSection`/`Feature`/`Post.blockId`) --
  * a freshly-added instance starts with zero sections/features/posts and
  * admins add content directly into it, rather than filtering into a

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useState, type ButtonHTMLAttributes, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
@@ -9,34 +9,42 @@ import { Container } from "@/components/container";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
 import { ToneSelect } from "@/components/blocks/tones";
 import type { Tone } from "@/lib/themes";
+import { formatBytes } from "@/lib/format";
 
 export type QuickLink = { href: string; title: string; description: string; image?: string };
 export type LinkGridData = { links: QuickLink[]; tone?: Tone; heading?: string };
 
 const DEFAULT_HEADING = "Get oriented";
 
-// Mirrors the server-side cap in the POST /api/uploads/images route (PLAN.md
-// Phase 14) -- checked here too so we never start a doomed upload. Kept in
+// Mirrors the server-side cap in the POST /api/uploads/images route
+// -- checked here too so we never start a doomed upload. Kept in
 // sync with the identical constant in image-block.tsx (same upload pipeline).
 const MAX_UPLOAD_BYTES = 10485760;
 
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  return `${value.toFixed(1)} ${units[unitIndex]}`;
-}
-
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   return body?.error?.message ?? fallback;
+}
+
+/** Small circular overlay control for the image thumbnail -- needs a solid
+ * background (to stay legible over arbitrary photo content) and full
+ * rounding, unlike the inline square controls in list-controls.tsx. */
+function RemoveImageButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      aria-label="Remove image"
+      title="Remove image"
+      className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border-strong bg-surface text-muted shadow-sm transition hover:border-danger hover:text-danger motion-safe:active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border-strong disabled:hover:text-muted"
+      {...props}
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+        <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
 }
 
 /** Full literal `group-hover:text-*` class per tone -- kept as complete,
@@ -174,6 +182,10 @@ export function LinkGridBlock({
     }
   }
 
+  function removeImage(index: number) {
+    return persist(links.map((it, i) => (i === index ? { ...it, image: undefined } : it)));
+  }
+
   function addLink() {
     return persist([...links, { href: "/", title: "New link", description: "Describe where this goes." }]);
   }
@@ -229,8 +241,11 @@ export function LinkGridBlock({
           {links.map((link, i) => (
             <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-surface p-4">
               {link.image ? (
-                // eslint-disable-next-line @next/next/no-img-element -- arbitrary absolute admin-supplied URLs, not a known set of domains next/image can be configured for.
-                <img src={link.image} alt="" className="h-16 w-16 shrink-0 rounded object-cover" />
+                <div className="relative shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary absolute admin-supplied URLs, not a known set of domains next/image can be configured for. */}
+                  <img src={link.image} alt="" className="h-16 w-16 rounded object-cover" />
+                  <RemoveImageButton onClick={() => removeImage(i)} disabled={saving} />
+                </div>
               ) : null}
               <div className="min-w-0 flex-1">
                 <EditableText

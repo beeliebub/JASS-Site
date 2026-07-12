@@ -17,6 +17,8 @@ const editablePages = [
 const managementLinks = [
   { href: "/admin/pages", title: "Pages", description: "Create custom pages, publish/unpublish, delete." },
   { href: "/admin/nav", title: "Navigation", description: "Header nav items and one level of dropdowns." },
+  { href: "/admin/post-slugs", title: "Post slugs", description: "Every post's slug, grouped by page and block." },
+  { href: "/admin/images", title: "Images", description: "Every uploaded image, used/unused, delete the orphans." },
   { href: "/admin/themes", title: "Themes", description: "Create and manage custom color themes." },
   { href: "/admin/settings", title: "Settings", description: "Favicon and link-share (embed) defaults." },
   { href: "/admin/audit-log", title: "Audit log", description: "Every admin change, with one-step undo." },

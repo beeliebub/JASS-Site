@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { getSiteSettings } from "@/lib/site-settings";
 
 const SHA1_RE = /^[a-f0-9]{40}$/;
 
@@ -91,4 +92,65 @@ export async function prunePacks(keep = 3): Promise<void> {
       if ((error as { code?: string }).code !== PRISMA_RECORD_NOT_FOUND) throw error;
     }
   }
+}
+
+export type ImageLibraryEntry = {
+  id: string;
+  sha1: string;
+  ext: string;
+  mime: string;
+  size: number;
+  uploadedAt: Date;
+  uploadedBy: string | null;
+  used: boolean;
+};
+
+/**
+ * An image is only ever referenced as a literal URL string embedded in a
+ * `Block.data` JSON blob, or via the two `SiteSettings` foreign keys -- there
+ * is no join table to query, so "used" is detected by substring-matching the
+ * image's own sha1 against every block's raw data rather than hardcoding
+ * which block types/fields might embed one (fragile the moment a new block
+ * type also references an image).
+ */
+function isImageUsed(
+  image: { id: string; sha1: string },
+  blocksData: { data: string }[],
+  settings: { faviconImageId: string | null; embedImageId: string | null },
+): boolean {
+  return (
+    blocksData.some((block) => block.data.includes(image.sha1)) ||
+    settings.faviconImageId === image.id ||
+    settings.embedImageId === image.id
+  );
+}
+
+export async function getImageLibrary(): Promise<ImageLibraryEntry[]> {
+  const [images, blocksData, settings] = await Promise.all([
+    prisma.uploadedImage.findMany({ orderBy: { uploadedAt: "desc" } }),
+    prisma.block.findMany({ select: { data: true } }),
+    getSiteSettings(),
+  ]);
+
+  return images.map((image) => ({
+    id: image.id,
+    sha1: image.sha1,
+    ext: image.ext,
+    mime: image.mime,
+    size: image.size,
+    uploadedAt: image.uploadedAt,
+    uploadedBy: image.uploadedBy,
+    used: isImageUsed(image, blocksData, settings),
+  }));
+}
+
+/** Re-derives usage the same way `getImageLibrary` does, for callers (the
+ * delete route) that must never trust a client-supplied "this is unused"
+ * claim. */
+export async function isUploadedImageInUse(image: { id: string; sha1: string }): Promise<boolean> {
+  const [blocksData, settings] = await Promise.all([
+    prisma.block.findMany({ select: { data: true } }),
+    getSiteSettings(),
+  ]);
+  return isImageUsed(image, blocksData, settings);
 }

@@ -6,6 +6,7 @@ import type {
   Prisma,
   ResourcePack,
   SiteSettings,
+  UploadedImage,
   User,
 } from "@/app/generated/prisma/client";
 import fs from "node:fs";
@@ -21,15 +22,14 @@ import { navItemCreateSchema, navItemUpdateSchema } from "@/lib/validation/nav-i
 import { customThemeCreateSchema, customThemeUpdateSchema } from "@/lib/validation/custom-themes";
 import { siteSettingsUpdateSchema } from "@/lib/validation/site-settings";
 import { CUSTOM_THEME_TOKEN_FIELDS, type CustomThemeTokenField } from "@/lib/themes";
-import { packPath } from "@/lib/uploads";
+import { imagePath, packPath } from "@/lib/uploads";
 
 /**
- * Phase 21: audit trail + single-step undo. `recordAuditLog` is called by
+ * Audit trail + single-step undo. `recordAuditLog` is called by
  * every mutation route inside its own `$transaction`; `undoAuditEntry` is
  * called by `POST /api/audit-log/[id]/undo` (also inside a transaction).
- * See PLAN.md Phase 21 "Locked-in decisions" for the full design rationale
- * -- this file is the single place that rationale is actually implemented,
- * so route instrumentation (Phase 21 step 3) never has to re-derive it.
+ * This file is the single place the design rationale for that system is
+ * actually implemented, so route instrumentation never has to re-derive it.
  */
 
 export const AUDIT_ENTITY_TYPES = [
@@ -40,6 +40,7 @@ export const AUDIT_ENTITY_TYPES = [
   "User",
   "ResourcePack",
   "SiteSettings",
+  "UploadedImage",
 ] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 export type AuditAction = "create" | "update" | "delete";
@@ -152,6 +153,10 @@ export function userSnapshot(row: Pick<User, "id" | "email" | "name" | "role">) 
 
 export function resourcePackSnapshot(row: ResourcePack) {
   return { id: row.id, filename: row.filename, size: row.size, sha1: row.sha1, active: row.active, uploadedBy: row.uploadedBy };
+}
+
+export function uploadedImageSnapshot(row: UploadedImage) {
+  return { id: row.id, sha1: row.sha1, ext: row.ext, mime: row.mime, size: row.size, uploadedBy: row.uploadedBy };
 }
 
 export function siteSettingsSnapshot(row: SiteSettings) {
@@ -433,6 +438,39 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     const existing = await tx.resourcePack.findUnique({ where: { id: entry.entityId } });
     if (!existing) return { ok: false, message: "This resource pack no longer exists." };
     return safeWrite(() => tx.resourcePack.update({ where: { id: entry.entityId }, data: { active: snapshot.active } }));
+  },
+
+  // -------------------------------------------------------------------
+  UploadedImage: async (tx, entry) => {
+    if (entry.action === "create") {
+      const existing = await tx.uploadedImage.findUnique({ where: { id: entry.entityId } });
+      if (!existing) return { ok: true }; // already gone
+      try {
+        fs.unlinkSync(imagePath(existing.sha1, existing.ext));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") return conflictFrom(error);
+      }
+      return safeWrite(() => tx.uploadedImage.delete({ where: { id: entry.entityId } }));
+    }
+
+    if (entry.action === "delete") {
+      const snapshot = parseSnapshot<ReturnType<typeof uploadedImageSnapshot>>(entry.before);
+      if (!snapshot) return { ok: false, message: "No prior state recorded for this entry." };
+      let fileExists: boolean;
+      try {
+        fileExists = fs.existsSync(imagePath(snapshot.sha1, snapshot.ext));
+      } catch {
+        return { ok: false, message: "Stored sha1 is no longer a valid reference." };
+      }
+      if (!fileExists) return { ok: false, message: "The image's file no longer exists on disk -- it can't be restored via undo." };
+      return safeWrite(() => tx.uploadedImage.create({ data: { ...snapshot, id: entry.entityId } }));
+    }
+
+    // UploadedImage rows are never updated in place (uploads upsert on
+    // sha1; every other field is set once at creation), so this action
+    // never actually gets produced -- kept only so the handler map stays
+    // total over AuditAction.
+    return { ok: false, message: "UploadedImage entries are never updated in place -- nothing to undo." };
   },
 
   // -------------------------------------------------------------------

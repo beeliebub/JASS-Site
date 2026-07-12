@@ -4,7 +4,7 @@ import { siteConfig } from "@/lib/site-config";
 /**
  * Server-only data layer for editable content. Reads go straight through
  * Prisma with fallback defaults so a missing row (e.g. a fresh DB before
- * seeding) never crashes a page — it just renders the Phase 1 placeholder
+ * seeding) never crashes a page — it just renders placeholder
  * text instead. No `server-only` package is installed, so don't import this
  * from a Client Component.
  */
@@ -39,7 +39,7 @@ export async function getSiteContent(): Promise<SiteContent> {
   };
 }
 
-// PLAN.md Phases 25-27: ruleList/featureGrid/postList blocks each own their
+// ruleList/featureGrid/postList blocks each own their
 // rows via `blockId` now, so these are scoped to the specific block ids
 // present on the page being rendered rather than one global, site-wide read
 // (page-renderer.tsx calls these with the `ruleList`/`featureGrid`/`postList`
@@ -61,7 +61,7 @@ export async function getPostsByBlockIds(blockIds: string[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 8 — Pages, Blocks, Nav
+// Pages, Blocks, Nav
 // ---------------------------------------------------------------------------
 
 export async function getPageBySlug(slug: string) {
@@ -91,4 +91,39 @@ export async function getNavTree() {
       children: { orderBy: { order: "asc" }, include: { page: { select: { slug: true } } } },
     },
   });
+}
+
+export type PostListBlockGroup = {
+  pageId: string;
+  pageSlug: string;
+  pageTitle: string;
+  blockId: string;
+  blockOrder: number;
+  posts: { id: string; slug: string; title: string; tag: string; publishedAt: Date }[];
+};
+
+// Post List blocks own their posts outright (cascade-deleted with the
+// block), so this is the one place that reads across every block instance
+// site-wide to build a directory of every post's slug.
+export async function getPostListDirectory(): Promise<PostListBlockGroup[]> {
+  const blocks = await prisma.block.findMany({
+    where: { type: "postList" },
+    include: { page: true, posts: { orderBy: { publishedAt: "desc" } } },
+    orderBy: [{ page: { slug: "asc" } }, { order: "asc" }],
+  });
+
+  return blocks.map((block) => ({
+    pageId: block.pageId,
+    pageSlug: block.page.slug,
+    pageTitle: block.page.title,
+    blockId: block.id,
+    blockOrder: block.order,
+    posts: block.posts.map((post) => ({
+      id: post.id,
+      slug: post.slug,
+      title: post.title,
+      tag: post.tag,
+      publishedAt: post.publishedAt,
+    })),
+  }));
 }

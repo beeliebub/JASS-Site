@@ -2,8 +2,8 @@ import { z } from "zod";
 import { THEME_IDS, TONES } from "@/lib/themes";
 
 /**
- * Validation for the Phase 8 page builder (Page/Block) and user management.
- * Kept separate from lib/validation/content.ts, which covers the Phase 2
+ * Validation for the page builder (Page/Block) and user management.
+ * Kept separate from lib/validation/content.ts, which covers the
  * flat resources (ContentBlock/Rule/RuleSection/Feature/Post) that are
  * unrelated to this domain. NavItem schemas live in
  * lib/validation/nav-items.ts (see note further down) since they need
@@ -40,7 +40,7 @@ function refineNotReserved<T extends { slug?: string }>(data: T, ctx: z.Refineme
   }
 }
 
-/** `theme` (built-in) and `customThemeId` (Phase 12) are mutually exclusive --
+/** `theme` (built-in) and `customThemeId` (custom) are mutually exclusive --
  * a page follows at most one theme override. The admin UI's theme dropdown
  * always sends both fields together on a change (the non-chosen one as
  * `null`), so this only ever rejects a malformed/direct API call, not normal
@@ -124,7 +124,30 @@ export const BLOCK_TYPES = [
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
 
-/** Shared block-tone enum (Phase 9) -- see `lib/themes.ts`. Widens
+/** Human-readable label per block type -- lives here (not registry.tsx)
+ * since it's needed by lightweight, dependency-free consumers too (e.g.
+ * lib/audit-log-summary.ts) that shouldn't have to pull in every block
+ * component just to look up a label. */
+export const blockTypeLabels: Record<BlockType, string> = {
+  hero: "Hero",
+  ruleList: "Rule list",
+  featureGrid: "Feature grid",
+  postList: "Post list",
+  pageHeader: "Page header",
+  callout: "Callout",
+  steps: "Steps",
+  linkGrid: "Link grid",
+  richText: "Rich text",
+  image: "Image",
+  ctaBanner: "CTA banner",
+  cardGrid: "Card grid",
+  code: "Code block",
+  accordion: "Accordion / FAQ",
+  table: "Table",
+  toc: "Table of contents",
+};
+
+/** Shared block-tone enum -- see `lib/themes.ts`. Widens
  * `calloutDataSchema.variant` in place (JSON key stays `variant`, existing
  * "warning"/"info" rows remain valid) and backs the optional `tone` field on
  * pageHeader/ctaBanner/linkGrid below. */
@@ -155,7 +178,7 @@ const stepsDataSchema = z.object({
     .max(20),
 });
 
-/** Phase 19: optional per-item thumbnail, same URL convention/validation as
+/** Optional per-item thumbnail, same URL convention/validation as
  * `imageDataSchema.src` (reuses the same upload pipeline, not a new one) --
  * absent/"" = today's exact layout (no thumbnail column). */
 const linkGridDataSchema = z.object({
@@ -187,8 +210,8 @@ const richTextDataSchema = z.object({
  * placeholder in that state (see components/blocks/image-block.tsx), and a
  * freshly-added block starts out that way. Once `src` is non-empty it must
  * be either an absolute http(s) URL (externally-hosted image) or a
- * root-relative path (an image uploaded via `POST /api/uploads/images`,
- * Phase 14 -- see that route's `url` response field), and `alt` becomes
+ * root-relative path (an image uploaded via `POST /api/uploads/images`
+ * -- see that route's `url` response field), and `alt` becomes
  * required for accessibility. Deliberately excludes `javascript:`, `data:`,
  * and protocol-relative (`//host/...`) strings, none of which are safe to
  * hand straight to an `<img src>`. */
@@ -198,7 +221,7 @@ const isHttpUrl = (s: string) => {
   return parsed.success && (s.startsWith("http://") || s.startsWith("https://"));
 };
 
-/** Phase 19: optional display-size override, unset/null = today's exact
+/** Optional display-size override, unset/null = today's exact
  * behavior (full-width, natural aspect ratio). `scale` only applies under
  * `"scale"` mode, `width`/`height` only under `"custom"` -- both bounded so a
  * typo (or a hostile direct API call) can't blow out the page layout; these
@@ -235,7 +258,7 @@ const ctaBannerDataSchema = z.object({
   tone: toneSchema.optional(),
 });
 
-/** Phase 15: new, independent block type -- NOT a change to `featureGrid`.
+/** New, independent block type -- NOT a change to `featureGrid`.
  * Stores its own cards per instance (like `steps`/`linkGrid`) so it can be
  * placed multiple times across the site with different content each time. */
 const cardGridDataSchema = z.object({
@@ -252,15 +275,14 @@ const cardGridDataSchema = z.object({
     .max(20),
 });
 
-/** Phase 15: themed monospace code block, no syntax highlighting (see
- * PLAN.md decision 6). */
+/** Themed monospace code block, no syntax highlighting. */
 const codeDataSchema = z.object({
   code: z.string().min(1).max(20000),
   language: z.string().max(40).optional(),
   caption: z.string().max(200).optional(),
 });
 
-/** Phase 15: accordion/FAQ. Open/closed state is pure client UI state, never
+/** Accordion/FAQ. Open/closed state is pure client UI state, never
  * persisted here. */
 const accordionDataSchema = z.object({
   tone: toneSchema.optional(),
@@ -274,7 +296,7 @@ const accordionDataSchema = z.object({
     .max(20),
 });
 
-/** Phase 15: admin-authored data table. `.refine` keeps every row's length
+/** Admin-authored data table. `.refine` keeps every row's length
  * equal to `headers.length` -- TableBlock's column add/remove must keep this
  * invariant true at every step (pad/trim every row in the same update). */
 const tableDataSchema = z
@@ -288,8 +310,8 @@ const tableDataSchema = z
     path: ["rows"],
   });
 
-/** Phase 15: admin-curated table of contents (not auto-derived from
- * headings -- see PLAN.md decision 5). `anchor` is restricted to a safe
+/** Admin-curated table of contents (not auto-derived from
+ * headings). `anchor` is restricted to a safe
  * charset and is always rendered by TocBlock as `href={`#${anchor}`}` --
  * never the raw stored string -- so a `javascript:`/external-URL value can
  * never reach an `<a href>`. */
@@ -309,16 +331,16 @@ const tocDataSchema = z.object({
     .max(30),
 });
 
-/** `hero` (Phase 18) still overrides heading/tagline per-instance directly
+/** `hero` still overrides heading/tagline per-instance directly
  * on `block.data` -- it reads a singleton (`getSiteContent()`), not a shared
- * collection, so it never had the "which rows show" problem Phases 25-27
+ * collection, so it never had the "which rows show" problem that ownership
  * fixed for the other three data-referencing block types below. */
 const heroDataSchema = z.object({
   headingOverride: z.string().max(200).nullable().optional(),
   taglineOverride: z.string().max(300).nullable().optional(),
 });
 
-/** PLAN.md Phases 25-27: ruleList/featureGrid/postList blocks each own their
+/** ruleList/featureGrid/postList blocks each own their
  * rows via `RuleSection.blockId`/`Feature.blockId`/`Post.blockId` now, so
  * there's no shared pool left to hand-pick from -- a block just shows
  * everything it owns. `ruleListDataSchema`/`featureGridDataSchema` carry
@@ -482,7 +504,7 @@ export const userUpdateSchema = z.object({
   role: roleSchema.optional(),
 });
 
-/** `PUT /api/account/password` body (Phase 13 self-service password change).
+/** `PUT /api/account/password` body (self-service password change).
  * Kept separate from `userUpdateSchema` -- that route is owner-only and
  * touches an arbitrary user by id, this one always targets the caller's own
  * row via `session.user.id` and requires re-proving the current password. */
