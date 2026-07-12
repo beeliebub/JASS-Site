@@ -48,9 +48,25 @@ PRAGMA defer_foreign_keys=OFF;
 -- Backfill (PLAN.md Phases 25-27): assign every pre-existing row to the one
 -- ruleList/featureGrid/postList block that owned the site-wide view of this
 -- content before per-block ownership existed -- the block on that content
--- type's canonical page (/rules, /features, /news respectively). These ids
--- were looked up directly against this dev DB before writing this migration;
--- confirm the equivalent ids on any other environment before reusing as-is.
-UPDATE "RuleSection" SET "blockId" = 'cmrcyg6sa0007kgviam1ux6ob' WHERE "blockId" IS NULL;
-UPDATE "Feature" SET "blockId" = 'cmrcyg6sk000bkgvix2mawey0' WHERE "blockId" IS NULL;
-UPDATE "Post" SET "blockId" = 'cmrcyg6sq000ekgvimcypwhw2' WHERE "blockId" IS NULL;
+-- type's canonical page (/rules, /features, /news respectively). Looked up
+-- by (Page.slug, Block.type) via a subquery, NOT a hardcoded literal id --
+-- a hardcoded id is specific to whichever database it was read from and
+-- fails the FK constraint on every other database (this is the fix for
+-- exactly that bug: an earlier version of this migration shipped with ids
+-- copied from one dev database and broke `migrate deploy` elsewhere with a
+-- "FOREIGN KEY constraint failed" / SQLite error 787).
+UPDATE "RuleSection" SET "blockId" = (
+  SELECT "Block"."id" FROM "Block" JOIN "Page" ON "Block"."pageId" = "Page"."id"
+  WHERE "Block"."type" = 'ruleList' AND "Page"."slug" = 'rules'
+  LIMIT 1
+) WHERE "blockId" IS NULL;
+UPDATE "Feature" SET "blockId" = (
+  SELECT "Block"."id" FROM "Block" JOIN "Page" ON "Block"."pageId" = "Page"."id"
+  WHERE "Block"."type" = 'featureGrid' AND "Page"."slug" = 'features'
+  LIMIT 1
+) WHERE "blockId" IS NULL;
+UPDATE "Post" SET "blockId" = (
+  SELECT "Block"."id" FROM "Block" JOIN "Page" ON "Block"."pageId" = "Page"."id"
+  WHERE "Block"."type" = 'postList' AND "Page"."slug" = 'news'
+  LIMIT 1
+) WHERE "blockId" IS NULL;
