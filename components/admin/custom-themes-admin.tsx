@@ -192,11 +192,11 @@ function ColorField({
   const inputId = `theme-field-${field}`;
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5">
       <label htmlFor={inputId} className="text-xs font-medium text-muted">
         {label}
       </label>
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <div ref={panelRef} className="relative shrink-0">
           <button
             ref={triggerRef}
@@ -237,7 +237,7 @@ function ColorField({
           onFocus={() => setHexDraft(value)}
           onChange={(e) => handleHexInput(e.target.value)}
           onBlur={() => setHexDraft(null)}
-          className={`h-8 flex-1 rounded-md border bg-surface px-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary ${
+          className={`h-8 min-w-0 flex-1 rounded-md border bg-surface px-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary ${
             error ? "border-danger" : "border-border-strong"
           }`}
         />
