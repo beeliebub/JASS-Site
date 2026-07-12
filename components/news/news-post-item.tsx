@@ -1,16 +1,26 @@
 import Link from "next/link";
-import type { Post } from "@/app/generated/prisma/client";
 import { TagPill } from "@/components/news/tag-pill";
 
 function formatDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+// Structural subset of `Post`/`ClientPost`, not the full Prisma `Post` type --
+// this only ever renders these 5 fields, so it shouldn't need to track
+// unrelated columns like `blockId`/`body`/`author` just to typecheck.
+type DisplayPost = {
+  slug: string;
+  tag: string;
+  title: string;
+  excerpt: string;
+  publishedAt: Date;
+};
+
 export function NewsPostItem({
   post,
   featured = false,
 }: {
-  post: Post;
+  post: DisplayPost;
   featured?: boolean;
 }) {
   const dateLabel = formatDate(post.publishedAt);

@@ -7,12 +7,11 @@ import { useToast } from "@/components/admin/toast";
 import { EditableText } from "@/components/admin/editable-text";
 import { RuleSectionBlock } from "@/components/rules/rule-section";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
-import { MultiSelectChecklist } from "@/components/admin/multi-select-checklist";
 
 type SectionWithRules = RuleSection & { rules: Rule[] };
 type Field = "title" | "description";
 
-export type RuleListData = { sectionIds?: string[] | null };
+export type RuleListData = Record<string, never>;
 
 function pad(n: number) {
   return n.toString().padStart(2, "0");
@@ -35,12 +34,10 @@ async function parseError(res: Response, fallback: string) {
 
 export function RulesEditor({
   initialSections,
-  data,
-  onSaveData,
+  blockId,
 }: {
   initialSections: SectionWithRules[];
-  data: RuleListData;
-  onSaveData: (next: RuleListData) => Promise<void>;
+  blockId: string;
 }) {
   const { editMode, isAdmin } = useEditMode();
   const { showError } = useToast();
@@ -48,13 +45,7 @@ export function RulesEditor({
   const [addingSection, setAddingSection] = useState(false);
 
   if (!isAdmin || !editMode) {
-    // Compute rule numbers from the full, unfiltered section list first so a
-    // filtered instance never renumbers rules relative to their true
-    // site-wide position (see withStartIndices below), then filter the
-    // already-numbered list down to what this instance shows.
-    const withIndices = data.sectionIds
-      ? withStartIndices(sections).filter(({ section }) => data.sectionIds!.includes(section.id))
-      : withStartIndices(sections);
+    const withIndices = withStartIndices(sections);
     return (
       <div className="flex flex-col gap-10 sm:gap-14">
         {withIndices.map(({ section, startIndex }) => (
@@ -62,14 +53,6 @@ export function RulesEditor({
         ))}
       </div>
     );
-  }
-
-  async function saveSectionIds(next: string[] | null) {
-    try {
-      await onSaveData({ sectionIds: next });
-    } catch {
-      /* onSaveData's caller already rolled back state + showed a toast */
-    }
   }
 
   async function saveSectionField(id: string, field: Field, value: string) {
@@ -97,7 +80,12 @@ export function RulesEditor({
       const res = await fetch("/api/rule-sections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order: nextOrder, title: "New section", description: "Describe this section." }),
+        body: JSON.stringify({
+          blockId,
+          order: nextOrder,
+          title: "New section",
+          description: "Describe this section.",
+        }),
       });
       if (!res.ok) throw new Error(await parseError(res, "Failed to add section."));
       const { data } = (await res.json()) as { data: RuleSection };
@@ -237,22 +225,6 @@ export function RulesEditor({
 
   return (
     <div className="flex flex-col gap-10 sm:gap-14">
-      <div className="rounded-md border border-dashed border-border-strong bg-surface p-4">
-        <p className="text-xs text-muted">
-          {data.sectionIds === null || data.sectionIds === undefined
-            ? `Showing all ${sections.length} sections on this page.`
-            : `Showing ${data.sectionIds.length} of ${sections.length} sections on this page.`}
-        </p>
-        <div className="mt-3">
-          <MultiSelectChecklist
-            label="Sections shown on this page"
-            options={sections.map((s) => ({ id: s.id, label: s.title }))}
-            selectedIds={data.sectionIds ?? null}
-            onChange={saveSectionIds}
-          />
-        </div>
-      </div>
-
       {withIndices.map(({ section, startIndex }, sectionIdx) => (
         <section key={section.id} aria-labelledby={`${section.id}-heading`} className="scroll-mt-24">
           <div className="mb-4 flex items-start justify-between gap-4 sm:mb-5">

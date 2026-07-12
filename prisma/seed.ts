@@ -109,7 +109,7 @@ async function seedContentBlocks() {
   console.log(`Seeded ${CONTENT_BLOCKS.length} content blocks.`);
 }
 
-async function seedRuleSections() {
+async function seedRuleSections(blockId: string) {
   let sectionCount = 0;
   let ruleCount = 0;
 
@@ -121,6 +121,7 @@ async function seedRuleSections() {
         order: sectionIndex,
         title: section.title,
         description: section.description,
+        blockId,
       },
       update: {
         order: sectionIndex,
@@ -155,18 +156,18 @@ async function seedRuleSections() {
   console.log(`Seeded ${sectionCount} rule sections with ${ruleCount} rules.`);
 }
 
-async function seedFeatures() {
+async function seedFeatures(blockId: string) {
   for (const feature of FEATURES) {
     await prisma.feature.upsert({
       where: { id: `feature-${feature.icon}` },
-      create: { id: `feature-${feature.icon}`, ...feature },
+      create: { id: `feature-${feature.icon}`, ...feature, blockId },
       update: feature,
     });
   }
   console.log(`Seeded ${FEATURES.length} features.`);
 }
 
-async function seedPosts() {
+async function seedPosts(blockId: string) {
   for (const post of newsPosts) {
     await prisma.post.upsert({
       where: { slug: post.slug },
@@ -176,6 +177,7 @@ async function seedPosts() {
         title: post.title,
         excerpt: post.excerpt,
         publishedAt: new Date(post.date),
+        blockId,
       },
       update: {
         tag: post.tag,
@@ -357,6 +359,35 @@ async function seedPagesAndNav() {
   console.log(`Seeded 4 protected pages with blocks, and ${navEntries.length} default top-level nav items.`);
 }
 
+/**
+ * PLAN.md Phases 25-27: RuleSection/Feature/Post each require an owning
+ * `blockId` now, so the content-seeding functions below need the real ids of
+ * the ruleList/featureGrid/postList blocks on the rules/features/news pages
+ * -- looked up fresh by (page slug, block type) rather than threaded through
+ * return values, so this works identically whether seedPagesAndNav() just
+ * created those pages or they already existed (it's guarded to skip on a
+ * non-empty DB, but the blocks it *would have* created are already there).
+ */
+async function getCanonicalBlockIds() {
+  const [ruleListBlock, featureGridBlock, postListBlock] = await Promise.all([
+    prisma.block.findFirst({ where: { type: "ruleList", page: { slug: "rules" } } }),
+    prisma.block.findFirst({ where: { type: "featureGrid", page: { slug: "features" } } }),
+    prisma.block.findFirst({ where: { type: "postList", page: { slug: "news" } } }),
+  ]);
+  if (!ruleListBlock || !featureGridBlock || !postListBlock) {
+    throw new Error(
+      "Expected a ruleList block on /rules, a featureGrid block on /features, and a postList block on " +
+        "/news to exist before seeding rule sections/features/posts -- run without --pages-only first, " +
+        "or check that those blocks weren't deleted from an existing page.",
+    );
+  }
+  return {
+    ruleListBlockId: ruleListBlock.id,
+    featureGridBlockId: featureGridBlock.id,
+    postListBlockId: postListBlock.id,
+  };
+}
+
 async function main() {
   // `--pages-only` skips the content-overwriting seed functions below (which
   // unconditionally reset ContentBlock/Rule/Feature/Post to placeholder
@@ -365,13 +396,17 @@ async function main() {
   // PLAN.md Phase 8 step 8.
   const pagesOnly = process.argv.includes("--pages-only");
 
-  if (!pagesOnly) {
-    await seedContentBlocks();
-    await seedRuleSections();
-    await seedFeatures();
-    await seedPosts();
-  }
+  // Pages/blocks must exist first -- the content seed functions below now
+  // need real blockIds to seed against.
   await seedPagesAndNav();
+
+  if (!pagesOnly) {
+    const { ruleListBlockId, featureGridBlockId, postListBlockId } = await getCanonicalBlockIds();
+    await seedContentBlocks();
+    await seedRuleSections(ruleListBlockId);
+    await seedFeatures(featureGridBlockId);
+    await seedPosts(postListBlockId);
+  }
 }
 
 main()

@@ -309,28 +309,32 @@ const tocDataSchema = z.object({
     .max(30),
 });
 
-/** Phase 18: per-instance overrides for the 4 data-referencing block types
- * (see registry.tsx's updated ADDABLE_BLOCK_TYPES doc comment). All fields
- * optional/nullable -- unset/null means "show everything" (today's exact
- * pre-Phase-18 behavior), so existing `{}` rows stay valid with no
- * migration. Filtering itself happens display-side in each block component
- * against the full array `page-renderer.tsx` already fetches once per page;
- * these schemas only bound what an instance is allowed to *ask for*. */
+/** `hero` (Phase 18) still overrides heading/tagline per-instance directly
+ * on `block.data` -- it reads a singleton (`getSiteContent()`), not a shared
+ * collection, so it never had the "which rows show" problem Phases 25-27
+ * fixed for the other three data-referencing block types below. */
 const heroDataSchema = z.object({
   headingOverride: z.string().max(200).nullable().optional(),
   taglineOverride: z.string().max(300).nullable().optional(),
 });
 
-const ruleListDataSchema = z.object({
-  sectionIds: z.array(z.string().min(1).max(80)).max(200).nullable().optional(),
-});
+/** PLAN.md Phases 25-27: ruleList/featureGrid/postList blocks each own their
+ * rows via `RuleSection.blockId`/`Feature.blockId`/`Post.blockId` now, so
+ * there's no shared pool left to hand-pick from -- a block just shows
+ * everything it owns. `ruleListDataSchema`/`featureGridDataSchema` carry
+ * nothing at all (kept as objects, not removed, so `Block.data` still
+ * round-trips through the same per-type-schema shape as every other block
+ * type). `postListDataSchema` keeps only `limit`, an admin-configured cap on
+ * how many of this instance's own posts render on the page -- the old
+ * persisted `tag` filter is gone too: tag filtering is a *viewing* feature
+ * only now (the ephemeral, non-persisting visitor-facing control in
+ * `components/news/posts-editor.tsx`), not an admin content-curation choice
+ * saved per instance, so it never belonged in `Block.data` to begin with. */
+const ruleListDataSchema = z.object({});
 
-const featureGridDataSchema = z.object({
-  featureIds: z.array(z.string().min(1).max(80)).max(200).nullable().optional(),
-});
+const featureGridDataSchema = z.object({});
 
 const postListDataSchema = z.object({
-  tag: z.string().min(1).max(80).nullable().optional(),
   limit: z.number().int().min(1).max(200).nullable().optional(),
 });
 

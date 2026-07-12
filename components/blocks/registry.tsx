@@ -1,8 +1,8 @@
 import type { ComponentType } from "react";
 import type { Feature, Rule, RuleSection } from "@/app/generated/prisma/client";
 import { Container } from "@/components/container";
-import { RulesEditor, type RuleListData } from "@/components/rules/rules-editor";
-import { FeaturesEditor, type FeatureGridData } from "@/components/features/features-editor";
+import { RulesEditor } from "@/components/rules/rules-editor";
+import { FeaturesEditor } from "@/components/features/features-editor";
 import { PostsEditor, type ClientPost, type PostListData } from "@/components/news/posts-editor";
 import { HeroOverrideControls, type HeroData } from "@/components/home/hero-override-controls";
 import { HeroContent, type HeroContentData } from "@/components/home/hero-content";
@@ -28,9 +28,20 @@ import { BLOCK_TYPES, type BlockType } from "@/lib/validation/pages";
  * existing Phase 2/4 editor components, backed by data pre-fetched
  * server-side in page-renderer.tsx and threaded through as `referenceData`
  * -- these components (RulesEditor/FeaturesEditor/PostsEditor) accept plain
- * serializable "initial*" props, so no server/client boundary issue. Since
- * Phase 18 they additionally accept `data`/`onSaveData` for their own
- * per-instance filter (`RuleListData`/`FeatureGridData`/`PostListData`).
+ * serializable "initial*" props, so no server/client boundary issue.
+ * ruleList/featureGrid/postList also get a `blockId` prop (their owning
+ * block's own id) since PLAN.md Phases 25-27: each instance's
+ * sections/features/posts are rows it owns outright (`blockId` FK on
+ * RuleSection/Feature/Post), not a filtered view into one shared, site-wide
+ * table -- `referenceData.ruleSectionsByBlockId`/`featuresByBlockId`/
+ * `postsByBlockId` are keyed by block id for exactly that reason. `postList`
+ * additionally keeps `data`/`onSaveData` for an admin-configured `limit`
+ * *within* its own posts (see `PostListData`) -- tag-based filtering lives
+ * entirely in `PostsEditor`'s visitor branch as ephemeral local state now,
+ * never persisted through `data`/`onSaveData`. ruleList/featureGrid dropped
+ * their equivalent `sectionIds`/`featureIds` filters entirely, since
+ * ownership already makes every instance's content distinct with nothing
+ * left to hand-pick from.
  * `hero` follows the same "plain serializable data, not a rendered element"
  * rule: `block.heroContent` is the site-wide `{heroName, heroTagline,
  * serverIp, ...}` fetched once in page-renderer.tsx (a ReactNode pre-rendered
@@ -44,10 +55,15 @@ import { BLOCK_TYPES, type BlockType } from "@/lib/validation/pages";
 
 export type SectionWithRules = RuleSection & { rules: Rule[] };
 
+/** PLAN.md Phases 25-27: ruleList/featureGrid/postList blocks each own their
+ * rows via `blockId` now, so `page-renderer.tsx` fetches per the set of
+ * block ids on the page and keys the results back by block id -- each
+ * block's registry entry below reads only its own `block.id` entry out of
+ * these maps, never a page-wide shared array. */
 export type ReferenceData = {
-  ruleSections?: SectionWithRules[];
-  features?: Feature[];
-  posts?: ClientPost[];
+  ruleSectionsByBlockId?: Record<string, SectionWithRules[]>;
+  featuresByBlockId?: Record<string, Feature[]>;
+  postsByBlockId?: Record<string, ClientPost[]>;
 };
 
 export type ClientBlock = {
@@ -84,28 +100,24 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
   // written to be placed inside a page-level Container alongside sibling
   // JSX, matching each type's original page (app/rules|features|news) so the
   // visual rhythm carries over now that pageHeader is a separate block.
-  ruleList: ({ block, referenceData, onSaveData }) => (
+  // No `data`/`onSaveData` forwarded here -- `RuleListData` is empty (PLAN.md
+  // Phase 26), there's nothing left for a Rule List instance to save.
+  ruleList: ({ block, referenceData }) => (
     <Container className="py-8 sm:py-10">
-      <RulesEditor
-        initialSections={referenceData.ruleSections ?? []}
-        data={block.data as RuleListData}
-        onSaveData={onSaveData as (next: RuleListData) => Promise<void>}
-      />
+      <RulesEditor blockId={block.id} initialSections={referenceData.ruleSectionsByBlockId?.[block.id] ?? []} />
     </Container>
   ),
-  featureGrid: ({ block, referenceData, onSaveData }) => (
+  // Same as ruleList above -- `FeatureGridData` is empty (PLAN.md Phase 27).
+  featureGrid: ({ block, referenceData }) => (
     <Container className="py-12 sm:py-16">
-      <FeaturesEditor
-        initialFeatures={referenceData.features ?? []}
-        data={block.data as FeatureGridData}
-        onSaveData={onSaveData as (next: FeatureGridData) => Promise<void>}
-      />
+      <FeaturesEditor blockId={block.id} initialFeatures={referenceData.featuresByBlockId?.[block.id] ?? []} />
     </Container>
   ),
   postList: ({ block, referenceData, onSaveData }) => (
     <Container className="flex flex-1 flex-col py-8 sm:py-10">
       <PostsEditor
-        initialPosts={referenceData.posts ?? []}
+        blockId={block.id}
+        initialPosts={referenceData.postsByBlockId?.[block.id] ?? []}
         data={block.data as PostListData}
         onSaveData={onSaveData as (next: PostListData) => Promise<void>}
       />
@@ -177,9 +189,9 @@ export const blockTypeLabels: Record<BlockType, string> = {
 /** Default `data` for a freshly-added block of `type`, sent as the POST body. */
 export const defaultBlockData: Record<BlockType, unknown> = {
   hero: { headingOverride: null, taglineOverride: null },
-  ruleList: { sectionIds: null },
-  featureGrid: { featureIds: null },
-  postList: { tag: null, limit: null },
+  ruleList: {},
+  featureGrid: {},
+  postList: { limit: null },
   pageHeader: { heading: "New section" },
   callout: { variant: "info", body: "Add a message here." },
   steps: { items: [] },
@@ -200,19 +212,23 @@ export const defaultBlockData: Record<BlockType, unknown> = {
 
 /** Block types offered in the "Add block" picker. All `BLOCK_TYPES` are
  * addable, including the data-referencing `hero`/`ruleList`/`featureGrid`/
- * `postList` -- each of those still reads off the same site-wide table
- * (ContentBlock/RuleSection+Rule/Feature/Post) via `referenceData`
- * (`page-renderer.tsx` fetches each once per page, not per instance), but as
- * of Phase 18 each *instance* carries its own optional display-level
- * filter/override in `Block.data` (see `heroDataSchema`/`ruleListDataSchema`/
- * `featureGridDataSchema`/`postListDataSchema` in `lib/validation/pages.ts`):
- * a Rule List can show a subset of sections, a Feature Grid a subset of
- * features, a Post List a single tag (optionally capped to N), and a Hero a
- * heading/tagline override (the live server-status ping stays global -- it's
- * describing the one real server, never per-instance). Unset/null on any of
- * these means "show everything," i.e. the original site-wide behavior.
- * Editing content (add/edit/delete a rule, feature, or post) still always
- * affects the one real underlying row regardless of which instance you're
- * editing from -- only the non-edit-mode filtered *view* differs per
- * instance. */
+ * `postList`. As of PLAN.md Phases 25-27, `ruleList`/`featureGrid`/`postList`
+ * each own their rows outright (`RuleSection`/`Feature`/`Post.blockId`) --
+ * a freshly-added instance starts with zero sections/features/posts and
+ * admins add content directly into it, rather than filtering into a
+ * pre-existing site-wide pool. `postList` still carries an optional `limit`
+ * in `Block.data` (`postListDataSchema` in `lib/validation/pages.ts`) to cap
+ * how many of that instance's own posts render; tag-based filtering is a
+ * viewing-only feature now (ephemeral, non-persisting, in the visitor branch
+ * of `PostsEditor`), not something saved per instance, since it's just a way
+ * to browse the block's own posts rather than a content-curation choice.
+ * `ruleListDataSchema`/`featureGridDataSchema` carry nothing; `hero` keeps
+ * its `headingOverride`/`taglineOverride` (the live server-status ping stays
+ * global -- it's describing the one real server, never per-instance).
+ * Editing a section/feature/post from its owning block's editor affects only
+ * that row, same as always -- what changed is that no *other* block instance
+ * can reference or display it. Tag *names* on posts, unlike the posts
+ * themselves, stay a shared vocabulary across every Post List block (see
+ * `GET /api/posts/tags`) -- an admin authoring a post in any instance can
+ * reuse a tag already used elsewhere on the site. */
 export const ADDABLE_BLOCK_TYPES = BLOCK_TYPES;

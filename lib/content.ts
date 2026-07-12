@@ -39,19 +39,25 @@ export async function getSiteContent(): Promise<SiteContent> {
   };
 }
 
-export async function getRuleSections() {
+// PLAN.md Phases 25-27: ruleList/featureGrid/postList blocks each own their
+// rows via `blockId` now, so these are scoped to the specific block ids
+// present on the page being rendered rather than one global, site-wide read
+// (page-renderer.tsx calls these with the `ruleList`/`featureGrid`/`postList`
+// block ids on that page, then keys the results back by blockId).
+export async function getRuleSectionsByBlockIds(blockIds: string[]) {
   return prisma.ruleSection.findMany({
+    where: { blockId: { in: blockIds } },
     orderBy: { order: "asc" },
     include: { rules: { orderBy: { order: "asc" } } },
   });
 }
 
-export async function getFeatures() {
-  return prisma.feature.findMany({ orderBy: { order: "asc" } });
+export async function getFeaturesByBlockIds(blockIds: string[]) {
+  return prisma.feature.findMany({ where: { blockId: { in: blockIds } }, orderBy: { order: "asc" } });
 }
 
-export async function getPosts() {
-  return prisma.post.findMany({ orderBy: { publishedAt: "desc" } });
+export async function getPostsByBlockIds(blockIds: string[]) {
+  return prisma.post.findMany({ where: { blockId: { in: blockIds } }, orderBy: { publishedAt: "desc" } });
 }
 
 // ---------------------------------------------------------------------------

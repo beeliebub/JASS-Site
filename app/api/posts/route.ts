@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { postCreateSchema } from "@/lib/validation/content";
+import { requireOwningBlock } from "@/lib/block-ownership";
 
 export async function GET() {
   try {
@@ -25,6 +26,9 @@ export async function POST(req: Request) {
 
   const parsed = postCreateSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
+
+  const owningBlock = await requireOwningBlock(parsed.data.blockId, "postList");
+  if (!owningBlock.ok) return owningBlock.response;
 
   try {
     const existing = await prisma.post.findUnique({ where: { slug: parsed.data.slug } });

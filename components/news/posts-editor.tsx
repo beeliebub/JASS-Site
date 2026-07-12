@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { NewsPostItem } from "@/components/news/news-post-item";
@@ -17,7 +17,7 @@ export type ClientPost = {
   author: string | null;
 };
 
-export type PostListData = { tag?: string | null; limit?: number | null };
+export type PostListData = { limit?: number | null };
 
 type FormValues = {
   slug: string;
@@ -76,11 +76,18 @@ function toForm(post: ClientPost): FormValues {
 
 function PostForm({
   initial,
+  existingTags,
   onSubmit,
   onCancel,
   submitLabel,
 }: {
   initial: FormValues;
+  // Site-wide tag names (across every Post List block, not just this one) --
+  // tags are the one thing that stay a shared vocabulary even though posts
+  // themselves are now owned per-block. Offered as datalist suggestions so
+  // an admin can reuse an existing tag or type a brand new one; either way
+  // it's just a plain string on this post, no separate Tag row is created.
+  existingTags: string[];
   onSubmit: (values: FormValues) => Promise<void>;
   onCancel: () => void;
   submitLabel: string;
@@ -154,10 +161,16 @@ function PostForm({
           <input
             id="post-tag"
             required
+            list="post-tag-options"
             value={values.tag}
             onChange={(e) => setField("tag", e.target.value)}
             className={fieldClassName}
           />
+          <datalist id="post-tag-options">
+            {existingTags.map((tag) => (
+              <option key={tag} value={tag} />
+            ))}
+          </datalist>
         </div>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="post-date" className={labelClassName}>
@@ -243,30 +256,74 @@ export function PostsEditor({
   initialPosts,
   data,
   onSaveData,
+  blockId,
 }: {
   initialPosts: ClientPost[];
   data: PostListData;
   onSaveData: (next: PostListData) => Promise<void>;
+  blockId: string;
 }) {
   const { editMode, isAdmin } = useEditMode();
   const { showError } = useToast();
   const [posts, setPosts] = useState(() => sortPosts(initialPosts));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [limitDraft, setLimitDraft] = useState(data.limit != null ? String(data.limit) : "");
+  // Purely local, ephemeral filter for the visitor-facing view -- this is the
+  // *only* tag filter left (no persisted admin-curation equivalent): a Post
+  // List block always shows all of its own posts in edit mode, and this is
+  // just a way to browse/narrow them when actually viewing the page.
+  const [visitorTag, setVisitorTag] = useState<string | null>(null);
+  // Tags are the one thing shared across every Post List block on the site
+  // (posts themselves are not) -- fetched once, admin-only, so PostForm can
+  // suggest existing tag names when authoring a post in *any* block.
+  const [existingTags, setExistingTags] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isAdmin || !editMode) return;
+    fetch("/api/posts/tags")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load tags."))))
+      .then((body: { data: string[] }) => setExistingTags(body.data))
+      .catch(() => {
+        /* Non-critical: PostForm just falls back to a plain text input with no suggestions. */
+      });
+  }, [isAdmin, editMode]);
 
   if (!isAdmin || !editMode) {
-    const filtered = data.tag ? posts.filter((p) => p.tag === data.tag) : posts;
-    const limited = data.limit ? filtered.slice(0, data.limit) : filtered;
+    // `limit` caps how many of this instance's own posts are in scope at
+    // all; the visitor's own tag choice then narrows *within* that already-
+    // capped set, rather than re-expanding it.
+    const scoped = data.limit ? posts.slice(0, data.limit) : posts;
+    const visitorTags = Array.from(new Set(scoped.map((p) => p.tag))).sort();
+    const limited = visitorTag ? scoped.filter((p) => p.tag === visitorTag) : scoped;
     const latestPostId = posts[0]?.id;
 
     return (
-      <ol className="mt-8 flex flex-col gap-4 sm:mt-10 sm:gap-5">
-        {limited.map((post) => (
-          <li key={post.slug}>
-            <NewsPostItem post={{ ...post, publishedAt: new Date(post.publishedAt) }} featured={post.id === latestPostId} />
-          </li>
-        ))}
-      </ol>
+      <div className="mt-8 flex flex-col gap-4 sm:mt-10 sm:gap-5">
+        {visitorTags.length > 1 && (
+          <label className="flex w-fit flex-col gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+            Filter by tag
+            <select
+              value={visitorTag ?? ""}
+              onChange={(e) => setVisitorTag(e.target.value || null)}
+              className="h-9 rounded-md border border-border-strong bg-surface-2 px-2 text-sm text-foreground outline-none focus-visible:border-primary"
+            >
+              <option value="">All tags</option>
+              {visitorTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <ol className="flex flex-col gap-4 sm:gap-5">
+          {limited.map((post) => (
+            <li key={post.slug}>
+              <NewsPostItem post={{ ...post, publishedAt: new Date(post.publishedAt) }} featured={post.id === latestPostId} />
+            </li>
+          ))}
+        </ol>
+      </div>
     );
   }
 
@@ -275,6 +332,7 @@ export function PostsEditor({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        blockId,
         slug: values.slug,
         tag: values.tag,
         title: values.title,
@@ -323,17 +381,9 @@ export function PostsEditor({
     }
   }
 
-  async function changeTag(nextTag: string) {
-    try {
-      await onSaveData({ tag: nextTag || null, limit: data.limit ?? null });
-    } catch {
-      // onSaveData's caller (page-blocks.tsx) already rolled back block state + showed a toast.
-    }
-  }
-
   async function changeLimit(nextLimit: number | null) {
     try {
-      await onSaveData({ tag: data.tag ?? null, limit: nextLimit });
+      await onSaveData({ ...data, limit: nextLimit });
     } catch {
       // onSaveData's caller (page-blocks.tsx) already rolled back block state + showed a toast.
     }
@@ -356,35 +406,16 @@ export function PostsEditor({
     changeLimit(clamped);
   }
 
-  const distinctTags = Array.from(new Set(posts.map((p) => p.tag))).sort();
   const totalCount = posts.length;
-  const taggedCount = data.tag ? posts.filter((p) => p.tag === data.tag).length : totalCount;
-  let indicatorText = data.tag
-    ? `Showing tag "${data.tag}" (${taggedCount} of ${totalCount}) on this page`
-    : `Showing all ${totalCount} posts on this page`;
-  if (data.limit) indicatorText += `, capped to ${data.limit}`;
-  indicatorText += ".";
+  let indicatorText = `Showing all ${totalCount} posts owned by this block`;
+  if (data.limit) indicatorText += `, capped to ${data.limit} on the page itself`;
+  indicatorText += ". Visitors can additionally browse by tag when viewing the page (not in edit mode).";
 
   return (
     <div className="mt-8 flex flex-col gap-4 sm:mt-10 sm:gap-5">
       <div className="rounded-md border border-dashed border-border-strong bg-surface p-4">
         <p className="text-sm text-muted">{indicatorText}</p>
         <div className="mt-3 flex flex-wrap gap-4">
-          <label className="flex flex-col gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
-            Tag filter
-            <select
-              value={data.tag ?? ""}
-              onChange={(e) => changeTag(e.target.value)}
-              className="h-9 rounded-md border border-border-strong bg-surface-2 px-2 text-sm text-foreground outline-none focus-visible:border-primary"
-            >
-              <option value="">All tags</option>
-              {distinctTags.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
-          </label>
           <label className="flex flex-col gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
             Limit (optional)
             <input
@@ -404,7 +435,13 @@ export function PostsEditor({
       </div>
 
       {editingId === "new" ? (
-        <PostForm initial={emptyForm()} onSubmit={createPost} onCancel={() => setEditingId(null)} submitLabel="Publish" />
+        <PostForm
+          initial={emptyForm()}
+          existingTags={existingTags}
+          onSubmit={createPost}
+          onCancel={() => setEditingId(null)}
+          submitLabel="Publish"
+        />
       ) : (
         <AddButton onClick={() => setEditingId("new")} className="self-start">
           New announcement
@@ -417,6 +454,7 @@ export function PostsEditor({
             <li key={post.id}>
               <PostForm
                 initial={toForm(post)}
+                existingTags={existingTags}
                 onSubmit={(values) => updatePost(post.id, values)}
                 onCancel={() => setEditingId(null)}
                 submitLabel="Save changes"

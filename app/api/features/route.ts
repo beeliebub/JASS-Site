@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { featureCreateSchema } from "@/lib/validation/content";
+import { requireOwningBlock } from "@/lib/block-ownership";
 
 export async function GET() {
   try {
@@ -25,6 +26,9 @@ export async function POST(req: Request) {
 
   const parsed = featureCreateSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
+
+  const ownership = await requireOwningBlock(parsed.data.blockId, "featureGrid");
+  if (!ownership.ok) return ownership.response;
 
   try {
     const feature = await prisma.feature.create({ data: parsed.data });

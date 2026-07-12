@@ -88,14 +88,17 @@ model CustomTheme {
 // convention -- no native SQLite JSON type) -- parse/validate at the API
 // boundary per `type` with the discriminated union in lib/validation/pages.ts.
 model Block {
-  id        String   @id @default(cuid())
-  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  pageId    String
-  order     Int
-  type      String
-  data      String
-  updatedAt DateTime @updatedAt
-  updatedBy String?
+  id           String        @id @default(cuid())
+  page         Page          @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  pageId       String
+  order        Int
+  type         String
+  data         String
+  updatedAt    DateTime      @updatedAt
+  updatedBy    String?
+  ruleSections RuleSection[]
+  features     Feature[]
+  posts        Post[]
 }
 
 // One level of dropdown nesting only (enforced in lib/validation/pages.ts,
@@ -129,6 +132,8 @@ model RuleSection {
   title       String
   description String
   rules       Rule[]
+  block       Block  @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  blockId     String
 }
 
 model Rule {
@@ -150,17 +155,21 @@ model Feature {
   // JSX can't be stored in the DB, so admins pick from a fixed set of icons.
   icon        String
   accent      Boolean @default(false)
+  block       Block   @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  blockId     String
 }
 
 model Post {
-  id          String    @id @default(cuid())
-  slug        String    @unique
+  id          String   @id @default(cuid())
+  slug        String   @unique
   tag         String
   title       String
   excerpt     String
   body        String?
   publishedAt DateTime
   author      String?
+  block       Block    @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  blockId     String
 }
 
 // Resource pack hosting (Phase 10). Content-addressed on disk at
@@ -184,15 +193,15 @@ model ResourcePack {
 // uploaded images are referenced at once, one per Image block. Re-uploading
 // identical bytes resolves to the existing row (upsert by sha1).
 model UploadedImage {
-  id                  String         @id @default(cuid())
-  sha1                String         @unique // lowercase hex, 40 chars
-  ext                 String                  // derived from validated magic bytes, not client input
-  mime                String                  // one of the 4 allowed values, never freeform
-  size                Int
-  uploadedAt          DateTime       @default(now())
-  uploadedBy          String?                 // uploader email, display only
-  faviconForSettings  SiteSettings[] @relation("SiteSettingsFavicon")
-  embedForSettings    SiteSettings[] @relation("SiteSettingsEmbed")
+  id                 String         @id @default(cuid())
+  sha1               String         @unique // lowercase hex, 40 chars
+  ext                String // derived from validated magic bytes, not client input
+  mime               String // one of the 4 allowed values, never freeform
+  size               Int
+  uploadedAt         DateTime       @default(now())
+  uploadedBy         String? // uploader email, display only
+  faviconForSettings SiteSettings[] @relation("SiteSettingsFavicon")
+  embedForSettings   SiteSettings[] @relation("SiteSettingsEmbed")
 }
 
 // Phase 21: audit trail + single-step undo for every admin mutation across

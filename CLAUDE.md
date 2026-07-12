@@ -47,9 +47,18 @@ re-run, and `npm run db:seed -- --pages-only` skips the content-overwriting port
   times. Same fix, invoke the entry directly:
   `node --no-turbofan node_modules/typescript/lib/tsc.js --noEmit`
   `node --no-turbofan node_modules/eslint/bin/eslint.js`
+- `npm run db:seed`/`npm run create-admin` (both run via `tsx`) also crash, and the
+  usual fix doesn't work here: `tsx`'s own CLI (`node_modules/tsx/dist/cli.mjs`)
+  re-spawns itself as a child process, so a `--no-turbofan` passed on the parent
+  `node` invocation never reaches the process that actually crashes. Bypass the CLI
+  entirely and use tsx's CommonJS register hook instead, which runs in-process (no
+  spawn) and still resolves the `@/...` tsconfig path aliases these scripts use:
+  `node --no-turbofan -r tsx/cjs prisma/seed.ts`
+  (swap the script path for `scripts/create-admin.ts` etc. as needed).
 
-If a fresh `npm install`/`npx prisma ...`/`npx tsc`/`npm run lint` fails with the fatal
-error above, retry with these flags before assuming something is actually broken.
+If a fresh `npm install`/`npx prisma ...`/`npx tsc`/`npm run lint`/`npm run db:seed`
+fails with the fatal error above, retry with these flags before assuming something
+is actually broken.
 
 ## Environment variables
 
