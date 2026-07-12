@@ -1,5 +1,5 @@
 /**
- * Server status badge -- purely presentational. Phase 5 wired the real data
+ * Server status badge -- purely presentational. The real data
  * source: `components/home/live-status-badge.tsx` polls `GET /api/status`
  * (live Server List Ping, server-cached ~30s) and passes the result in here
  * as `status`. `stubStatus` remains as the default fallback for any other

@@ -1,5 +1,5 @@
 /**
- * Pure color helpers for the Phase 9 custom-accent picker. No dependencies,
+ * Pure color helpers for the custom-accent picker. No dependencies,
  * unit-testable in isolation. All inputs are treated as untrusted (accent
  * hex ultimately comes from a visitor via localStorage / the picker UI), so
  * every function validates/clamps rather than assuming well-formed input.

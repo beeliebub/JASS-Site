@@ -1,6 +1,6 @@
 /**
- * Blocking inline theme script (Phase 9's no-flash persistence design -- see
- * PLAN.md). Server component: renders a plain `<script>` whose text is a
+ * Blocking inline theme script (the no-flash persistence design).
+ * Server component: renders a plain `<script>` whose text is a
  * single hardcoded string literal below, with zero interpolation of any
  * kind, so there is no injection surface no matter what a visitor's
  * localStorage happens to contain (a malicious/corrupted value just fails
@@ -28,7 +28,7 @@
  * and importing would tempt a future edit into interpolating a value into
  * it.
  *
- * Phase 12 addition: a visitor's site-wide *custom* theme selection (as
+ * A visitor's site-wide *custom* theme selection (as
  * opposed to a built-in lib/themes.ts theme) is cached as its already-
  * resolved ~16 token values under jass.customThemeTokens, not just an id --
  * this script has no DB access, so it can't look a custom theme up by id

@@ -36,12 +36,12 @@ function groupBy<T, K extends string>(rows: T[], keyOf: (row: T) => K): Record<K
  * Pre-fetches the data data-referencing blocks need server-side (hero via
  * getSiteContent(); ruleList/featureGrid/postList via lib/content.ts's
  * `getXByBlockIds`, scoped to just the block ids of that type on *this*
- * page -- PLAN.md Phases 25-27: each block owns its own sections/features/
+ * page -- each block owns its own sections/features/
  * posts now, so there's no single site-wide array to fetch once and hand to
- * every instance) so those Phase 2/4 editor components render, just reachable
+ * every instance) so those editor components render, just reachable
  * from any Page now.
  *
- * Does NOT apply `page.theme`/`page.customThemeId` -- as of Phase 12 that
+ * Does NOT apply `page.theme`/`page.customThemeId` -- that
  * override has to wrap the header and footer too, not just these blocks, so
  * it's resolved and applied one level up by the route file + SiteChrome (see
  * components/pages/site-chrome.tsx and lib/custom-themes.ts's

@@ -1,7 +1,7 @@
 # Deployment: hosting decision, production build, and backups
 
-This doc covers the last three bullets of PLAN.md Phase 6: SEO/meta is handled
-separately (see `app/layout.tsx`, `app/page.tsx`, `app/opengraph-image.tsx`).
+This doc covers hosting decision, production build, and backups; SEO/meta is
+handled separately (see `app/layout.tsx`, `app/page.tsx`, `app/opengraph-image.tsx`).
 Nothing in this doc has been executed — the Dockerfile, `docker-compose.yml`,
 and `Caddyfile` at the repo root are illustrative artifacts to review, not
 things that have been run against real infrastructure.
@@ -13,7 +13,7 @@ running the app in Docker behind a host-level Caddy reverse proxy.**
 
 ### Why not Vercel
 
-The app persists all editable content (Phase 2–4) in SQLite via
+The app persists all editable content in SQLite via
 `@prisma/adapter-better-sqlite3`, reading/writing a single file at
 `prisma/dev.db` (see `lib/prisma.ts`, `prisma.config.ts`). Vercel's serverless
 functions have an ephemeral, read-mostly filesystem with no persistent local
@@ -41,8 +41,8 @@ edge network or team-based preview deployments — it doesn't today.
   website alongside it means one host to patch, monitor, and pay for instead
   of two separate platforms with different operational models.
 - **Docker keeps the deploy reproducible** (pinned Node version, same build
-  every time) without needing a full CI/CD platform. PM2 (mentioned as an
-  alternative in PLAN.md) works too, and is simpler if Docker feels like
+  every time) without needing a full CI/CD platform. PM2 (a considered
+  alternative) works too, and is simpler if Docker feels like
   overkill — see [PM2 alternative](#pm2-alternative-instead-of-docker) below
   — but Docker was picked here for the cleaner isolation from whatever else
   runs on the host (notably the MC server process itself).
@@ -65,14 +65,14 @@ edge network or team-based preview deployments — it doesn't today.
   secrets. `./data/db` maps to `/app/data` (not `/app/prisma`) because the
   Dockerfile bakes `schema.prisma`/`migrations`/`seed.ts` into `/app/prisma`
   in the image — bind-mounting the DB directly onto that path would shadow
-  them and break `prisma migrate deploy`/`npm run db:seed`. Phase 10 adds a
-  third bind-mount, `./data/uploads`, so resource packs (`UPLOADS_DIR`,
+  them and break `prisma migrate deploy`/`npm run db:seed`. A third
+  bind-mount, `./data/uploads`, is added so resource packs (`UPLOADS_DIR`,
   content-addressed under `resource-packs/<sha1>.zip`) also survive rebuilds
   instead of living only inside the container layer.
 - `Caddyfile` — host-level Caddy (outside Docker) terminating TLS for
   `justasimpleserver.net` and reverse-proxying to the container. Caddy has no
-  default request body size limit, so the large resource-pack uploads in
-  Phase 10 (up to 256 MiB, enforced app-side) pass through untouched; add an
+  default request body size limit, so the large resource-pack uploads
+  (up to 256 MiB, enforced app-side) pass through untouched; add an
   explicit `request_body { max_size 300MB }` directive inside the site block
   if you want Caddy itself to reject oversized requests before they reach
   the app.
@@ -121,7 +121,7 @@ with real production values:
 | `NEXT_PUBLIC_SITE_URL` | Optional. Used by `app/layout.tsx` to set `metadataBase` for absolute OG/canonical URLs. Defaults to `https://justasimpleserver.net` if unset. |
 | `AUTH_URL` | **Must be set to the real public URL** (e.g. `https://justasimpleserver.net`) in production. The app sits behind Caddy's reverse proxy (see the Caddyfile), and `auth.ts` sets `trustHost: true` so Auth.js will trust the proxy's forwarded host — but that only covers request-time host detection; anywhere Auth.js needs a fully-qualified callback/redirect URL at boot, `AUTH_URL` is the authoritative source. Leaving it unset/wrong can cause broken redirects or cookie misbehavior behind the proxy. |
 
-## Pre-deploy security checklist (Phase 7)
+## Pre-deploy security checklist
 
 Run through this before every real production deploy, not just the first one:
 
@@ -145,7 +145,7 @@ Run through this before every real production deploy, not just the first one:
 
 After the first deploy, seed the first admin the same way as in dev. **Use
 `--role OWNER` for this very first account** — `OWNER` is the only role that
-can manage other user accounts (Phase 8), so a fresh deploy needs at least
+can manage other user accounts, so a fresh deploy needs at least
 one before anyone else can be invited:
 
 ```bash

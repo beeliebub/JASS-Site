@@ -13,21 +13,21 @@ function isThemeId(value: string): value is ThemeId {
 }
 
 /**
- * Single per-route integration point for header + content + footer, and (as
- * of Phase 12) the ONE place a page-level theme override is applied. Every
+ * Single per-route integration point for header + content + footer, and
+ * the ONE place a page-level theme override is applied. Every
  * route file (the 5 CMS-driven pages via PageRenderer, plus the 4 static
  * account/admin/login/resource routes) renders its content as this
  * component's `children` instead of relying on app/layout.tsx to supply
  * chrome -- that's what lets the override wrap the header and footer too,
  * not just the content: RootLayout can't see a specific route's Page row
  * (and deliberately avoids `headers()`/`cookies()` to stay static-render
- * friendly, per Phase 9's design notes), so the wrapping div has to live
+ * friendly), so the wrapping div has to live
  * here, one level below <body>, wrapping everything Header/Footer-shaped.
  *
  * `theme` and `customThemeTokens` are mutually exclusive (enforced in
  * lib/validation/pages.ts); at most one wins here too. Neither set means
  * "follow the visitor's own theme/accent" -- no wrapper div at all in that
- * case, same DOM shape as before Phase 9/12 existed.
+ * case, same DOM shape as before this override existed.
  */
 export async function SiteChrome({
   theme,
@@ -53,7 +53,7 @@ export async function SiteChrome({
 
   // Re-asserts bg/text classes so the wrapper actually repaints with the
   // overridden tokens instead of only affecting descendants (same note as
-  // Phase 9's original PageRenderer wrapper, now living one level higher).
+  // the original PageRenderer wrapper, now living one level higher).
   if (theme && isThemeId(theme)) {
     return (
       <div data-theme={theme} className="flex min-h-full flex-1 flex-col bg-background text-foreground">

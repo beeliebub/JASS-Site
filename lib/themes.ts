@@ -1,5 +1,5 @@
 /**
- * Client-safe theme/tone constants (Phase 9). No Prisma imports here -- this
+ * Client-safe theme/tone constants. No Prisma imports here -- this
  * is imported from both server code and client components (theme picker,
  * inline theme script, block tone selects, lib/validation/pages.ts).
  */
@@ -40,10 +40,10 @@ export const THEMES: Record<ThemeId, { label: string; description: string; swatc
 
 export const STORAGE_KEY_THEME = "jass.theme";
 export const STORAGE_KEY_ACCENT = "jass.accent";
-// Phase 12: a visitor's site-wide custom-theme selection caches its
+// A visitor's site-wide custom-theme selection caches its
 // *resolved* token values (not just an id) so the blocking inline script can
-// apply them with no DB fetch on the critical path -- see theme-script.tsx
-// and PLAN.md Phase 12's "no-flash caching" decision. Value shape:
+// apply them with no DB fetch on the critical path -- see theme-script.tsx's
+// "no-flash caching" decision. Value shape:
 // { id: string; name: string; tokens: Record<string, string> }.
 export const STORAGE_KEY_CUSTOM_THEME_TOKENS = "jass.customThemeTokens";
 
@@ -69,7 +69,7 @@ export const THEME_TOKEN_CSS_VARS = [
   "--offline",
 ] as const;
 
-// Phase 12 custom themes: the CustomTheme DB model's field names (camelCase,
+// Custom themes: the CustomTheme DB model's field names (camelCase,
 // Prisma convention) and the mapping to the kebab-case CSS custom properties
 // above. Lives here (not lib/custom-themes.ts, which imports Prisma) so
 // client components -- the visitor theme picker -- can convert a fetched

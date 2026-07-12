@@ -10,8 +10,8 @@ import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/compone
 export type TocItem = { label: string; anchor: string };
 export type TocData = { heading?: string; items: TocItem[] };
 
-/** Admin-curated table of contents (not auto-derived from headings -- see
- * PLAN.md Phase 15 decision 5). Security: `anchor` is validated server-side
+/** Admin-curated table of contents (not auto-derived from headings).
+ * Security: `anchor` is validated server-side
  * to a safe charset (`lib/validation/pages.ts`'s `tocDataSchema`) and is
  * never used as a raw href -- it's always rendered here as
  * `href={`#${item.anchor}`}`, so there is no way for a stored value to

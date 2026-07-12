@@ -2,7 +2,7 @@ import { z } from "zod";
 import { CUSTOM_THEME_TOKEN_FIELDS } from "@/lib/themes";
 
 /**
- * Phase 12 admin-authored custom themes. Structural validation only (hex
+ * Admin-authored custom themes. Structural validation only (hex
  * format, name length) -- name uniqueness is a DB-level check done in the API
  * route (app/api/custom-themes/route.ts), mirroring how Page.slug uniqueness
  * is checked in app/api/pages/[id]/route.ts rather than inside Zod. No Prisma

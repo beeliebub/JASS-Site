@@ -273,7 +273,7 @@ _local_dev_owner_account() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 7: uploads dir (Phase 10 local resource-pack storage)
+# Step 7: uploads dir (local resource-pack storage)
 # ---------------------------------------------------------------------------
 
 _local_dev_uploads_dir() {

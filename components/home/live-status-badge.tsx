@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { StatusBadge, type ServerStatus } from "@/components/home/status-badge";
 
-// Client polling per PLAN.md Phase 5: ~30-60s so the badge stays fresh
+// Client polling: ~30-60s so the badge stays fresh
 // without a page reload. The server route itself caches the underlying
 // Minecraft ping for ~30s, so polling faster than that wouldn't get fresher
 // data anyway.

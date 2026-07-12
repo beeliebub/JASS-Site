@@ -29,7 +29,7 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://justasimpleserver.n
 const defaultTitle = `${siteConfig.name} — Minecraft Server`;
 
 /**
- * Phase 17 (PLAN.md): reads `SiteSettings` for the link-share (embed) image
+ * Reads `SiteSettings` for the link-share (embed) image
  * and fallback title/description text. Converted from a static `export const
  * metadata` to `generateMetadata()` so this can read the DB at request time
  * -- per the installed Next docs (generate-metadata.md: "Resolving
@@ -39,7 +39,7 @@ const defaultTitle = `${siteConfig.name} — Minecraft Server`;
  * prerendering/dynamic strategy are independent, so this does not force
  * every page in the tree into fully dynamic rendering by itself.
  *
- * Decision 4 (PLAN.md): `embedTitle`/`embedDescription` are ONLY used as a
+ * `embedTitle`/`embedDescription` are ONLY used as a
  * fallback when there's no custom embed image -- if `embedImageUrl` is set,
  * title/description always stay the default `siteConfig` text (the custom
  * text fields are an "in the absence of an image" fallback, not a general
@@ -90,7 +90,7 @@ export default async function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      {/* Theme flash-prevention (Phase 9, PLAN.md): a blocking inline script
+      {/* Theme flash-prevention: a blocking inline script
           in <head> corrects data-theme/accent on <html> before first paint
           (see components/theme/theme-script.tsx and
           node_modules/next/dist/docs/01-app/02-guides/preventing-flash-before-hydration.md,

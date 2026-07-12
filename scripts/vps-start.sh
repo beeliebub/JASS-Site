@@ -14,7 +14,7 @@
 # Safe to run repeatedly: `docker compose up -d` is idempotent, and
 # `prisma migrate deploy` is a no-op when there's nothing new to apply.
 #
-# As of Phase 11 this is a thin back-compat wrapper: the helpers live in
+# This is a thin back-compat wrapper: the helpers live in
 # scripts/lib/common.sh and the deploy tasks in scripts/lib/vps-deploy.sh
 # (also used by ./setup.sh's deploy mode). Flags and --help output are
 # unchanged.

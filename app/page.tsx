@@ -10,7 +10,7 @@ import { getSiteSettings } from "@/lib/site-settings";
 // whatever an admin has edited in place -- including the live server IP --
 // instead of drifting from the hardcoded lib/site-config.ts defaults.
 //
-// Phase 17 (PLAN.md decision 4): SiteSettings.embedTitle/embedDescription is
+// SiteSettings.embedTitle/embedDescription is
 // a link-share-only fallback that's only meant to apply when there's no
 // custom embed image. app/layout.tsx's generateMetadata() implements this
 // same fallback against the hardcoded siteConfig defaults, but Next's

@@ -13,7 +13,7 @@ import {
 } from "@/lib/themes";
 
 /** A visitor's site-wide custom-theme selection, cached in localStorage as
- * its already-resolved tokens (see theme-script.tsx's Phase 12 note for why
+ * its already-resolved tokens (see theme-script.tsx's note for why
  * -- no DB fetch on the no-flash critical path). */
 export type CustomThemeSelection = { id: string; name: string; tokens: Record<string, string> };
 

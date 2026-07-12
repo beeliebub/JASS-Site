@@ -18,7 +18,7 @@
 # Safe to re-run: every step checks current state first and will not
 # clobber an existing .env.production or redo completed work.
 #
-# As of Phase 11 this is a thin back-compat wrapper: the helpers live in
+# This is a thin back-compat wrapper: the helpers live in
 # scripts/lib/common.sh and the provisioning steps in
 # scripts/lib/vps-provision.sh (also used by ./setup.sh's provision mode).
 # Flags and --help output are unchanged.

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { TONES, type Tone } from "@/lib/themes";
 
 /**
- * Shared tone -> Tailwind token class map (Phase 9). Backs every
+ * Shared tone -> Tailwind token class map. Backs every
  * tone-capable block (callout, pageHeader, ctaBanner, linkGrid). `neutral`
  * intentionally mirrors each block's original (pre-tone) default styling so
  * existing rows with no `tone`/`variant !== tone` keep looking identical.

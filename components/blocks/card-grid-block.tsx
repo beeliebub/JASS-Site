@@ -15,7 +15,7 @@ const ICON_KEYS = Object.keys(iconRegistry);
 export type CardGridCard = { icon?: string; title: string; description: string };
 export type CardGridData = { heading?: string; tone?: Tone; cards: CardGridCard[] };
 
-/** New, independent block type (Phase 15) -- NOT the singleton `featureGrid`
+/** New, independent block type -- NOT the singleton `featureGrid`
  * block, which stays exactly as-is. Stores its own `cards` per instance, so
  * this can be dropped on any page multiple times with distinct content, unlike
  * `featureGrid`'s site-wide `Feature` table. Visual styling borrows from

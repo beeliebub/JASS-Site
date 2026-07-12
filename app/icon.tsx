@@ -3,7 +3,7 @@ import path from "node:path";
 import { getFaviconAsset } from "@/lib/site-settings";
 
 /**
- * Dynamic favicon route (Phase 17, PLAN.md decision 2). Deliberately does NOT
+ * Dynamic favicon route. Deliberately does NOT
  * export static `size`/`contentType` metadata -- the served format varies
  * per-upload (png/jpg/gif/webp), so the `Content-Type` header is set at
  * request time from the resolved mime type instead (see the "Returns"
@@ -15,7 +15,7 @@ import { getFaviconAsset } from "@/lib/site-settings";
  * doc, "Good to know"). A plain `await prisma...` call does NOT count as a
  * Request-time API in that sense (unlike Server Component pages, Route
  * Handlers don't auto-opt into dynamic rendering just because they await
- * async data) -- `app/opengraph-image.tsx` (same Phase 17 change, same
+ * async data) -- `app/opengraph-image.tsx` (same change, same
  * Route Handler category) was directly caught doing this live: it kept
  * serving a stale render after SiteSettings changed until `dynamic =
  * "force-dynamic"` was added there. Set here too as the same fix applied
@@ -39,7 +39,7 @@ export default async function Icon() {
     });
   }
 
-  // Permanent fallback -- app/favicon.ico is never deleted (PLAN.md decision 2).
+  // Permanent fallback -- app/favicon.ico is never deleted.
   const fallbackPath = path.join(process.cwd(), "app", "favicon.ico");
   const bytes = await fs.readFile(fallbackPath);
   return new Response(new Uint8Array(bytes), {

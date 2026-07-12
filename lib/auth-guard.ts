@@ -11,7 +11,7 @@ export function isAdminRole(role: string | undefined | null): boolean {
 }
 
 /**
- * Shared contract between the Phase 2 mutation API routes and Phase 3 auth.
+ * Shared contract between the mutation API routes and auth.
  * Real session check: a request is authorized only if there's a valid
  * session for a user with the ADMIN or OWNER role.
  */

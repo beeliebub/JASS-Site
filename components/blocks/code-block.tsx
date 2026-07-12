@@ -45,8 +45,8 @@ function CodeBoxHeader({ language, code, showError }: { language: string; code: 
   );
 }
 
-/** Themed monospace code block -- no syntax-highlighting engine in this pass
- * (PLAN.md Phase 15 decision 6). Always rendered as React text content
+/** Themed monospace code block -- no syntax-highlighting engine in this pass.
+ * Always rendered as React text content
  * (`<code>{code}</code>`), never `dangerouslySetInnerHTML`, so arbitrary
  * admin-authored text (even `<script>`-looking strings) is safe to display. */
 export function CodeBlock({

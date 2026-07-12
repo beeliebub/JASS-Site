@@ -298,9 +298,9 @@ fi
 step_compose_up() {
 step "Build and start (docker compose up -d --build)"
 
-# Phase 10: the uploads bind-mount target must exist (with the invoking
-# user's ownership) before compose starts the container. Added during the
-# Phase 11 refactor — not part of the original vps-setup.sh.
+# The uploads bind-mount target must exist (with the invoking
+# user's ownership) before compose starts the container. Added during
+# a later refactor — not part of the original vps-setup.sh.
 mkdir -p data/uploads
 
 info "About to run: $DOCKER_BIN compose up -d --build (this can take a few minutes on the first run)..."

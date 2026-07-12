@@ -64,7 +64,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
     // Page.customThemeId has onDelete: SetNull, so any page referencing this
     // theme silently reverts to the visitor's own theme -- no manual cleanup
-    // query needed here (deliberate Phase 12 design decision).
+    // query needed here (deliberate design decision).
     await prisma.$transaction(async (tx) => {
       await tx.customTheme.delete({ where: { id } });
       await recordAuditLog(tx, {

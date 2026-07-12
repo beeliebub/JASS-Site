@@ -33,7 +33,7 @@ export async function PUT(req: Request) {
 
   try {
     // Re-validate image ids against real UploadedImage rows server-side --
-    // never trust a client-supplied id blindly (Phase 17 security checklist).
+    // never trust a client-supplied id blindly (per the security checklist).
     if (faviconImageId) {
       const image = await prisma.uploadedImage.findUnique({ where: { id: faviconImageId } });
       if (!image) return badRequest("faviconImageId does not reference an existing uploaded image.");

@@ -7,7 +7,7 @@ import { getEmbedImageAsset } from "@/lib/site-settings";
 // own opengraph-image -- none currently do, so this is the shared card for
 // Home, Rules, Features, and News alike.
 //
-// Phase 17 (PLAN.md): file-based metadata conventions like this one take
+// File-based metadata conventions like this one take
 // priority over the `openGraph.images`/`twitter.images` fields set via
 // app/layout.tsx's generateMetadata() -- confirmed against
 // node_modules/next/dist/docs/.../opengraph-image.md ("File-based metadata

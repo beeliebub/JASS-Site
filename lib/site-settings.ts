@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { imagePath } from "@/lib/uploads";
 
 /**
- * Server-only data layer for Phase 17 site-wide settings (favicon +
+ * Server-only data layer for site-wide settings (favicon +
  * link-share/embed defaults). Upsert-on-read singleton row, mirroring
  * `getSiteContent()`'s pattern in lib/content.ts, except `SiteSettings` is a
  * single fixed-id row rather than a key-value map. No `server-only` package

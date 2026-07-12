@@ -10,7 +10,7 @@ const PAGE_SIZE = 25;
  * Paginated, newest-first. Response shape is `{ data, nextCursor }` (a plain
  * `NextResponse.json`, not `apiSuccess`) -- `apiSuccess`'s envelope only has
  * room for one top-level `data` key, and this route needs a sibling
- * `nextCursor` alongside it per the Phase 21 API contract.
+ * `nextCursor` alongside it per this route's API contract.
  */
 export async function GET(req: Request) {
   if (!(await requireAdmin())) return unauthorized();

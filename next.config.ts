@@ -14,9 +14,9 @@ const securityHeaders = [
     // "Without Nonces" section) recommends this exact allowance for apps not
     // using per-request nonces. A nonce-based policy (via proxy.ts) would
     // remove the need for 'unsafe-inline' but requires opting every page
-    // into dynamic rendering - deferred per PLAN.md ("tighten to a
+    // into dynamic rendering - deferred for now ("tighten to a
     // nonce-based policy later if desired, don't block on it now").
-    // img-src additionally allows https: (Phase 8): the new `image` block
+    // img-src additionally allows https: the new `image` block
     // type takes an admin-supplied absolute URL with no upload pipeline /
     // configured domain allow-list, so the source could be any HTTPS host.
     // Still no plain http: or arbitrary scheme.

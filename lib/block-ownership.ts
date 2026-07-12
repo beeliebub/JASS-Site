@@ -3,7 +3,7 @@ import { badRequest, notFound } from "@/lib/api-response";
 import type { BlockType } from "@/lib/validation/pages";
 
 /**
- * PLAN.md Phases 25-27: creating a RuleSection/Feature/Post now requires an
+ * Creating a RuleSection/Feature/Post now requires an
  * owning `blockId`. Shared by the three POST routes so a client can't attach
  * a section/feature/post to a block of the wrong type (e.g. `postId` pointed
  * at a `richText` block) or to a block id that doesn't exist at all. Returns

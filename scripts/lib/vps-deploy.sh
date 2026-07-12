@@ -178,8 +178,8 @@ fi
 # ---------------------------------------------------------------------------
 
 step_compose_up() {
-# Phase 10: the uploads bind-mount target must exist before compose starts
-# the container. Added during the Phase 11 refactor — not part of the
+# The uploads bind-mount target must exist before compose starts
+# the container. Added during a later refactor — not part of the
 # original vps-start.sh.
 mkdir -p data/uploads
 

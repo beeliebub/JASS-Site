@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Phase 17 site-wide settings (favicon + link-share/embed defaults).
+ * Site-wide settings (favicon + link-share/embed defaults).
  * Structural validation only -- `faviconImageId`/`embedImageId` are
  * re-validated against real `UploadedImage` rows in the API route (never
  * trust a client-supplied id blindly), mirroring how Page.slug uniqueness is

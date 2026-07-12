@@ -13,7 +13,7 @@ import {
 import { changePasswordSchema } from "@/lib/validation/pages";
 
 /**
- * Phase 13 — self-service password change. Deliberately a brand-new route,
+ * Self-service password change. Deliberately a brand-new route,
  * not a reuse of the owner-only `PUT /api/users/[id]`: this one is reachable
  * by any signed-in user (ADMIN or OWNER) but only ever touches the caller's
  * own row via `session.user.id`, never a body/param-supplied id.

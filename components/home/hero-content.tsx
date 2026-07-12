@@ -24,7 +24,7 @@ export type HeroContentData = {
 };
 
 export type HeroContentProps = HeroContentData & {
-  /** Per-instance Phase 18 override -- read live off `block.data` by
+  /** Per-instance override -- read live off `block.data` by
    * registry.tsx's `hero` entry on every render, so editing it via
    * HeroOverrideControls updates the visible heading immediately. */
   headingOverride?: string | null;

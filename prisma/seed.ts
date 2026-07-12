@@ -4,7 +4,7 @@ import { ruleSections } from "@/components/rules/rules-data";
 import { newsPosts } from "@/components/news/posts-data";
 
 /**
- * Loads the Phase 1 placeholder content into the DB. Every write is an
+ * Loads placeholder content into the DB. Every write is an
  * upsert so this is safe to re-run (e.g. after editing this file, or in CI).
  */
 
@@ -190,8 +190,8 @@ async function seedPosts(blockId: string) {
   console.log(`Seeded ${newsPosts.length} posts.`);
 }
 
-// Exact copy lifted from the current hardcoded components, per PLAN.md Phase
-// 8 step 8 ("don't invent new copy") -- components/home/quick-links.tsx and
+// Exact copy lifted from the current hardcoded components
+// ("don't invent new copy") -- components/home/quick-links.tsx and
 // components/home/getting-started.tsx respectively.
 const HOME_LINKS = [
   {
@@ -360,7 +360,7 @@ async function seedPagesAndNav() {
 }
 
 /**
- * PLAN.md Phases 25-27: RuleSection/Feature/Post each require an owning
+ * RuleSection/Feature/Post each require an owning
  * `blockId` now, so the content-seeding functions below need the real ids of
  * the ruleList/featureGrid/postList blocks on the rules/features/news pages
  * -- looked up fresh by (page slug, block type) rather than threaded through
@@ -392,8 +392,7 @@ async function main() {
   // `--pages-only` skips the content-overwriting seed functions below (which
   // unconditionally reset ContentBlock/Rule/Feature/Post to placeholder
   // values on every run) and only runs the guarded, safe-to-rerun
-  // seedPagesAndNav(). Use this against a DB with live admin edits -- see
-  // PLAN.md Phase 8 step 8.
+  // seedPagesAndNav(). Use this against a DB with live admin edits.
   const pagesOnly = process.argv.includes("--pages-only");
 
   // Pages/blocks must exist first -- the content seed functions below now

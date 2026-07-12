@@ -3,7 +3,7 @@ import { customThemeFieldsToCssVars } from "@/lib/themes";
 import type { CustomTheme } from "@/app/generated/prisma/client";
 
 /**
- * Server-only data layer for Phase 12 custom themes -- same rationale as
+ * Server-only data layer for custom themes -- same rationale as
  * lib/content.ts (Prisma import chain, no `server-only` package installed
  * but never reachable from a Client Component).
  */

@@ -5,7 +5,7 @@ import type { ResolvedSiteSettings } from "@/lib/site-settings";
 import { useToast } from "@/components/admin/toast";
 
 /**
- * Phase 17 admin editor for site-wide favicon + link-share (embed) defaults.
+ * Admin editor for site-wide favicon + link-share (embed) defaults.
  * Mirrors components/admin/custom-themes-admin.tsx's conventions (local
  * `useState`, `useToast()` for feedback, a `parseError`-shaped helper reading
  * `body.error`) and reuses components/blocks/image-block.tsx's exact
@@ -13,7 +13,7 @@ import { useToast } from "@/components/admin/toast";
  * POST /api/uploads/images call) for both the favicon and embed image.
  */
 
-// Mirrors the server-side cap in POST /api/uploads/images (PLAN.md Phase 14).
+// Mirrors the server-side cap in POST /api/uploads/images.
 const MAX_UPLOAD_BYTES = 10485760;
 const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 

@@ -9,7 +9,7 @@ import { parseHex, readableForeground, rgbToHex } from "@/lib/color";
 import { CUSTOM_THEME_TOKEN_FIELDS, customThemeFieldsToCssVars, type CustomThemeTokenField } from "@/lib/themes";
 
 /**
- * Phase 12 admin editor for custom themes. Mirrors components/admin/pages-admin.tsx's
+ * Admin editor for custom themes. Mirrors components/admin/pages-admin.tsx's
  * conventions: local `useState` list, optimistic-update-then-revert on delete,
  * `useToast()` for feedback, and a `parseError`-shaped helper reading `body.error`.
  * The create/edit form reuses lib/color.ts's `parseHex`/`rgbToHex` (hex<->picker

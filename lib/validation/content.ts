@@ -11,7 +11,7 @@ export const ruleSectionCreateSchema = z.object({
   description: z.string().min(1),
 });
 
-// Owning block is permanent once a section is created (PLAN.md Phase 26) --
+// Owning block is permanent once a section is created --
 // `omit` keeps `blockId` out of the update body entirely so a PUT can never
 // reassign ownership, not just "usually won't."
 export const ruleSectionUpdateSchema = ruleSectionCreateSchema.omit({ blockId: true }).partial();
@@ -35,7 +35,7 @@ export const featureCreateSchema = z.object({
   accent: z.boolean().optional(),
 });
 
-// Owning block is permanent once a feature is created (PLAN.md Phase 27) --
+// Owning block is permanent once a feature is created --
 // see ruleSectionUpdateSchema's comment above for why `blockId` is omitted
 // rather than just left optional.
 export const featureUpdateSchema = featureCreateSchema.omit({ blockId: true }).partial();
@@ -54,7 +54,7 @@ export const postCreateSchema = z.object({
   author: z.string().nullable().optional(),
 });
 
-// Owning block is permanent once a post is created (PLAN.md Phase 25) -- see
+// Owning block is permanent once a post is created -- see
 // ruleSectionUpdateSchema's comment above for why `blockId` is omitted
 // rather than just left optional.
 export const postUpdateSchema = postCreateSchema.omit({ blockId: true }).partial();

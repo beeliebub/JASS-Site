@@ -26,7 +26,7 @@
 
   --danger: #e5484d;
   --info: #4aa8e8;
-  /* Intentionally NOT `var(--primary)` -- Phase 9's custom accent picker
+  /* Intentionally NOT `var(--primary)` -- the custom accent picker
      overrides --primary with an arbitrary visitor-chosen color via inline
      style on <html>, and --online is a semantic status color (the live
      server-status badge), not a brand accent. Referencing --primary here
@@ -75,7 +75,7 @@
 }
 
 /*
- * Phase 9 theme overrides. Selectors are attribute-only (`[data-theme="…"]`,
+ * Theme overrides. Selectors are attribute-only (`[data-theme="…"]`,
  * never `html[data-theme="…"]`) for two reasons: (1) equal CSS specificity
  * to `:root` (both are a single pseudo-class/attribute selector), so when
  * the visitor-theme script/ThemeProvider sets `data-theme` on `<html>`,
@@ -85,7 +85,8 @@
  * tree, where there is no competing `:root` rule at all. `obsidian` has no
  * block here -- it *is* `:root`, unmodified, so a no-JS visitor always gets
  * today's look. Every block below re-declares the full color token set
- * (never a partial override -- see PLAN.md's "Frankenstein theme" warning).
+ * (never a partial override -- a "Frankenstein theme" mixing tokens from
+ * different themes must never happen).
  * Radii are not theme-specific and stay untouched.
  */
 
@@ -230,7 +231,7 @@ body {
 }
 
 /*
- * Motion system (Phase 6). Two layers of reduced-motion defense:
+ * Motion system. Two layers of reduced-motion defense:
  * 1. Entrance/decorative animations are only ever applied inside a
  *    `(prefers-reduced-motion: no-preference)` guard (see `.page-enter`,
  *    `.toast-enter`/`.toast-exit` below and `motion-safe:` variants used

@@ -20,7 +20,7 @@ async function parseError(res: Response, fallback: string) {
 }
 
 /**
- * Client-owned list of a Page's Blocks -- the Phase 8 analogue of
+ * Client-owned list of a Page's Blocks -- the analogue of
  * RulesEditor/FeaturesEditor's list state, one level up. Renders bare
  * content for visitors/non-edit-mode admins; in edit mode, wraps each block
  * in BlockShell (reorder/delete) and offers an "Add block" picker below the

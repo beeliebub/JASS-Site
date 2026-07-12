@@ -72,7 +72,7 @@ export function PagesAdmin({
   /** Parses the combined theme `<select>`'s string value into the mutually
    * exclusive `{theme, customThemeId}` pair the API expects: "" is the
    * default (both null), a bare built-in id is a built-in theme, and
-   * `custom:<id>` is a Phase 12 custom theme. */
+   * `custom:<id>` is a custom theme. */
   function parseThemeSelection(value: string): { theme: ThemeId | null; customThemeId: string | null } {
     if (value === "") return { theme: null, customThemeId: null };
     if (value.startsWith("custom:")) return { theme: null, customThemeId: value.slice("custom:".length) };

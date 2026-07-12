@@ -1,8 +1,8 @@
 import { status as pingJavaServer } from "minecraft-server-util";
 
 /**
- * Live Minecraft server status, per the `GET /api/status` route (Phase 5 of
- * PLAN.md). `motd` is included for future use even though the current home
+ * Live Minecraft server status, per the `GET /api/status` route.
+ * `motd` is included for future use even though the current home
  * hero badge only renders online/offline + player count.
  */
 export type McStatus = {

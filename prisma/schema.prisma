@@ -26,7 +26,7 @@ model User {
   createdAt    DateTime @default(now())
 }
 
-// Block-based page builder (Phase 8). Home/Rules/Features/News are migrated
+// Block-based page builder. Home/Rules/Features/News are migrated
 // into this system as `protected` rows (blocks delete + slug change); admins
 // can additionally create fully custom pages rendered via app/[slug].
 model Page {
@@ -46,13 +46,13 @@ model Page {
   updatedBy       String?
 }
 
-// Phase 12: admin-authored full ~16-token color sets, selectable anywhere a
+// Admin-authored full ~16-token color sets, selectable anywhere a
 // built-in lib/themes.ts theme is today. Field-by-field hex strings (not a
 // JSON blob) so each one gets independent Zod validation server-side, same
 // reasoning as every other color token in this project. `onDelete: SetNull`
 // on Page.customTheme means deleting a theme in use silently reverts those
 // pages to following the visitor's own theme -- no dangling reference, no
-// blocked delete (confirmed default, see PLAN.md Phase 12).
+// blocked delete (confirmed default).
 model CustomTheme {
   id                String   @id @default(cuid())
   name              String   @unique
@@ -117,7 +117,7 @@ model NavItem {
 }
 
 // Singleton, free-form site text keyed by a stable string (hero.name,
-// hero.tagline, server.ip, etc.) — anything Phase 1 hardcoded in
+// hero.tagline, server.ip, etc.) — anything hardcoded in
 // lib/site-config.ts that isn't its own list (rules/features/posts).
 model ContentBlock {
   key       String   @id
@@ -172,7 +172,7 @@ model Post {
   blockId     String
 }
 
-// Resource pack hosting (Phase 10). Content-addressed on disk at
+// Resource pack hosting. Content-addressed on disk at
 // <UPLOADS_DIR>/resource-packs/<sha1>.zip (see lib/uploads.ts) -- this row
 // is metadata only, never the file bytes. Exactly one row is `active` at a
 // time; re-uploading a known sha1 re-activates its existing row instead of
@@ -187,7 +187,7 @@ model ResourcePack {
   uploadedBy String? // uploader email, display only
 }
 
-// Direct image uploads for the Image block (Phase 14). Content-addressed on
+// Direct image uploads for the Image block. Content-addressed on
 // disk at <UPLOADS_DIR>/images/<sha1>.<ext> (see lib/uploads.ts) -- this row
 // is metadata only. Unlike ResourcePack there's no single "active" row: many
 // uploaded images are referenced at once, one per Image block. Re-uploading
@@ -204,7 +204,7 @@ model UploadedImage {
   embedForSettings   SiteSettings[] @relation("SiteSettingsEmbed")
 }
 
-// Phase 21: audit trail + single-step undo for every admin mutation across
+// Audit trail + single-step undo for every admin mutation across
 // the CMS. Entity-agnostic on purpose (one table, not one per entity type) --
 // `entityType` is a string, not a Prisma enum, so this model never needs a
 // migration when a new auditable entity is added later. `before`/`after` are
@@ -224,7 +224,7 @@ model AuditLogEntry {
   @@index([entityType, entityId])
 }
 
-// Site-wide favicon + link-share (embed) defaults (Phase 17). Singleton row
+// Site-wide favicon + link-share (embed) defaults. Singleton row
 // (fixed id, upsert-on-read via lib/site-settings.ts) rather than the
 // generic ContentBlock key-value store, since these fields have a stronger
 // shape (validated image references, bounded text) -- same reasoning as

@@ -11,8 +11,8 @@
 # `set -Eeuo pipefail` and opts into traps via install_cleanup_trap /
 # install_err_trap below.
 #
-# Everything here was extracted verbatim from scripts/vps-setup.sh during the
-# Phase 11 refactor (vps-setup.sh's copies were the more defensive of the two
+# Everything here was extracted verbatim from scripts/vps-setup.sh during a
+# refactor (vps-setup.sh's copies were the more defensive of the two
 # VPS scripts' duplicated helpers). Do not "improve" bodies here without
 # checking both callers.
 
