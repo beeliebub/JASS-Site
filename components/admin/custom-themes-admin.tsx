@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { HexColorPicker } from "react-colorful";
 import type { CustomTheme } from "@/app/generated/prisma/client";
 import { useToast } from "@/components/admin/toast";
@@ -118,8 +118,10 @@ function ColorField({
 }) {
   const [hexDraft, setHexDraft] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [anchorSide, setAnchorSide] = useState<"left" | "right">("left");
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   function handleHexInput(raw: string) {
     setHexDraft(raw);
@@ -157,6 +159,35 @@ function ColorField({
     };
   }, [pickerOpen]);
 
+  // "Flip to fit" horizontal positioning: up to 16 of these render in a 2-column
+  // grid, so a naive fixed `left-0` popover can render partially or fully
+  // off-screen for a right-column swatch on narrower desktop windows (not just
+  // mobile widths). Measure the trigger + rendered popover once it's in the DOM
+  // (useLayoutEffect runs before paint, so there's no visible flash) and anchor
+  // to whichever side keeps the popover's edge within the viewport.
+  useLayoutEffect(() => {
+    if (!pickerOpen) return;
+    const trigger = triggerRef.current;
+    const popover = popoverRef.current;
+    if (!trigger || !popover) return;
+
+    const margin = 8;
+    const triggerRect = trigger.getBoundingClientRect();
+    const popoverWidth = popover.getBoundingClientRect().width;
+
+    const fitsLeft = triggerRect.left + popoverWidth + margin <= window.innerWidth;
+    const fitsRight = triggerRect.right - popoverWidth - margin >= 0;
+
+    if (fitsLeft) {
+      setAnchorSide("left");
+    } else if (fitsRight) {
+      setAnchorSide("right");
+    } else {
+      // Neither side fully fits (very narrow viewport) -- pick whichever clips less.
+      setAnchorSide(triggerRect.left > window.innerWidth - triggerRect.right ? "right" : "left");
+    }
+  }, [pickerOpen]);
+
   const legibleForeground = readableForeground(value);
   const inputId = `theme-field-${field}`;
 
@@ -179,9 +210,12 @@ function ColorField({
           />
           {pickerOpen && (
             <div
+              ref={popoverRef}
               role="dialog"
               aria-label={`${label} color picker`}
-              className="absolute left-0 top-full z-20 mt-2 w-fit rounded-lg border border-border-strong bg-surface-2 p-3 shadow-lg"
+              className={`fixed inset-x-4 top-1/2 z-20 -translate-y-1/2 rounded-lg border border-border-strong bg-surface-2 p-3 shadow-lg sm:absolute sm:inset-x-auto sm:top-full sm:mt-2 sm:w-fit sm:translate-y-0 ${
+                anchorSide === "right" ? "sm:right-0" : "sm:left-0"
+              }`}
             >
               <HexColorPicker color={value} onChange={onChange} />
               <button
