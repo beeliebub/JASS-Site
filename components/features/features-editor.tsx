@@ -5,13 +5,21 @@ import type { Feature } from "@/app/generated/prisma/client";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { EditableText } from "@/components/admin/editable-text";
-import { FeatureCard } from "@/components/features/feature-card";
+import { FeatureCard, featureCardToneClass } from "@/components/features/feature-card";
 import { iconRegistry, resolveFeatureIcon } from "@/components/features/icon-registry";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
+import { ToneSelect } from "@/components/blocks/tones";
+import type { Tone } from "@/lib/themes";
 
 const ICON_KEYS = Object.keys(iconRegistry);
 
-export type FeatureGridData = Record<string, never>;
+/** `heading`/`tone` are the block-level fields absorbed from the former Card
+ * Grid block type -- `null` (not just `undefined`) is a valid "unset" value
+ * here since the data migration that merged pre-existing Card Grid instances
+ * into Feature Grid blocks writes explicit JSON `null`s for fields it has no
+ * value for. Everything else (the actual cards) stays owned `Feature` rows,
+ * unaffected by this pair. */
+export type FeatureGridData = { heading?: string | null; tone?: Tone | null };
 
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
@@ -21,33 +29,52 @@ async function parseError(res: Response, fallback: string) {
 export function FeaturesEditor({
   initialFeatures,
   blockId,
+  data,
+  onSaveData,
 }: {
   initialFeatures: Feature[];
   blockId: string;
+  data: FeatureGridData;
+  onSaveData: (next: FeatureGridData) => Promise<void>;
 }) {
   const { editMode, isAdmin } = useEditMode();
   const { showError } = useToast();
   const [features, setFeatures] = useState(initialFeatures);
   const [adding, setAdding] = useState(false);
 
+  const heading = data.heading ?? "";
+  const tone: Tone = data.tone ?? "neutral";
+
   if (!isAdmin || !editMode) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
-        {features.map((feature) => {
-          const Icon = resolveFeatureIcon(feature.icon);
-          return (
-            <FeatureCard
-              key={feature.id}
-              eyebrow={feature.eyebrow}
-              title={feature.title}
-              description={feature.description}
-              icon={<Icon />}
-              accent={feature.accent}
-            />
-          );
-        })}
-      </div>
+      <>
+        {heading && <h2 className="mb-6 text-sm font-medium tracking-wide text-muted uppercase">{heading}</h2>}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
+          {features.map((feature) => {
+            const Icon = resolveFeatureIcon(feature.icon);
+            return (
+              <FeatureCard
+                key={feature.id}
+                eyebrow={feature.eyebrow}
+                title={feature.title}
+                description={feature.description}
+                icon={<Icon />}
+                accent={feature.accent}
+                tone={tone}
+              />
+            );
+          })}
+        </div>
+      </>
     );
+  }
+
+  async function persistBlockData(next: Partial<FeatureGridData>) {
+    // page-blocks.tsx's saveBlockData already handles the optimistic block
+    // update, rollback, and error toast on failure -- same convention
+    // PostsEditor's own `limit` field uses for this same `data`/`onSaveData`
+    // pair, so no local heading/tone state or try/catch is needed here.
+    await onSaveData({ heading, tone, ...next });
   }
 
   async function saveField(id: string, field: "eyebrow" | "title" | "description", value: string) {
@@ -57,6 +84,12 @@ export function FeaturesEditor({
       body: JSON.stringify({ [field]: value }),
     });
     if (!res.ok) throw new Error(await parseError(res, "Failed to save feature."));
+    // EditableText shows `value` optimistically via its own local state, but
+    // that disappears the moment this feature re-renders through the
+    // visitor branch (e.g. toggling Edit mode off mid-session), which reads
+    // feature[field] straight off *this* array -- so the saved edit needs to
+    // land here too, matching how setIcon/toggleAccent already do below.
+    setFeatures((prev) => prev.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
   }
 
   async function setIcon(id: string, icon: string) {
@@ -171,13 +204,25 @@ export function FeaturesEditor({
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-3">
+        <EditableText
+          as="h2"
+          value={heading}
+          onSave={(v) => persistBlockData({ heading: v })}
+          label="feature grid heading"
+          allowEmpty
+          placeholder="Section heading (optional)"
+          className="text-sm font-medium tracking-wide text-muted uppercase"
+        />
+        <ToneSelect value={tone} onChange={(next) => persistBlockData({ tone: next })} />
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 lg:gap-6">
         {features.map((feature, i) => {
           const Icon = resolveFeatureIcon(feature.icon);
           return (
             <div
               key={feature.id}
-              className="flex h-full flex-col gap-4 rounded-lg border border-border bg-surface p-6"
+              className={`flex h-full flex-col gap-4 rounded-lg border p-6 ${featureCardToneClass(tone)}`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div
@@ -200,6 +245,8 @@ export function FeaturesEditor({
                   value={feature.eyebrow}
                   onSave={(v) => saveField(feature.id, "eyebrow", v)}
                   label={`feature ${i + 1} eyebrow`}
+                  allowEmpty
+                  placeholder="Eyebrow (optional)"
                   className="block font-mono text-xs font-medium uppercase tracking-wider text-muted"
                 />
                 <EditableText

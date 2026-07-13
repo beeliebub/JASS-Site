@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
+import { getPageBySlug } from "@/lib/content";
 import { ResourcePackView } from "@/components/resource/resource-pack-view";
 import { ResourcePackAdmin } from "@/components/resource/resource-pack-admin";
 import { SiteChrome } from "@/components/pages/site-chrome";
+import { formatPageTitle } from "@/lib/site-config";
 
-export const metadata: Metadata = {
-  title: "Resource Pack — JASS",
-  description: "Download the official JASS resource pack and get the server.properties snippet to auto-apply it.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPageBySlug("resource");
+  return {
+    title: page ? formatPageTitle(page.title) : "Resource",
+    description: "Download the official JASS resource pack and get the server.properties snippet to auto-apply it.",
+  };
+}
 
 // Same fallback pattern as app/layout.tsx's siteUrl -- see that file for why
 // the real MC server's domain is used as a placeholder until a dedicated

@@ -2,18 +2,17 @@ import type { ComponentType } from "react";
 import type { Feature, Rule, RuleSection } from "@/app/generated/prisma/client";
 import { Container } from "@/components/container";
 import { RulesEditor } from "@/components/rules/rules-editor";
-import { FeaturesEditor } from "@/components/features/features-editor";
+import { FeaturesEditor, type FeatureGridData } from "@/components/features/features-editor";
 import { PostsEditor, type ClientPost, type PostListData } from "@/components/news/posts-editor";
+import { PostDisplayBlock, type PostDisplayData } from "@/components/blocks/post-display-block";
 import { HeroOverrideControls, type HeroData } from "@/components/home/hero-override-controls";
 import { HeroContent, type HeroContentData } from "@/components/home/hero-content";
 import { PageHeaderBlock, type PageHeaderData } from "@/components/blocks/page-header-block";
 import { CalloutBlock, type CalloutData } from "@/components/blocks/callout-block";
-import { StepsBlock, type StepsData } from "@/components/blocks/steps-block";
 import { LinkGridBlock, type LinkGridData } from "@/components/blocks/link-grid-block";
 import { RichTextBlock, type RichTextData } from "@/components/blocks/rich-text-block";
 import { ImageBlock, type ImageData } from "@/components/blocks/image-block";
 import { CtaBannerBlock, type CtaBannerData } from "@/components/blocks/cta-banner-block";
-import { CardGridBlock, type CardGridData } from "@/components/blocks/card-grid-block";
 import { CodeBlock, type CodeData } from "@/components/blocks/code-block";
 import { AccordionBlock, type AccordionData } from "@/components/blocks/accordion-block";
 import { TableBlock, type TableData } from "@/components/blocks/table-block";
@@ -24,11 +23,12 @@ import { BLOCK_TYPES, blockTypeLabels, type BlockType } from "@/lib/validation/p
  * Type -> component lookup ("a lookup object, not a long
  * if/switch, so adding a block type later is a one-line registration").
  *
- * Data-referencing types (hero/ruleList/featureGrid/postList) render the
- * existing editor components, backed by data pre-fetched
+ * Data-referencing types (hero/ruleList/featureGrid/postList/postDisplay)
+ * render the existing editor components, backed by data pre-fetched
  * server-side in page-renderer.tsx and threaded through as `referenceData`
- * -- these components (RulesEditor/FeaturesEditor/PostsEditor) accept plain
- * serializable "initial*" props, so no server/client boundary issue.
+ * -- these components (RulesEditor/FeaturesEditor/PostsEditor/
+ * PostDisplayBlock) accept plain serializable "initial*"/`posts` props, so no
+ * server/client boundary issue.
  * ruleList/featureGrid/postList also get a `blockId` prop (their owning
  * block's own id) since each instance's
  * sections/features/posts are rows it owns outright (`blockId` FK on
@@ -42,6 +42,13 @@ import { BLOCK_TYPES, blockTypeLabels, type BlockType } from "@/lib/validation/p
  * their equivalent `sectionIds`/`featureIds` filters entirely, since
  * ownership already makes every instance's content distinct with nothing
  * left to hand-pick from.
+ * `postDisplay` doesn't own any posts of its own -- it reads the *same*
+ * `referenceData.postsByBlockId` map by its own `block.id` key, but
+ * page-renderer.tsx populates that entry with other blocks' posts matched by
+ * tag (see `getPostsByTagIds` in lib/content.ts) rather than posts this block
+ * owns. It keeps `data`/`onSaveData` for its persisted `tagIds` selection
+ * (see `PostDisplayData`), admin-edit-mode-only and never leaked to
+ * visitors.
  * `hero` follows the same "plain serializable data, not a rendered element"
  * rule: `block.heroContent` is the site-wide `{heroName, heroTagline,
  * serverIp, ...}` fetched once in page-renderer.tsx (a ReactNode pre-rendered
@@ -107,10 +114,17 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
       <RulesEditor blockId={block.id} initialSections={referenceData.ruleSectionsByBlockId?.[block.id] ?? []} />
     </Container>
   ),
-  // Same as ruleList above -- `FeatureGridData` is empty.
-  featureGrid: ({ block, referenceData }) => (
+  // Unlike ruleList, FeatureGridData carries the block-level heading/tone
+  // absorbed from the former Card Grid block type, so this one does forward
+  // `data`/`onSaveData` -- same shape as postList's `limit`.
+  featureGrid: ({ block, referenceData, onSaveData }) => (
     <Container className="py-12 sm:py-16">
-      <FeaturesEditor blockId={block.id} initialFeatures={referenceData.featuresByBlockId?.[block.id] ?? []} />
+      <FeaturesEditor
+        blockId={block.id}
+        initialFeatures={referenceData.featuresByBlockId?.[block.id] ?? []}
+        data={block.data as FeatureGridData}
+        onSaveData={onSaveData as (next: FeatureGridData) => Promise<void>}
+      />
     </Container>
   ),
   postList: ({ block, referenceData, onSaveData }) => (
@@ -123,6 +137,20 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
       />
     </Container>
   ),
+  // `postDisplay` reads from the *same* `referenceData.postsByBlockId` map as
+  // `postList` above -- page-renderer.tsx populates this block's entry with
+  // posts matched by tag (owned by other Post List blocks) rather than posts
+  // it owns itself, but the key is still just this block's own `block.id`,
+  // so this entry is unaware of which path produced its posts.
+  postDisplay: ({ block, referenceData, onSaveData }) => (
+    <Container className="flex flex-1 flex-col py-8 sm:py-10">
+      <PostDisplayBlock
+        data={block.data as PostDisplayData}
+        onSaveData={onSaveData as (next: PostDisplayData) => Promise<void>}
+        posts={referenceData.postsByBlockId?.[block.id] ?? []}
+      />
+    </Container>
+  ),
   pageHeader: ({ block, onSaveData }) => (
     <PageHeaderBlock
       data={block.data as PageHeaderData}
@@ -131,9 +159,6 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
   ),
   callout: ({ block, onSaveData }) => (
     <CalloutBlock data={block.data as CalloutData} onSaveData={onSaveData as (next: CalloutData) => Promise<void>} />
-  ),
-  steps: ({ block, onSaveData }) => (
-    <StepsBlock data={block.data as StepsData} onSaveData={onSaveData as (next: StepsData) => Promise<void>} />
   ),
   linkGrid: ({ block, onSaveData }) => (
     <LinkGridBlock data={block.data as LinkGridData} onSaveData={onSaveData as (next: LinkGridData) => Promise<void>} />
@@ -149,9 +174,6 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
       data={block.data as CtaBannerData}
       onSaveData={onSaveData as (next: CtaBannerData) => Promise<void>}
     />
-  ),
-  cardGrid: ({ block, onSaveData }) => (
-    <CardGridBlock data={block.data as CardGridData} onSaveData={onSaveData as (next: CardGridData) => Promise<void>} />
   ),
   code: ({ block, onSaveData }) => (
     <CodeBlock data={block.data as CodeData} onSaveData={onSaveData as (next: CodeData) => Promise<void>} />
@@ -179,14 +201,15 @@ export const defaultBlockData: Record<BlockType, unknown> = {
   ruleList: {},
   featureGrid: {},
   postList: { limit: null },
+  // Explicit empty selection, not "everything" -- see postDisplayDataSchema's
+  // doc comment in lib/validation/pages.ts.
+  postDisplay: { tagIds: [] },
   pageHeader: { heading: "New section" },
   callout: { variant: "info", body: "Add a message here." },
-  steps: { items: [] },
   linkGrid: { links: [] },
   richText: { markdown: "" },
   image: { src: "", alt: "" },
   ctaBanner: { heading: "Call to action", buttonLabel: "Learn more", buttonHref: "/" },
-  cardGrid: { heading: "", cards: [] },
   // codeDataSchema requires `code` non-empty (`min(1)`, matching every other
   // required-text-field default elsewhere in this object, e.g. ctaBanner's
   // heading) -- "" here would fail blockCreateSchema validation immediately
@@ -209,13 +232,15 @@ export const defaultBlockData: Record<BlockType, unknown> = {
  * viewing-only feature now (ephemeral, non-persisting, in the visitor branch
  * of `PostsEditor`), not something saved per instance, since it's just a way
  * to browse the block's own posts rather than a content-curation choice.
- * `ruleListDataSchema`/`featureGridDataSchema` carry nothing; `hero` keeps
- * its `headingOverride`/`taglineOverride` (the live server-status ping stays
+ * `ruleListDataSchema` carries nothing; `featureGridDataSchema` carries only
+ * the block-level `heading`/`tone` pair absorbed from the former Card Grid
+ * block type (see lib/validation/pages.ts); `hero` keeps its
+ * `headingOverride`/`taglineOverride` (the live server-status ping stays
  * global -- it's describing the one real server, never per-instance).
  * Editing a section/feature/post from its owning block's editor affects only
  * that row, same as always -- what changed is that no *other* block instance
  * can reference or display it. Tag *names* on posts, unlike the posts
  * themselves, stay a shared vocabulary across every Post List block (see
- * `GET /api/posts/tags`) -- an admin authoring a post in any instance can
+ * `GET /api/tags`) -- an admin authoring a post in any instance can
  * reuse a tag already used elsewhere on the site. */
 export const ADDABLE_BLOCK_TYPES = BLOCK_TYPES;

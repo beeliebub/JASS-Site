@@ -62,6 +62,12 @@ export function RulesEditor({
       body: JSON.stringify({ [field]: value }),
     });
     if (!res.ok) throw new Error(await parseError(res, "Failed to save section."));
+    // EditableText already shows `value` optimistically via its own local
+    // state, but that state disappears the moment this section re-renders
+    // through the visitor branch (e.g. toggling Edit mode off mid-session),
+    // which reads `section[field]` straight off *this* array -- so the saved
+    // edit must land here too, not just in EditableText's own state.
+    setSections((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
   }
 
   async function saveRuleField(id: string, field: Field, value: string) {
@@ -71,6 +77,9 @@ export function RulesEditor({
       body: JSON.stringify({ [field]: value }),
     });
     if (!res.ok) throw new Error(await parseError(res, "Failed to save rule."));
+    setSections((prev) =>
+      prev.map((s) => ({ ...s, rules: s.rules.map((r) => (r.id === id ? { ...r, [field]: value } : r)) })),
+    );
   }
 
   async function addSection() {

@@ -6,6 +6,7 @@ import type {
   Prisma,
   ResourcePack,
   SiteSettings,
+  Tag,
   UploadedImage,
   User,
 } from "@/app/generated/prisma/client";
@@ -21,6 +22,7 @@ import {
 import { navItemCreateSchema, navItemUpdateSchema } from "@/lib/validation/nav-items";
 import { customThemeCreateSchema, customThemeUpdateSchema } from "@/lib/validation/custom-themes";
 import { siteSettingsUpdateSchema } from "@/lib/validation/site-settings";
+import { tagCreateSchema, tagUpdateSchema } from "@/lib/validation/content";
 import { CUSTOM_THEME_TOKEN_FIELDS, type CustomThemeTokenField } from "@/lib/themes";
 import { imagePath, packPath } from "@/lib/uploads";
 
@@ -41,6 +43,7 @@ export const AUDIT_ENTITY_TYPES = [
   "ResourcePack",
   "SiteSettings",
   "UploadedImage",
+  "Tag",
 ] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 export type AuditAction = "create" | "update" | "delete";
@@ -108,7 +111,6 @@ export function pageSnapshot(row: Page) {
     metaDescription: row.metaDescription,
     published: row.published,
     protected: row.protected,
-    adminOnly: row.adminOnly,
     theme: row.theme,
     customThemeId: row.customThemeId,
   };
@@ -157,6 +159,10 @@ export function resourcePackSnapshot(row: ResourcePack) {
 
 export function uploadedImageSnapshot(row: UploadedImage) {
   return { id: row.id, sha1: row.sha1, ext: row.ext, mime: row.mime, size: row.size, uploadedBy: row.uploadedBy };
+}
+
+export function tagSnapshot(row: Pick<Tag, "id" | "name" | "color">) {
+  return { id: row.id, name: row.name, color: row.color };
 }
 
 export function siteSettingsSnapshot(row: SiteSettings) {
@@ -258,7 +264,7 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
       const slugError = protectedSlugChangeError(existing, snapshot.slug);
       if (slugError) return { ok: false, message: slugError };
 
-      const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, adminOnly: snapshot.adminOnly, theme: snapshot.theme, customThemeId: snapshot.customThemeId };
+      const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId };
       const parsed = pageUpdateSchema.safeParse(stripNullish(fields));
       if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current page schema." };
 
@@ -266,7 +272,7 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     }
 
     // delete -> recreate
-    const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, adminOnly: snapshot.adminOnly, theme: snapshot.theme, customThemeId: snapshot.customThemeId };
+    const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId };
     const parsed = pageCreateSchema.safeParse(stripNullish(fields));
     if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current page schema." };
 
@@ -364,6 +370,30 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     const parsed = customThemeCreateSchema.safeParse(fields);
     if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current theme schema." };
     return safeWrite(() => tx.customTheme.create({ data: { ...fields, id: entry.entityId, createdBy: ctx.actorEmail } }));
+  },
+
+  // -------------------------------------------------------------------
+  Tag: async (tx, entry) => {
+    if (entry.action === "create") {
+      return deleteIfExists(() => tx.tag.delete({ where: { id: entry.entityId } }));
+    }
+
+    const snapshot = parseSnapshot<ReturnType<typeof tagSnapshot>>(entry.before);
+    if (!snapshot) return { ok: false, message: "No prior state recorded for this entry." };
+    const fields = { name: snapshot.name, color: snapshot.color };
+
+    if (entry.action === "update") {
+      const existing = await tx.tag.findUnique({ where: { id: entry.entityId } });
+      if (!existing) return { ok: false, message: "This tag no longer exists." };
+      const parsed = tagUpdateSchema.safeParse(fields);
+      if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current tag schema." };
+      return safeWrite(() => tx.tag.update({ where: { id: entry.entityId }, data: fields }));
+    }
+
+    // delete -> recreate
+    const parsed = tagCreateSchema.safeParse(fields);
+    if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current tag schema." };
+    return safeWrite(() => tx.tag.create({ data: { ...fields, id: entry.entityId } }));
   },
 
   // -------------------------------------------------------------------
@@ -513,6 +543,43 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     );
   },
 };
+
+/**
+ * Which page (if any) an entry's entity lived on -- `Block.pageId`,
+ * `NavItem.pageId`, or `Page.id` itself, read off whichever of
+ * `before`/`after` is non-null (a create has only `after`, a delete only
+ * `before`, an update has both and they agree on this field). Every other
+ * entity type (`CustomTheme`, `User`, `ResourcePack`, `SiteSettings`,
+ * `UploadedImage`) isn't "on a page" at all, so this returns `null` for
+ * them -- and also `null` for a NavItem that's an href-only link
+ * (`pageId: null`) or a Block/Page snapshot that fails to parse.
+ */
+export function extractPageId(entry: Pick<AuditLogEntryRow, "entityType" | "before" | "after">): string | null {
+  const raw = entry.before ?? entry.after;
+  if (raw === null) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+
+  switch (entry.entityType) {
+    case "Block":
+    case "NavItem": {
+      const pageId = (parsed as { pageId?: unknown }).pageId;
+      return typeof pageId === "string" ? pageId : null;
+    }
+    case "Page": {
+      const id = (parsed as { id?: unknown }).id;
+      return typeof id === "string" ? id : null;
+    }
+    default:
+      return null;
+  }
+}
 
 /** Dispatches to the per-entity-type handler (decision 4). Undoing an
  * already-undone entry, or an entry whose entity has changed since, is

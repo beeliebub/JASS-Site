@@ -4,11 +4,15 @@ import { getPageBySlug } from "@/lib/content";
 import { PageRenderer } from "@/components/pages/page-renderer";
 import { SiteChrome } from "@/components/pages/site-chrome";
 import { resolvePageTheme } from "@/lib/custom-themes";
+import { formatPageTitle } from "@/lib/site-config";
 
-export const metadata: Metadata = {
-  title: "Rules — JASS",
-  description: "The rules every player agrees to by joining JASS — conduct, claims, and fair play.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPageBySlug("rules");
+  return {
+    title: page ? formatPageTitle(page.title) : "Page not found",
+    description: "The rules every player agrees to by joining JASS — conduct, claims, and fair play.",
+  };
+}
 
 export default async function RulesPage() {
   const page = await getPageBySlug("rules");

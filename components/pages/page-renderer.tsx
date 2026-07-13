@@ -3,11 +3,13 @@ import {
   CONTENT_KEYS,
   getFeaturesByBlockIds,
   getPostsByBlockIds,
+  getPostsByTagIds,
   getRuleSectionsByBlockIds,
   getSiteContent,
 } from "@/lib/content";
 import { BLOCK_TYPES, parseBlockData, type BlockType } from "@/lib/validation/pages";
 import { defaultBlockData, type ClientBlock, type ReferenceData } from "@/components/blocks/registry";
+import type { PostDisplayData } from "@/components/blocks/post-display-block";
 import { PageBlocks } from "@/components/pages/page-blocks";
 
 export type PageWithBlocks = Page & { blocks: Block[] };
@@ -39,7 +41,10 @@ function groupBy<T, K extends string>(rows: T[], keyOf: (row: T) => K): Record<K
  * page -- each block owns its own sections/features/
  * posts now, so there's no single site-wide array to fetch once and hand to
  * every instance) so those editor components render, just reachable
- * from any Page now.
+ * from any Page now. `postDisplay` blocks are the one exception to "owns its
+ * own rows": they select *other* postList blocks' posts by tag, site-wide,
+ * via `getPostsByTagIds` -- see the tagIds union/single-query/per-block
+ * re-filter/merge sequence below, right before `referenceData` is built.
  *
  * Does NOT apply `page.theme`/`page.customThemeId` -- that
  * override has to wrap the header and footer too, not just these blocks, so
@@ -53,20 +58,65 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
   const postListBlockIds = page.blocks.filter((b) => b.type === "postList").map((b) => b.id);
   const hasHero = page.blocks.some((b) => b.type === "hero");
 
-  const [ruleSections, features, posts, siteContent] = await Promise.all([
+  // `postDisplay` blocks don't own posts -- they select other blocks' posts
+  // by tag -- so we need each instance's own `data.tagIds` *before* the
+  // Promise.all below can even know what to query for. This is the same
+  // parse/validate-with-fallback pass the `clientBlocks` mapping further
+  // down this file does for every block, just done early and scoped to only
+  // `postDisplay` blocks.
+  const postDisplayBlocks = page.blocks
+    .filter((b) => b.type === "postDisplay")
+    .map((b) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(b.data);
+      } catch {
+        parsed = undefined;
+      }
+      const result = parseBlockData("postDisplay", parsed);
+      const data = (result.success ? result.data : defaultBlockData.postDisplay) as PostDisplayData;
+      return { id: b.id, tagIds: data.tagIds };
+    });
+  // Union every postDisplay block's tagIds together (deduped) so a single
+  // getPostsByTagIds call can cover every instance on the page -- avoids an
+  // N-query render when multiple postDisplay blocks exist. Empty when there
+  // are no postDisplay blocks, or every one of them has zero tags selected.
+  const tagIdUnion = Array.from(new Set(postDisplayBlocks.flatMap((b) => b.tagIds)));
+
+  const [ruleSections, features, posts, matchedPosts, siteContent] = await Promise.all([
     ruleListBlockIds.length ? getRuleSectionsByBlockIds(ruleListBlockIds) : Promise.resolve([]),
     featureGridBlockIds.length ? getFeaturesByBlockIds(featureGridBlockIds) : Promise.resolve([]),
     postListBlockIds.length ? getPostsByBlockIds(postListBlockIds) : Promise.resolve([]),
+    tagIdUnion.length ? getPostsByTagIds(tagIdUnion) : Promise.resolve([]),
     hasHero ? getSiteContent() : Promise.resolve(undefined),
   ]);
+
+  const postsByBlockId = groupBy(
+    posts.map((post) => ({ ...post, publishedAt: post.publishedAt.toISOString() })),
+    (p) => p.blockId,
+  );
+
+  // Merge each postDisplay block's own matched posts into the *same*
+  // postsByBlockId map postList's owned posts just populated above -- block
+  // ids are globally unique across every block type on a page, so there's no
+  // key collision. The union fetch above may contain posts matching *other*
+  // postDisplay blocks' tags too, so each instance locally filters back down
+  // to just its own tagIds subset before merging.
+  const serializedMatchedPosts = matchedPosts.map((post) => ({ ...post, publishedAt: post.publishedAt.toISOString() }));
+  for (const { id, tagIds } of postDisplayBlocks) {
+    if (tagIds.length === 0) {
+      // Explicit "show nothing" -- never fall back to the full union.
+      postsByBlockId[id] = [];
+      continue;
+    }
+    const tagIdSet = new Set(tagIds);
+    postsByBlockId[id] = serializedMatchedPosts.filter((post) => post.tags.some((tag) => tagIdSet.has(tag.id)));
+  }
 
   const referenceData: ReferenceData = {
     ruleSectionsByBlockId: groupBy(ruleSections, (s) => s.blockId),
     featuresByBlockId: groupBy(features, (f) => f.blockId),
-    postsByBlockId: groupBy(
-      posts.map((post) => ({ ...post, publishedAt: post.publishedAt.toISOString() })),
-      (p) => p.blockId,
-    ),
+    postsByBlockId,
   };
 
   const clientBlocks: ClientBlock[] = page.blocks.flatMap((block): ClientBlock[] => {

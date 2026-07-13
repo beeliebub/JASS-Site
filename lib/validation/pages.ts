@@ -22,7 +22,7 @@ import { THEME_IDS, TONES } from "@/lib/themes";
 // either, so this list is safe to check unconditionally against slug changes
 // as long as protected-page slug changes are already rejected earlier -- see
 // `assertProtectedSlugUnchanged` below).
-export const RESERVED_SLUGS = ["admin", "login", "api", "home", "rules", "features", "news", "resource"] as const;
+export const RESERVED_SLUGS = ["admin", "login", "account", "api", "home", "rules", "features", "news", "resource"] as const;
 
 export const slugSchema = z
   .string()
@@ -64,7 +64,6 @@ export const pageCreateSchema = z
     slug: slugSchema.optional(),
     metaDescription: z.string().max(300).nullable().optional(),
     published: z.boolean().optional(),
-    adminOnly: z.boolean().optional(),
     theme: themeSchema.nullable().optional(),
     customThemeId: z.string().min(1).nullable().optional(),
   })
@@ -77,7 +76,6 @@ export const pageUpdateSchema = z
     slug: slugSchema.optional(),
     metaDescription: z.string().max(300).nullable().optional(),
     published: z.boolean().optional(),
-    adminOnly: z.boolean().optional(),
     theme: themeSchema.nullable().optional(),
     customThemeId: z.string().min(1).nullable().optional(),
   })
@@ -108,14 +106,13 @@ export const BLOCK_TYPES = [
   "ruleList",
   "featureGrid",
   "postList",
+  "postDisplay",
   "pageHeader",
   "callout",
-  "steps",
   "linkGrid",
   "richText",
   "image",
   "ctaBanner",
-  "cardGrid",
   "code",
   "accordion",
   "table",
@@ -133,14 +130,13 @@ export const blockTypeLabels: Record<BlockType, string> = {
   ruleList: "Rule list",
   featureGrid: "Feature grid",
   postList: "Post list",
+  postDisplay: "Post display",
   pageHeader: "Page header",
   callout: "Callout",
-  steps: "Steps",
   linkGrid: "Link grid",
   richText: "Rich text",
   image: "Image",
   ctaBanner: "CTA banner",
-  cardGrid: "Card grid",
   code: "Code block",
   accordion: "Accordion / FAQ",
   table: "Table",
@@ -163,43 +159,6 @@ const pageHeaderDataSchema = z.object({
 const calloutDataSchema = z.object({
   variant: toneSchema,
   body: z.string().min(1).max(2000),
-});
-
-const stepsDataSchema = z.object({
-  heading: z.string().min(1).max(80).optional(),
-  items: z
-    .array(
-      z.object({
-        number: z.string().min(1).max(10),
-        title: z.string().min(1).max(200),
-        description: z.string().min(1).max(500),
-      }),
-    )
-    .max(20),
-});
-
-/** Optional per-item thumbnail, same URL convention/validation as
- * `imageDataSchema.src` (reuses the same upload pipeline, not a new one) --
- * absent/"" = today's exact layout (no thumbnail column). */
-const linkGridDataSchema = z.object({
-  heading: z.string().min(1).max(80).optional(),
-  links: z
-    .array(
-      z.object({
-        href: z.string().min(1).max(300),
-        title: z.string().min(1).max(200),
-        description: z.string().min(1).max(500),
-        image: z
-          .string()
-          .max(2000)
-          .optional()
-          .refine((s) => s === undefined || s === "" || isHttpUrl(s) || isRootRelativePath(s), {
-            message: "image must be an absolute http(s) URL or a root-relative path.",
-          }),
-      }),
-    )
-    .max(20),
-  tone: toneSchema.optional(),
 });
 
 const richTextDataSchema = z.object({
@@ -250,29 +209,50 @@ const imageDataSchema = z
     path: ["alt"],
   });
 
+/** Optional per-item thumbnail, same URL convention/validation as
+ * `imageDataSchema.src` (reuses the same upload pipeline, not a new one) --
+ * absent/"" = today's exact layout (no thumbnail column). Each link also
+ * carries the same display-size override as the Image block
+ * (`imageSizeSchema.shape`, extended below) plus an optional
+ * click-and-drag focal point (`objectPosition`, percentages 0-100) -- both
+ * unset/null reproduce today's fixed 64x64 centered `object-cover`
+ * thumbnail exactly. */
+const linkGridDataSchema = z.object({
+  heading: z.string().min(1).max(80).optional(),
+  links: z
+    .array(
+      z
+        .object({
+          href: z.string().min(1).max(300),
+          title: z.string().min(1).max(200),
+          description: z.string().min(1).max(500),
+          image: z
+            .string()
+            .max(2000)
+            .optional()
+            .refine((s) => s === undefined || s === "" || isHttpUrl(s) || isRootRelativePath(s), {
+              message: "image must be an absolute http(s) URL or a root-relative path.",
+            }),
+          objectPosition: z
+            .object({
+              x: z.number().int().min(0).max(100),
+              y: z.number().int().min(0).max(100),
+            })
+            .nullable()
+            .optional(),
+        })
+        .extend(imageSizeSchema.shape),
+    )
+    .max(20),
+  tone: toneSchema.optional(),
+});
+
 const ctaBannerDataSchema = z.object({
   heading: z.string().min(1).max(200),
   body: z.string().max(1000).optional(),
   buttonLabel: z.string().min(1).max(60),
   buttonHref: z.string().min(1).max(300),
   tone: toneSchema.optional(),
-});
-
-/** New, independent block type -- NOT a change to `featureGrid`.
- * Stores its own cards per instance (like `steps`/`linkGrid`) so it can be
- * placed multiple times across the site with different content each time. */
-const cardGridDataSchema = z.object({
-  heading: z.string().max(80).optional(),
-  tone: toneSchema.optional(),
-  cards: z
-    .array(
-      z.object({
-        icon: z.string().optional(),
-        title: z.string().min(1).max(80),
-        description: z.string().min(1).max(400),
-      }),
-    )
-    .max(20),
 });
 
 /** Themed monospace code block, no syntax highlighting. */
@@ -343,21 +323,43 @@ const heroDataSchema = z.object({
 /** ruleList/featureGrid/postList blocks each own their
  * rows via `RuleSection.blockId`/`Feature.blockId`/`Post.blockId` now, so
  * there's no shared pool left to hand-pick from -- a block just shows
- * everything it owns. `ruleListDataSchema`/`featureGridDataSchema` carry
- * nothing at all (kept as objects, not removed, so `Block.data` still
- * round-trips through the same per-type-schema shape as every other block
- * type). `postListDataSchema` keeps only `limit`, an admin-configured cap on
- * how many of this instance's own posts render on the page -- the old
- * persisted `tag` filter is gone too: tag filtering is a *viewing* feature
- * only now (the ephemeral, non-persisting visitor-facing control in
+ * everything it owns. `ruleListDataSchema` carries nothing at all (kept as
+ * an object, not removed, so `Block.data` still round-trips through the
+ * same per-type-schema shape as every other block type). `postListDataSchema`
+ * keeps only `limit`, an admin-configured cap on how many of this instance's
+ * own posts render on the page -- the old persisted `tag` filter is gone
+ * too: tag filtering is a *viewing* feature only now (the ephemeral,
+ * non-persisting visitor-facing control in
  * `components/news/posts-editor.tsx`), not an admin content-curation choice
  * saved per instance, so it never belonged in `Block.data` to begin with. */
 const ruleListDataSchema = z.object({});
 
-const featureGridDataSchema = z.object({});
+/** Feature Grid absorbed the former Card Grid block type's block-level
+ * `heading`/`tone` fields (Card Grid's own `cards` array had no equivalent
+ * here -- Feature Grid's cards are owned `Feature` rows, not part of
+ * `Block.data`). `.nullable()` on both, not just `.optional()`, since the
+ * data migration that merged pre-existing Card Grid instances into Feature
+ * Grid blocks writes an explicit JSON `null` for an absent value (raw SQL
+ * has no way to omit an object key conditionally), not `undefined` --
+ * see the merge_card_grid_into_feature_grid migration. */
+const featureGridDataSchema = z.object({
+  heading: z.string().max(80).nullable().optional(),
+  tone: toneSchema.nullable().optional(),
+});
 
 const postListDataSchema = z.object({
   limit: z.number().int().min(1).max(200).nullable().optional(),
+});
+
+/** Post Display: admin picks one or more `Tag` ids in edit mode; the block
+ * then shows every post, from every Post List block anywhere on the site,
+ * that carries any of those tags (OR semantics -- see
+ * `getPostsByTagIds` in lib/content.ts). Zero tags selected is a valid,
+ * explicit state ("show nothing"), never "show everything" -- an empty
+ * `tagIds` must not silently leak every post site-wide the moment the block
+ * is added, before an admin has configured anything. */
+const postDisplayDataSchema = z.object({
+  tagIds: z.array(z.string()).max(20),
 });
 
 /** Per-type `data` shape, keyed by `Block.type`. Used both to validate on
@@ -367,14 +369,13 @@ export const blockDataSchemas = {
   ruleList: ruleListDataSchema,
   featureGrid: featureGridDataSchema,
   postList: postListDataSchema,
+  postDisplay: postDisplayDataSchema,
   pageHeader: pageHeaderDataSchema,
   callout: calloutDataSchema,
-  steps: stepsDataSchema,
   linkGrid: linkGridDataSchema,
   richText: richTextDataSchema,
   image: imageDataSchema,
   ctaBanner: ctaBannerDataSchema,
-  cardGrid: cardGridDataSchema,
   code: codeDataSchema,
   accordion: accordionDataSchema,
   table: tableDataSchema,
@@ -405,6 +406,12 @@ export const blockCreateSchema = z.discriminatedUnion("type", [
     data: blockDataSchemas.postList,
   }),
   z.object({
+    type: z.literal("postDisplay"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    data: blockDataSchemas.postDisplay,
+  }),
+  z.object({
     type: z.literal("pageHeader"),
     pageId: z.string().min(1),
     order: z.number().int(),
@@ -416,7 +423,6 @@ export const blockCreateSchema = z.discriminatedUnion("type", [
     order: z.number().int(),
     data: blockDataSchemas.callout,
   }),
-  z.object({ type: z.literal("steps"), pageId: z.string().min(1), order: z.number().int(), data: blockDataSchemas.steps }),
   z.object({
     type: z.literal("linkGrid"),
     pageId: z.string().min(1),
@@ -435,12 +441,6 @@ export const blockCreateSchema = z.discriminatedUnion("type", [
     pageId: z.string().min(1),
     order: z.number().int(),
     data: blockDataSchemas.ctaBanner,
-  }),
-  z.object({
-    type: z.literal("cardGrid"),
-    pageId: z.string().min(1),
-    order: z.number().int(),
-    data: blockDataSchemas.cardGrid,
   }),
   z.object({ type: z.literal("code"), pageId: z.string().min(1), order: z.number().int(), data: blockDataSchemas.code }),
   z.object({

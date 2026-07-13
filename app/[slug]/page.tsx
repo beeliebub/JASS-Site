@@ -33,15 +33,7 @@ export default async function CustomPage({ params }: { params: Promise<{ slug: s
   if (!page) notFound();
   const { theme, customThemeTokens } = await resolvePageTheme(page);
 
-  // Both gates share the same "hidden from the public, visible to
-  // signed-in admins with a banner" shape -- published takes priority when
-  // a page happens to be both unpublished and adminOnly, since that's the
-  // more restrictive/actionable state to surface to the admin viewing it.
-  const gateBanner = !page.published
-    ? "Unpublished draft — only visible to admins"
-    : page.adminOnly
-      ? "Admin+ only — not visible to the public"
-      : null;
+  const gateBanner = !page.published ? "Unpublished draft — only visible to admins" : null;
 
   if (gateBanner) {
     const isAdmin = await requireAdmin();

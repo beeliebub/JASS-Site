@@ -30,7 +30,7 @@ export async function generateMetadata({
 
 export default async function PostDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const post = await prisma.post.findUnique({ where: { slug } });
+  const post = await prisma.post.findUnique({ where: { slug }, include: { tags: true } });
   if (!post) notFound();
 
   return (
@@ -44,7 +44,9 @@ export default async function PostDetailPage({ params }: { params: Promise<{ slu
           <time dateTime={post.publishedAt.toISOString()} className="font-mono text-xs text-muted">
             {formatDate(post.publishedAt)}
           </time>
-          <TagPill tag={post.tag} />
+          {post.tags.map((tag) => (
+            <TagPill key={tag.id} tag={tag} />
+          ))}
           {post.author && (
             <span className="text-[11px] font-medium uppercase tracking-wider text-muted">by {post.author}</span>
           )}

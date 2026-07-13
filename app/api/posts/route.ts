@@ -4,10 +4,11 @@ import { requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { postCreateSchema } from "@/lib/validation/content";
 import { requireOwningBlock } from "@/lib/block-ownership";
+import { requireValidTagIds } from "@/lib/tag-ownership";
 
 export async function GET() {
   try {
-    const posts = await prisma.post.findMany({ orderBy: { publishedAt: "desc" } });
+    const posts = await prisma.post.findMany({ orderBy: { publishedAt: "desc" }, include: { tags: true } });
     return apiSuccess(posts);
   } catch (error) {
     return internalError(error);
@@ -30,11 +31,18 @@ export async function POST(req: Request) {
   const owningBlock = await requireOwningBlock(parsed.data.blockId, "postList");
   if (!owningBlock.ok) return owningBlock.response;
 
+  const validTagIds = await requireValidTagIds(parsed.data.tagIds);
+  if (!validTagIds.ok) return validTagIds.response;
+
   try {
     const existing = await prisma.post.findUnique({ where: { slug: parsed.data.slug } });
     if (existing) return conflict(`A post with slug "${parsed.data.slug}" already exists.`);
 
-    const post = await prisma.post.create({ data: parsed.data });
+    const { tagIds, ...rest } = parsed.data;
+    const post = await prisma.post.create({
+      data: { ...rest, tags: { connect: tagIds.map((id) => ({ id })) } },
+      include: { tags: true },
+    });
     revalidatePath("/news");
     return apiSuccess(post, { status: 201 });
   } catch (error) {

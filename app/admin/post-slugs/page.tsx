@@ -39,7 +39,9 @@ function PostRows({ posts }: { posts: PostListBlockGroup["posts"] }) {
         >
           <span className="font-mono text-xs text-primary">{post.slug}</span>
           <span className="text-sm font-medium text-foreground">{post.title}</span>
-          <TagPill tag={post.tag} />
+          {post.tags.map((tag) => (
+            <TagPill key={tag.id} tag={tag} />
+          ))}
           <span className="ml-auto text-xs text-muted">{formatDate(post.publishedAt)}</span>
         </Link>
       ))}

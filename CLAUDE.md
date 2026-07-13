@@ -68,6 +68,53 @@ Copy `.env.example` to `.env` and fill in real values:
 - `AUTH_SECRET` — Auth.js session secret
 - `MC_SERVER_HOST` / `MC_SERVER_PORT` — Minecraft server for the live status ping (Phase 5)
 
+## Production-safety check (mandatory — every change, not just migrations)
+
+The live site is deployed manually: the user pulls this repo to a VPS and
+runs `prisma migrate deploy` + `npm run db:seed` (see `docs/DEPLOYMENT.md`)
+against **a different SQLite database than this dev machine's**. A change
+that only works against *this* `prisma/dev.db` is not done. This already
+broke a real deploy once — commit `ac831b6`: a migration's backfill `UPDATE`
+statements had `Block.id` values hardcoded from this dev database; those ids
+don't exist on any other database, so `migrate deploy` failed with a
+FOREIGN KEY constraint error on the remote server. Treat that as the
+concrete failure mode to check for, not a hypothetical.
+
+Before considering **any** change complete that touches
+`prisma/schema.prisma`, `prisma/migrations/`, `prisma/seed.ts`, environment
+variables, or `Dockerfile`/`docker-compose.yml`/`Caddyfile`:
+
+- [ ] **No hardcoded ids/rows from this dev database in a migration.** Any
+      data backfill in a `migration.sql` must be expressed as a query keyed
+      on stable schema-level identifiers (unique slugs, type strings,
+      foreign keys already in place) — never a literal id, count, or other
+      value read off this machine's `prisma/dev.db`. Scan the migration for
+      anything that looks like a Prisma cuid before calling it done.
+- [ ] **`prisma/seed.ts` changes stay idempotent.** Every write must be an
+      upsert (or an insert gated on proving the row doesn't exist yet),
+      never an unconditional `create` outside the existing guarded
+      `seedPagesAndNav()` bootstrap — the live database already has real
+      content the first time any new seed code runs against it, so an
+      unconditional create would duplicate rows or throw on a
+      unique-constraint clash.
+- [ ] **New/changed env vars are documented** in both `.env.example` and the
+      table in `docs/DEPLOYMENT.md`, not just read via `process.env`
+      somewhere.
+- [ ] **New Docker/deploy-file dependencies are reflected.** A new package
+      needing native compilation, a new directory that needs bind-mounting,
+      or a new required build step — update `Dockerfile`/
+      `docker-compose.yml`/`docs/DEPLOYMENT.md` to match rather than letting
+      them silently drift from what the app actually needs.
+- [ ] **No dev-only artifacts leak into what gets pushed** — temporary test
+      accounts, scratch pages/posts/tags created for interactive
+      verification, debug logging. Any temp admin account created to test a
+      change must be deleted again before the change is considered done, not
+      left sitting in the dev DB.
+
+There's no staging environment for this project (see `docs/DEPLOYMENT.md`),
+so this is a careful reading pass over the diff — migration SQL and seed
+changes especially — not a live rehearsal against a second database.
+
 ## Project structure
 
 - `app/` — routes, layouts, pages (App Router)

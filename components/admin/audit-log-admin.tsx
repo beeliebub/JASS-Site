@@ -3,6 +3,8 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { useToast } from "@/components/admin/toast";
 import { summarizeAuditEntry } from "@/lib/audit-log-summary";
+import { pagePath } from "@/lib/routes";
+import { AuditPreviewModal, isPreviewableBlockType, type AuditPreviewPayload } from "@/components/admin/audit-preview-modal";
 
 /**
  * Admin UI for the audit trail (`GET /api/audit-log`) and its
@@ -28,6 +30,7 @@ const ENTITY_TYPES = [
   "ResourcePack",
   "SiteSettings",
   "UploadedImage",
+  "Tag",
 ] as const;
 
 type AuditEntityType = (typeof ENTITY_TYPES)[number];
@@ -42,6 +45,12 @@ type AuditLogEntry = {
   after: string | null;
   actorEmail: string | null;
   createdAt: string;
+  /** Which page (if any) this entity lived on -- both null when the entity
+   * type isn't "on a page" at all, or when it was but the page has since
+   * been deleted. Populated server-side by `GET /api/audit-log` via
+   * `extractPageId` + a batch `Page` lookup. */
+  pageSlug: string | null;
+  pageTitle: string | null;
 };
 
 const ACTION_STYLES: Record<AuditAction, string> = {
@@ -70,6 +79,34 @@ function formatTimestamp(iso: string): string {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+/**
+ * Builds the `{ type, before, after }` payload `AuditPreviewModal` needs
+ * out of a Block entry's raw `before`/`after` JSON strings, or `null` if
+ * this entry can't be previewed -- not a `Block` entry at all, unparseable
+ * snapshot JSON, or a block type excluded from preview (`hero`/`ruleList`/
+ * `featureGrid`/`postList`, which each need server-fetched reference data a
+ * snapshot doesn't carry).
+ */
+function getPreviewPayload(entry: AuditLogEntry): AuditPreviewPayload | null {
+  if (entry.entityType !== "Block") return null;
+
+  function parseSide(raw: string | null): { type: string; data: unknown } | null {
+    if (raw === null) return null;
+    try {
+      return JSON.parse(raw) as { type: string; data: unknown };
+    } catch {
+      return null;
+    }
+  }
+
+  const before = parseSide(entry.before);
+  const after = parseSide(entry.after);
+  const type = after?.type ?? before?.type;
+  if (!type || !isPreviewableBlockType(type)) return null;
+
+  return { type, before: before?.data ?? null, after: after?.data ?? null };
+}
+
 export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
   // User-entity audit entries are owner-only server-side (GET /api/audit-log
   // filters them out, and the undo route requires requireOwner() for them --
@@ -80,32 +117,39 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
   const visibleEntityTypes = isOwner ? ENTITY_TYPES : ENTITY_TYPES.filter((type) => type !== "User");
   const { showError, showSuccess } = useToast();
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [entityTypeFilter, setEntityTypeFilter] = useState<AuditEntityType | "">("");
+  const [actorEmailFilter, setActorEmailFilter] = useState("");
+  const [actorOptions, setActorOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [undoingId, setUndoingId] = useState<string | null>(null);
+  const [previewPayload, setPreviewPayload] = useState<AuditPreviewPayload | null>(null);
 
-  const fetchPage = useCallback(async (params: { entityType: AuditEntityType | ""; cursor?: string }) => {
-    const search = new URLSearchParams();
-    if (params.entityType) search.set("entityType", params.entityType);
-    if (params.cursor) search.set("cursor", params.cursor);
-    const query = search.toString();
-    const res = await fetch(`/api/audit-log${query ? `?${query}` : ""}`);
-    if (!res.ok) throw new Error(await parseError(res, "Failed to load audit log."));
-    return (await res.json()) as { data: AuditLogEntry[]; nextCursor: string | null };
-  }, []);
+  const fetchPage = useCallback(
+    async (params: { entityType: AuditEntityType | ""; actorEmail: string; page: number }) => {
+      const search = new URLSearchParams();
+      if (params.entityType) search.set("entityType", params.entityType);
+      if (params.actorEmail) search.set("actorEmail", params.actorEmail);
+      search.set("page", String(params.page));
+      const res = await fetch(`/api/audit-log?${search.toString()}`);
+      if (!res.ok) throw new Error(await parseError(res, "Failed to load audit log."));
+      return (await res.json()) as { data: AuditLogEntry[]; page: number; totalPages: number };
+    },
+    [],
+  );
 
   const reload = useCallback(
-    async (entityType: AuditEntityType | "") => {
+    async (params: { entityType: AuditEntityType | ""; actorEmail: string; page: number }) => {
       setLoading(true);
       setLoadError(null);
       try {
-        const body = await fetchPage({ entityType });
+        const body = await fetchPage(params);
         setEntries(body.data);
-        setNextCursor(body.nextCursor);
+        setPage(body.page);
+        setTotalPages(body.totalPages);
         setExpanded(new Set());
       } catch (error) {
         setLoadError(error instanceof Error ? error.message : "Failed to load audit log.");
@@ -121,23 +165,29 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
     // rather than calling `reload` as a direct statement -- its setState
     // calls only run after the `await fetch`, not synchronously during this
     // effect, but the lint rule can't see through the indirection otherwise.
+    // Changing either filter always resets back to page 1.
     (async () => {
-      await reload(entityTypeFilter);
+      await reload({ entityType: entityTypeFilter, actorEmail: actorEmailFilter, page: 1 });
     })();
-  }, [entityTypeFilter, reload]);
+  }, [entityTypeFilter, actorEmailFilter, reload]);
 
-  async function loadMore() {
-    if (!nextCursor) return;
-    setLoadingMore(true);
-    try {
-      const body = await fetchPage({ entityType: entityTypeFilter, cursor: nextCursor });
-      setEntries((prev) => [...prev, ...body.data]);
-      setNextCursor(body.nextCursor);
-    } catch (error) {
-      showError(error instanceof Error ? error.message : "Failed to load more entries.");
-    } finally {
-      setLoadingMore(false);
-    }
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/audit-log/actors");
+        if (!res.ok) return;
+        const body = (await res.json()) as { data: string[] };
+        setActorOptions(body.data);
+      } catch {
+        // Non-critical -- the datalist just stays empty, filtering by
+        // hand-typed email still works.
+      }
+    })();
+  }, []);
+
+  function goToPage(nextPage: number) {
+    if (nextPage < 1 || nextPage > totalPages || nextPage === page) return;
+    void reload({ entityType: entityTypeFilter, actorEmail: actorEmailFilter, page: nextPage });
   }
 
   function toggleExpanded(id: string) {
@@ -153,11 +203,11 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
    * Best-effort staleness check: flags an entry
    * whose entity shows up again with a later timestamp among the
    * currently-loaded entries. There's no server-computed "is this stale"
-   * flag, and this only sees pages already fetched -- an even-newer entry
-   * for the same entity could exist further down the cursor. That's fine:
-   * the warning is explicitly non-blocking either way, so under-flagging a
-   * not-yet-loaded page is an acceptable simplification, not a correctness
-   * bug.
+   * flag, and this only sees the current page of entries -- an even-newer
+   * entry for the same entity could exist on a different page. That's fine:
+   * the warning is explicitly non-blocking either way, so under-flagging an
+   * entity change on another page is an acceptable simplification, not a
+   * correctness bug.
    */
   function isStale(entry: AuditLogEntry): boolean {
     const entryTime = new Date(entry.createdAt).getTime();
@@ -184,7 +234,7 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
       showSuccess(`Reverted ${entry.entityType} ${entry.entityId}.`);
       // The undo endpoint itself writes a new audit entry, so a full reload
       // (rather than a local splice) keeps the list honestly reflecting it.
-      await reload(entityTypeFilter);
+      await reload({ entityType: entityTypeFilter, actorEmail: actorEmailFilter, page });
     } catch (error) {
       showError(error instanceof Error ? error.message : "Failed to undo.");
     } finally {
@@ -194,22 +244,42 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <label className="flex w-fit items-center gap-2 text-xs font-medium text-muted">
-        Entity type
-        <select
-          value={entityTypeFilter}
-          onChange={(e) => setEntityTypeFilter(e.target.value as AuditEntityType | "")}
-          aria-label="Filter by entity type"
-          className="h-8 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary"
-        >
-          <option value="">All</option>
-          {visibleEntityTypes.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="flex w-fit items-center gap-2 text-xs font-medium text-muted">
+          Entity type
+          <select
+            value={entityTypeFilter}
+            onChange={(e) => setEntityTypeFilter(e.target.value as AuditEntityType | "")}
+            aria-label="Filter by entity type"
+            className="h-8 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary"
+          >
+            <option value="">All</option>
+            {visibleEntityTypes.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex w-fit items-center gap-2 text-xs font-medium text-muted">
+          Actor
+          <input
+            type="text"
+            value={actorEmailFilter}
+            onChange={(e) => setActorEmailFilter(e.target.value)}
+            list="audit-actor-options"
+            placeholder="All"
+            aria-label="Filter by actor email"
+            className="h-8 w-56 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary"
+          />
+          <datalist id="audit-actor-options">
+            {actorOptions.map((email) => (
+              <option key={email} value={email} />
+            ))}
+          </datalist>
+        </label>
+      </div>
 
       {loadError && (
         <div className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">{loadError}</div>
@@ -238,11 +308,13 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
                 const isExpanded = expanded.has(entry.id);
                 const stale = isStale(entry);
                 const isPageDelete = entry.entityType === "Page" && entry.action === "delete";
+                const previewPayloadForEntry = getPreviewPayload(entry);
+                const canViewPage = entry.entityType === "Page" && entry.pageSlug !== null;
                 return (
                   <Fragment key={entry.id}>
                     <tr className="bg-surface">
                       <td className="px-4 py-3">
-                        <div className="flex flex-col">
+                        <div className="flex flex-col gap-0.5">
                           <span className="font-medium text-foreground">{summarizeAuditEntry(entry)}</span>
                           <span className="text-xs text-muted">
                             {entry.entityType} ·{" "}
@@ -250,6 +322,16 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
                               {entry.entityId.slice(0, 10)}
                             </span>
                           </span>
+                          {entry.pageTitle && entry.pageSlug && (
+                            <a
+                              href={pagePath(entry.pageSlug)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-primary hover:underline"
+                            >
+                              {entry.pageTitle}
+                            </a>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -263,6 +345,25 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
                       <td className="px-4 py-3 whitespace-nowrap text-muted">{formatTimestamp(entry.createdAt)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
+                          {previewPayloadForEntry && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewPayload(previewPayloadForEntry)}
+                              className="flex h-8 items-center justify-center rounded-md border border-border-strong px-2.5 text-xs font-medium text-muted transition hover:border-primary hover:text-primary"
+                            >
+                              Preview
+                            </button>
+                          )}
+                          {canViewPage && (
+                            <a
+                              href={pagePath(entry.pageSlug!)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex h-8 items-center justify-center rounded-md border border-border-strong px-2.5 text-xs font-medium text-muted transition hover:border-primary hover:text-primary"
+                            >
+                              View page
+                            </a>
+                          )}
                           <button
                             type="button"
                             onClick={() => toggleExpanded(entry.id)}
@@ -320,16 +421,33 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
         </div>
       )}
 
-      {nextCursor && (
-        <button
-          type="button"
-          onClick={loadMore}
-          disabled={loadingMore}
-          className="flex h-10 w-fit items-center justify-center gap-1.5 rounded-md border border-dashed border-border-strong px-4 text-sm font-medium text-muted transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loadingMore ? "Loading…" : "Load more"}
-        </button>
+      {!loading && entries.length > 0 && (
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-muted">
+            Page {page} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => goToPage(page - 1)}
+              disabled={page <= 1}
+              className="flex h-9 items-center justify-center rounded-md border border-border-strong px-3 text-sm font-medium text-muted transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => goToPage(page + 1)}
+              disabled={page >= totalPages}
+              className="flex h-9 items-center justify-center rounded-md border border-border-strong px-3 text-sm font-medium text-muted transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       )}
+
+      {previewPayload && <AuditPreviewModal payload={previewPayload} onClose={() => setPreviewPayload(null)} />}
     </div>
   );
 }

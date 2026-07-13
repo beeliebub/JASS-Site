@@ -45,7 +45,27 @@ export async function POST(req: Request) {
   }
 
   const parsed = pageCreateSchema.safeParse(body);
-  if (!parsed.success) return validationError(parsed.error);
+  if (!parsed.success) {
+    // A reserved slug ("admin", "rules", etc.) fails `refineNotReserved`
+    // before the duplicate-slug check below ever runs. Most reserved slugs
+    // already belong to a real (often protected) Page row, so the accurate
+    // message for an admin naming a new page "Admin" is the same conflict
+    // message a plain duplicate-slug collision produces, not the generic
+    // reserved-slug validation error -- see CLAUDE.md bug writeup. Only
+    // "api" (and any other reserved slug with no matching Page row) falls
+    // through to the normal validation error below.
+    const reservedSlugIssue = parsed.error.issues.find(
+      (issue) => issue.path.join(".") === "slug" && issue.message.endsWith('is a reserved slug.'),
+    );
+    if (reservedSlugIssue) {
+      const rawSlug = typeof body === "object" && body !== null ? (body as { slug?: unknown }).slug : undefined;
+      if (typeof rawSlug === "string") {
+        const existingForReservedSlug = await prisma.page.findUnique({ where: { slug: rawSlug } });
+        if (existingForReservedSlug) return conflict(`A page with slug "${rawSlug}" already exists.`);
+      }
+    }
+    return validationError(parsed.error);
+  }
 
   const user = await getSessionUser();
 
@@ -61,8 +81,7 @@ export async function POST(req: Request) {
           title: parsed.data.title,
           slug,
           metaDescription: parsed.data.metaDescription ?? null,
-          published: parsed.data.published ?? true,
-          adminOnly: parsed.data.adminOnly ?? false,
+          published: parsed.data.published ?? false,
           theme: parsed.data.theme ?? null,
           protected: false,
           updatedBy: user?.email,

@@ -11,8 +11,23 @@ import { pagePath } from "@/lib/routes";
 import { THEME_IDS, THEMES, type ThemeId } from "@/lib/themes";
 import { slugSchema } from "@/lib/validation/pages";
 
-async function parseError(res: Response, fallback: string) {
-  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+/**
+ * `preferFieldDetail` is opt-in (only createPage/saveSlug pass it): when the
+ * server falls back to a genuine `validation_error` response with exactly
+ * one field-level detail (e.g. the reserved-slug "api" case in
+ * app/api/pages/route.ts), that detail's message is more specific than the
+ * generic top-level "Request validation failed." A response carrying
+ * multiple simultaneous field errors doesn't reduce to one string, so those
+ * still fall back to the generic message. Other callers in this file
+ * (toggle/theme/title/delete) are out of scope and keep today's behavior.
+ */
+async function parseError(res: Response, fallback: string, opts?: { preferFieldDetail?: boolean }) {
+  const body = (await res.json().catch(() => null)) as
+    | { error?: { message?: string; details?: { message: string }[] } }
+    | null;
+  if (opts?.preferFieldDetail && body?.error?.details?.length === 1) {
+    return body.error.details[0].message;
+  }
   return body?.error?.message ?? fallback;
 }
 
@@ -45,22 +60,6 @@ export function PagesAdmin({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ published: !page.published }),
-      });
-      if (!res.ok) throw new Error(await parseError(res, "Failed to update page."));
-    } catch (error) {
-      setPages(previous);
-      showError(error instanceof Error ? error.message : "Failed to update page.");
-    }
-  }
-
-  async function toggleAdminOnly(page: Page) {
-    const previous = pages;
-    setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, adminOnly: !p.adminOnly } : p)));
-    try {
-      const res = await fetch(`/api/pages/${page.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminOnly: !page.adminOnly }),
       });
       if (!res.ok) throw new Error(await parseError(res, "Failed to update page."));
     } catch (error) {
@@ -119,7 +118,7 @@ export function PagesAdmin({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ slug: parsed.data }),
     });
-    if (!res.ok) throw new Error(await parseError(res, "Failed to update page slug."));
+    if (!res.ok) throw new Error(await parseError(res, "Failed to update page slug.", { preferFieldDetail: true }));
     // The slug isn't part of EditableText's own display state -- it also
     // feeds the "Edit" button href and the /-prefixed slug text below, both
     // rendered from `pages`, so update it here on success too.
@@ -150,7 +149,7 @@ export function PagesAdmin({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: title.trim(), slug: slugify(title) || undefined }),
       });
-      if (!res.ok) throw new Error(await parseError(res, "Failed to create page."));
+      if (!res.ok) throw new Error(await parseError(res, "Failed to create page.", { preferFieldDetail: true }));
       const { data } = (await res.json()) as { data: Page };
       router.push(pagePath(data.slug));
     } catch (error) {
@@ -210,26 +209,20 @@ export function PagesAdmin({
                     <button
                       type="button"
                       onClick={() => togglePublished(page)}
+                      disabled={page.protected}
+                      title={
+                        page.protected
+                          ? "Protected pages always render regardless of this setting"
+                          : undefined
+                      }
                       aria-pressed={page.published}
-                      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
                         page.published
                           ? "border-primary/40 bg-primary/10 text-primary"
                           : "border-border-strong text-muted hover:text-foreground"
                       }`}
                     >
                       {page.published ? "Published" : "Draft"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleAdminOnly(page)}
-                      aria-pressed={page.adminOnly}
-                      className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                        page.adminOnly
-                          ? "border-accent/40 bg-accent/10 text-accent"
-                          : "border-border-strong text-muted hover:text-foreground"
-                      }`}
-                    >
-                      {page.adminOnly ? "Admin+ only" : "Public"}
                     </button>
                   </div>
                 </td>

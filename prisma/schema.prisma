@@ -34,9 +34,8 @@ model Page {
   slug            String       @unique
   title           String
   metaDescription String?
-  published       Boolean      @default(true)
+  published       Boolean      @default(false)
   protected       Boolean      @default(false)
-  adminOnly       Boolean      @default(false) // mirrors `published`; gates app/[slug]/page.tsx
   theme           String? // one of lib/themes.ts THEME_IDS; null = follow visitor theme
   customThemeId   String? // mutually exclusive with `theme`; see lib/validation/pages.ts
   customTheme     CustomTheme? @relation(fields: [customThemeId], references: [id], onDelete: SetNull)
@@ -162,7 +161,7 @@ model Feature {
 model Post {
   id          String   @id @default(cuid())
   slug        String   @unique
-  tag         String
+  tags        Tag[]
   title       String
   excerpt     String
   body        String?
@@ -170,6 +169,18 @@ model Post {
   author      String?
   block       Block    @relation(fields: [blockId], references: [id], onDelete: Cascade)
   blockId     String
+}
+
+// Shared across every Post List block on the site (posts themselves are
+// owned per-block, but a tag's name/color apply everywhere that name is
+// used) -- admin-controlled color lets a tag like "Announcement" carry a
+// consistent look wherever it's rendered instead of every tag sharing one
+// hardcoded accent color.
+model Tag {
+  id    String @id @default(cuid())
+  name  String @unique
+  color String // "#rrggbb" hex, validated in lib/validation/content.ts
+  posts Post[]
 }
 
 // Resource pack hosting. Content-addressed on disk at

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TagPill } from "@/components/news/tag-pill";
+import { TagPill, type TagPillTag } from "@/components/news/tag-pill";
 
 function formatDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -10,7 +10,7 @@ function formatDate(date: Date) {
 // unrelated columns like `blockId`/`body`/`author` just to typecheck.
 type DisplayPost = {
   slug: string;
-  tag: string;
+  tags: (TagPillTag & { id: string })[];
   title: string;
   excerpt: string;
   publishedAt: Date;
@@ -38,7 +38,9 @@ export function NewsPostItem({
           <time dateTime={post.publishedAt.toISOString()} className="font-mono text-xs text-muted">
             {dateLabel}
           </time>
-          <TagPill tag={post.tag} />
+          {post.tags.map((tag) => (
+            <TagPill key={tag.id} tag={tag} />
+          ))}
           {featured && (
             <span className="text-[11px] font-medium uppercase tracking-wider text-accent">
               Latest

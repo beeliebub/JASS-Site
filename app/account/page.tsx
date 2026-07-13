@@ -1,12 +1,18 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import { Container } from "@/components/container";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { SiteChrome } from "@/components/pages/site-chrome";
+import { getPageBySlug } from "@/lib/content";
+import { formatPageTitle } from "@/lib/site-config";
 
-export const metadata = {
-  title: "Account",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPageBySlug("account");
+  return {
+    title: page ? formatPageTitle(page.title) : "Account",
+  };
+}
 
 export default async function AccountPage() {
   const session = await auth();

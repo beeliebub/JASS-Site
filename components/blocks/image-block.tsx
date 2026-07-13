@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from "react";
+import { useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { EditableText } from "@/components/admin/editable-text";
 import { useToast } from "@/components/admin/toast";
 import { Container } from "@/components/container";
 import { formatBytes } from "@/lib/format";
+import { SCALE_MIN, SCALE_MAX, DIMENSION_MIN, DIMENSION_MAX, buildImageStyle } from "@/lib/image-size";
 
 /** `sizeMode`/`scale`/`width`/`height` are the display-size override --
  * see `imageSizeSchema` in lib/validation/pages.ts for the exact bounds
@@ -40,35 +41,6 @@ function fallbackAltFromFilename(filename: string) {
     .replace(/\.[^./\\]+$/, "")
     .replace(/[-_]+/g, " ")
     .trim();
-}
-
-// Mirrors imageSizeSchema's bounds in lib/validation/pages.ts -- clamped here
-// too so the UI never sends a value the server would reject.
-const SCALE_MIN = 10;
-const SCALE_MAX = 100;
-const DIMENSION_MIN = 1;
-const DIMENSION_MAX = 2000;
-
-/** Builds the `<img>`'s inline style from validated numeric fields only --
- * never a passthrough string, so this can't become a CSS-injection surface.
- * `sizeMode === "scale"` renders a responsive percentage of the figure's
- * width; `sizeMode === "custom"` renders an exact pixel box, with either
- * dimension alone falling back to "auto" to preserve aspect ratio. */
-function buildImageStyle(data: ImageData): CSSProperties {
-  if (data.sizeMode === "scale" && typeof data.scale === "number" && Number.isFinite(data.scale)) {
-    return { width: `${data.scale}%`, height: "auto" };
-  }
-  if (data.sizeMode === "custom") {
-    const hasWidth = typeof data.width === "number" && Number.isFinite(data.width);
-    const hasHeight = typeof data.height === "number" && Number.isFinite(data.height);
-    const style: CSSProperties = {};
-    if (hasWidth) style.width = `${data.width}px`;
-    if (hasHeight) style.height = `${data.height}px`;
-    if (hasWidth && !hasHeight) style.height = "auto";
-    if (hasHeight && !hasWidth) style.width = "auto";
-    return style;
-  }
-  return {};
 }
 
 /** Admins can either paste an absolute URL to an externally-hosted image, or

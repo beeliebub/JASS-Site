@@ -4,12 +4,15 @@ import { getPageBySlug } from "@/lib/content";
 import { PageRenderer } from "@/components/pages/page-renderer";
 import { SiteChrome } from "@/components/pages/site-chrome";
 import { resolvePageTheme } from "@/lib/custom-themes";
+import { formatPageTitle } from "@/lib/site-config";
 
-export const metadata: Metadata = {
-  title: "News — JASS",
-  description:
-    "Updates, patch notes, and announcements from the JASS Minecraft server.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPageBySlug("news");
+  return {
+    title: page ? formatPageTitle(page.title) : "Page not found",
+    description: "Updates, patch notes, and announcements from the JASS Minecraft server.",
+  };
+}
 
 export default async function NewsPage() {
   const page = await getPageBySlug("news");

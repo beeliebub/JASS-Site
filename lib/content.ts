@@ -57,7 +57,27 @@ export async function getFeaturesByBlockIds(blockIds: string[]) {
 }
 
 export async function getPostsByBlockIds(blockIds: string[]) {
-  return prisma.post.findMany({ where: { blockId: { in: blockIds } }, orderBy: { publishedAt: "desc" } });
+  return prisma.post.findMany({
+    where: { blockId: { in: blockIds } },
+    orderBy: { publishedAt: "desc" },
+    include: { tags: true },
+  });
+}
+
+// Backs the `postDisplay` block: posts are still owned by a Post List
+// block (`blockId`), but this reads across every owner site-wide, filtered
+// by tag membership instead of ownership -- `some: { id: { in: tagIds } }`
+// is OR semantics across the selected tags (a post matching *any* selected
+// tag is included). Callers only invoke this with a non-empty `tagIds`
+// union (see page-renderer.tsx) -- an empty array here would still
+// correctly match zero posts (`some` on an empty `in` list never matches),
+// but the caller skips the query entirely in that case to avoid the round trip.
+export async function getPostsByTagIds(tagIds: string[]) {
+  return prisma.post.findMany({
+    where: { tags: { some: { id: { in: tagIds } } } },
+    orderBy: { publishedAt: "desc" },
+    include: { tags: true },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +119,7 @@ export type PostListBlockGroup = {
   pageTitle: string;
   blockId: string;
   blockOrder: number;
-  posts: { id: string; slug: string; title: string; tag: string; publishedAt: Date }[];
+  posts: { id: string; slug: string; title: string; tags: { id: string; name: string; color: string }[]; publishedAt: Date }[];
 };
 
 // Post List blocks own their posts outright (cascade-deleted with the
@@ -108,7 +128,7 @@ export type PostListBlockGroup = {
 export async function getPostListDirectory(): Promise<PostListBlockGroup[]> {
   const blocks = await prisma.block.findMany({
     where: { type: "postList" },
-    include: { page: true, posts: { orderBy: { publishedAt: "desc" } } },
+    include: { page: true, posts: { orderBy: { publishedAt: "desc" }, include: { tags: true } } },
     orderBy: [{ page: { slug: "asc" } }, { order: "asc" }],
   });
 
@@ -122,7 +142,7 @@ export async function getPostListDirectory(): Promise<PostListBlockGroup[]> {
       id: post.id,
       slug: post.slug,
       title: post.title,
-      tag: post.tag,
+      tags: post.tags,
       publishedAt: post.publishedAt,
     })),
   }));

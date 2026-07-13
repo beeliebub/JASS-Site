@@ -11,6 +11,7 @@ import {
   validationError,
 } from "@/lib/api-response";
 import { postUpdateSchema } from "@/lib/validation/content";
+import { requireValidTagIds } from "@/lib/tag-ownership";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
@@ -27,6 +28,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const parsed = postUpdateSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
+  if (parsed.data.tagIds) {
+    const validTagIds = await requireValidTagIds(parsed.data.tagIds);
+    if (!validTagIds.ok) return validTagIds.response;
+  }
+
   try {
     const existing = await prisma.post.findUnique({ where: { id } });
     if (!existing) return notFound("Post");
@@ -36,7 +42,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       if (slugTaken) return conflict(`A post with slug "${parsed.data.slug}" already exists.`);
     }
 
-    const post = await prisma.post.update({ where: { id }, data: parsed.data });
+    const { tagIds, ...rest } = parsed.data;
+    const post = await prisma.post.update({
+      where: { id },
+      // `set` (not `connect`) replaces the full tag membership -- a PUT
+      // represents "these are now the tags", not "also add these".
+      data: { ...rest, ...(tagIds ? { tags: { set: tagIds.map((tagId) => ({ id: tagId })) } } : {}) },
+      include: { tags: true },
+    });
     revalidatePath("/news");
     return apiSuccess(post);
   } catch (error) {

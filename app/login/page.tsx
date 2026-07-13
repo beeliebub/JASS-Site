@@ -1,10 +1,16 @@
+import type { Metadata } from "next";
 import { Container } from "@/components/container";
 import { LoginForm } from "@/components/auth/login-form";
 import { SiteChrome } from "@/components/pages/site-chrome";
+import { getPageBySlug } from "@/lib/content";
+import { formatPageTitle } from "@/lib/site-config";
 
-export const metadata = {
-  title: "Admin Login",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPageBySlug("login");
+  return {
+    title: page ? formatPageTitle(page.title) : "Login",
+  };
+}
 
 export default function LoginPage() {
   return (

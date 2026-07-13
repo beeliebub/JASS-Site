@@ -1,23 +1,23 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Container } from "@/components/container";
+import { getPageBySlug } from "@/lib/content";
+import { formatPageTitle } from "@/lib/site-config";
 
-export const metadata = {
-  title: "Admin",
-};
-
-const editablePages = [
-  { href: "/", title: "Home", description: "Server name, tagline, and IP." },
-  { href: "/rules", title: "Rules", description: "Rule sections and individual rules." },
-  { href: "/features", title: "Features", description: "Feature cards, icons, and ordering." },
-  { href: "/news", title: "News", description: "Create, edit, and delete announcements." },
-];
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPageBySlug("admin");
+  return {
+    title: page ? formatPageTitle(page.title) : "Admin",
+  };
+}
 
 const managementLinks = [
   { href: "/admin/pages", title: "Pages", description: "Create custom pages, publish/unpublish, delete." },
   { href: "/admin/nav", title: "Navigation", description: "Header nav items and one level of dropdowns." },
   { href: "/admin/post-slugs", title: "Post slugs", description: "Every post's slug, grouped by page and block." },
+  { href: "/admin/tags", title: "Tags", description: "Rename, recolor, and clean up post tags." },
   { href: "/admin/images", title: "Images", description: "Every uploaded image, used/unused, delete the orphans." },
   { href: "/admin/themes", title: "Themes", description: "Create and manage custom color themes." },
   { href: "/admin/settings", title: "Settings", description: "Favicon and link-share (embed) defaults." },
@@ -48,22 +48,6 @@ export default async function AdminPage() {
           Flip on <span className="font-medium text-foreground">Edit mode</span> in the header, then browse to
           any page below — content gets a dashed outline you can click to edit in place.
         </p>
-      </div>
-
-      <div>
-        <h2 className="text-sm font-medium tracking-wide text-muted uppercase">Editable pages</h2>
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {editablePages.map((page) => (
-            <Link
-              key={page.href}
-              href={page.href}
-              className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-4 transition motion-safe:hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg hover:shadow-black/20"
-            >
-              <span className="text-sm font-semibold text-foreground">{page.title}</span>
-              <span className="text-sm text-pretty text-muted">{page.description}</span>
-            </Link>
-          ))}
-        </div>
       </div>
 
       <div>

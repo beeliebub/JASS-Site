@@ -27,7 +27,24 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const parsed = pageUpdateSchema.safeParse(body);
-  if (!parsed.success) return validationError(parsed.error);
+  if (!parsed.success) {
+    // Same reserved-slug-vs-conflict precedence issue as POST /api/pages
+    // (see the comment there): renaming a page to "admin"/"rules"/etc. fails
+    // `refineNotReserved` before the duplicate-slug check further down ever
+    // runs, so surface the same conflict message that check would have
+    // produced when a real Page already owns that slug.
+    const reservedSlugIssue = parsed.error.issues.find(
+      (issue) => issue.path.join(".") === "slug" && issue.message.endsWith('is a reserved slug.'),
+    );
+    if (reservedSlugIssue) {
+      const rawSlug = typeof body === "object" && body !== null ? (body as { slug?: unknown }).slug : undefined;
+      if (typeof rawSlug === "string") {
+        const existingForReservedSlug = await prisma.page.findUnique({ where: { slug: rawSlug } });
+        if (existingForReservedSlug) return conflict(`A page with slug "${rawSlug}" already exists.`);
+      }
+    }
+    return validationError(parsed.error);
+  }
 
   const user = await getSessionUser();
 

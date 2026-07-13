@@ -47,6 +47,7 @@ function displayField(entityType: string, snapshot: Snapshot): string {
     case "NavItem":
       return typeof snapshot.label === "string" ? snapshot.label : "";
     case "CustomTheme":
+    case "Tag":
       return typeof snapshot.name === "string" ? snapshot.name : "";
     case "User":
       return (typeof snapshot.name === "string" && snapshot.name) || String(snapshot.email ?? "");
