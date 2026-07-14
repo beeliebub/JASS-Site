@@ -1,0 +1,7 @@
+interface:
+  display_name: "Docker Patterns"
+  short_description: "Docker Patterns guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $docker-patterns when the task calls for Docker Patterns."
+policy:
+  allow_implicit_invocation: true

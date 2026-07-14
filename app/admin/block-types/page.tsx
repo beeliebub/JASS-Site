@@ -21,8 +21,8 @@ export default async function AdminBlockTypesPage() {
         <h1 className="text-xl font-semibold tracking-tight text-foreground">Block types</h1>
         <p className="text-sm text-muted">
           Admin-defined block types. Each one becomes usable in the page builder&apos;s &quot;Add block&quot; picker
-          right alongside the built-in types, with its own fields, layout, and config. A block type still used by a
-          block on a page can&apos;t be deleted until every instance of it is removed.
+          right alongside the built-in types, with its own fields and either a built-in layout or an HTML template. A
+          block type still used by a block on a page can&apos;t be deleted until every instance of it is removed.
         </p>
       </div>
 
@@ -33,6 +33,9 @@ export default async function AdminBlockTypesPage() {
           name: definition.name,
           description: definition.description,
           layout: definition.layout,
+          renderMode: definition.renderMode,
+          htmlTemplate: definition.htmlTemplate,
+          remapThemeColors: definition.remapThemeColors,
           fields: definition.fields.map((field) => ({
             key: field.key,
             label: field.label,

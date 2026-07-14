@@ -112,20 +112,24 @@ model Block {
 // lib/validation/block-definitions.ts. `key` is immutable after create (it's
 // never actually read back out anywhere yet, only guaranteed unique/stable
 // for whenever something needs a durable non-id reference); `name` is the
-// only admin-facing label. `layout` is one of a fixed set of template ids
-// (rendered by components/blocks/custom-block-renderer.tsx), always set --
-// there is no "no layout chosen yet" state.
+// only admin-facing label. `renderMode: "fields"` uses one of the fixed
+// `layout` template ids; `renderMode: "html"` uses `htmlTemplate` with the
+// same fields as placeholders. `layout` remains set in both modes so a
+// definition can switch back to field rendering without losing its choice.
 model BlockDefinition {
-  id          String                 @id @default(cuid())
-  key         String                 @unique
-  name        String
-  description String?
-  layout      String
-  fields      BlockFieldDefinition[]
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-  createdBy   String?
-  blocks      Block[]                @relation("CustomBlockInstances")
+  id               String                 @id @default(cuid())
+  key              String                 @unique
+  name             String
+  description      String?
+  layout           String
+  renderMode       String                 @default("fields")
+  htmlTemplate     String?
+  remapThemeColors Boolean                @default(false)
+  fields           BlockFieldDefinition[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  createdBy        String?
+  blocks           Block[]                @relation("CustomBlockInstances")
 }
 
 // One field on a BlockDefinition. `key` is the JSON key this field occupies

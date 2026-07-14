@@ -22,6 +22,7 @@ import {
 } from "@/components/blocks/registry";
 import type { PostDisplayData } from "@/components/blocks/post-display-block";
 import { PageBlocks } from "@/components/pages/page-blocks";
+import { renderCustomHtml } from "@/lib/render-custom-html";
 
 export type PageWithBlocks = Page & { blocks: Block[] };
 
@@ -142,6 +143,9 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
       id: definition.id,
       name: definition.name,
       layout: definition.layout,
+      renderMode: definition.renderMode === "html" ? "html" : "fields",
+      htmlTemplate: definition.htmlTemplate,
+      remapThemeColors: definition.remapThemeColors,
       fields: definition.fields.map((field) => ({
         id: field.id,
         key: field.key,
@@ -208,6 +212,7 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
       const schema = buildDataSchemaFromDefinition(rawDefinition.fields);
       const result = schema.safeParse(parsed);
       const data = result.success ? result.data : defaultDataForFields(rawDefinition.fields);
+      const renderedHtml = renderCustomHtml(rawDefinition, data as Record<string, unknown>);
 
       const customBlock: ClientBlock = {
         id: block.id,
@@ -215,6 +220,7 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
         order: block.order,
         data,
         blockDefinitionId: block.blockDefinitionId,
+        renderedHtml,
       };
       return [customBlock];
     }

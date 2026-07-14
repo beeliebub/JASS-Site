@@ -2,7 +2,10 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, conflict, editingDisabled, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
-import { blockDefinitionUpdateSchema } from "@/lib/validation/block-definitions";
+import {
+  blockDefinitionEffectiveRenderSchema,
+  blockDefinitionUpdateSchema,
+} from "@/lib/validation/block-definitions";
 import { blockDefinitionSnapshot, recordAuditLog } from "@/lib/audit-log";
 
 /** Ungated, same reasoning as `GET /api/block-definitions`. */
@@ -43,6 +46,24 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const existing = await prisma.blockDefinition.findUnique({ where: { id }, include: { fields: true } });
     if (!existing) return notFound("Block type");
 
+    const effectiveFields =
+      parsed.data.fields ??
+      existing.fields.map((field) => ({
+        key: field.key,
+        label: field.label,
+        fieldType: field.fieldType,
+        order: field.order,
+        required: field.required,
+        helpText: field.helpText,
+        config: JSON.parse(field.config) as unknown,
+      }));
+    const effectiveRender = blockDefinitionEffectiveRenderSchema.safeParse({
+      renderMode: parsed.data.renderMode ?? existing.renderMode,
+      htmlTemplate: parsed.data.htmlTemplate !== undefined ? parsed.data.htmlTemplate : existing.htmlTemplate,
+      fields: effectiveFields,
+    });
+    if (!effectiveRender.success) return validationError(effectiveRender.error);
+
     const definition = await prisma.$transaction(async (tx) => {
       // Reconciling a field-level diff (which fields were added/removed/
       // reordered vs. just edited) isn't worth the complexity here --
@@ -58,6 +79,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
           ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
           ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
           ...(parsed.data.layout !== undefined ? { layout: parsed.data.layout } : {}),
+          ...(parsed.data.renderMode !== undefined ? { renderMode: parsed.data.renderMode } : {}),
+          ...(parsed.data.htmlTemplate !== undefined ? { htmlTemplate: parsed.data.htmlTemplate } : {}),
+          ...(parsed.data.remapThemeColors !== undefined
+            ? { remapThemeColors: parsed.data.remapThemeColors }
+            : {}),
           ...(parsed.data.fields !== undefined
             ? {
                 fields: {

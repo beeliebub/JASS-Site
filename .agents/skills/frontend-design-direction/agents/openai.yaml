@@ -1,0 +1,7 @@
+interface:
+  display_name: "Frontend Design Direction"
+  short_description: "Frontend Design Direction guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $frontend-design-direction when the task calls for Frontend Design Direction."
+policy:
+  allow_implicit_invocation: true

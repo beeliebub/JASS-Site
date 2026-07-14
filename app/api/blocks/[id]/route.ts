@@ -6,6 +6,7 @@ import { blockUpdateSchema, parseBlockData } from "@/lib/validation/pages";
 import { buildDataSchemaFromDefinition } from "@/lib/validation/block-definitions";
 import { pagePath } from "@/lib/content";
 import { blockSnapshot, recordAuditLog } from "@/lib/audit-log";
+import { renderCustomHtml } from "@/lib/render-custom-html";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
@@ -30,6 +31,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (!existing) return notFound("Block");
 
     let dataJson: string | undefined;
+    let renderedHtml: string | undefined;
     if (parsed.data.data !== undefined) {
       if (existing.type === "custom") {
         // `existing.blockDefinitionId` is set for every real `type: "custom"`
@@ -54,6 +56,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         const dataParsed = dataSchema.safeParse(parsed.data.data);
         if (!dataParsed.success) return validationError(dataParsed.error);
         dataJson = JSON.stringify(dataParsed.data);
+        renderedHtml = renderCustomHtml(definition, dataParsed.data as Record<string, unknown>);
       } else {
         const dataParsed = parseBlockData(existing.type, parsed.data.data);
         if (!dataParsed.success) return validationError(dataParsed.error);
@@ -82,7 +85,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     });
 
     revalidatePath(pagePath(existing.page.slug));
-    return apiSuccess(block);
+    return apiSuccess({ ...block, renderedHtml });
   } catch (error) {
     return internalError(error);
   }

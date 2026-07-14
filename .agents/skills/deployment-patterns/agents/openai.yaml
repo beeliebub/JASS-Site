@@ -1,0 +1,7 @@
+interface:
+  display_name: "Deployment Patterns"
+  short_description: "Deployment Patterns guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $deployment-patterns when the task calls for Deployment Patterns."
+policy:
+  allow_implicit_invocation: true

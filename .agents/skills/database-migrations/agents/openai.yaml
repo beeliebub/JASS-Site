@@ -1,0 +1,7 @@
+interface:
+  display_name: "Database Migrations"
+  short_description: "Database Migrations guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $database-migrations when the task calls for Database Migrations."
+policy:
+  allow_implicit_invocation: true

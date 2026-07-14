@@ -1,0 +1,7 @@
+interface:
+  display_name: "Make Interfaces Feel Better"
+  short_description: "Make Interfaces Feel Better guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $make-interfaces-feel-better when the task calls for Make Interfaces Feel Better."
+policy:
+  allow_implicit_invocation: true

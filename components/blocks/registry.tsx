@@ -93,6 +93,10 @@ export type ClientBlock = {
   /** Set only for `type: "custom"` blocks -- which `BlockDefinition`
    * (looked up in `referenceData.blockDefinitionsById`) this instance is. */
   blockDefinitionId?: string | null;
+  /** Finished server-rendered markup for an HTML-mode custom block. Kept on
+   * the instance rather than its shared definition because interpolation
+   * depends on this block's own data. */
+  renderedHtml?: string;
 };
 
 export type BlockComponentProps = {
@@ -222,6 +226,7 @@ export const blockComponents: Record<BlockType | "custom", ComponentType<BlockCo
       <CustomBlockRenderer
         definition={definition}
         data={(block.data ?? {}) as Record<string, unknown>}
+        renderedHtml={block.renderedHtml}
         onSaveData={onSaveData as (next: Record<string, unknown>) => Promise<void>}
       />
     );

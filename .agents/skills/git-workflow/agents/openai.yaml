@@ -1,0 +1,7 @@
+interface:
+  display_name: "Git Workflow"
+  short_description: "Git Workflow guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $git-workflow when the task calls for Git Workflow."
+policy:
+  allow_implicit_invocation: true

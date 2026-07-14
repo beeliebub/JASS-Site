@@ -1,0 +1,7 @@
+interface:
+  display_name: "Frontend A11y"
+  short_description: "Frontend A11y guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $frontend-a11y when the task calls for Frontend A11y."
+policy:
+  allow_implicit_invocation: true

@@ -29,6 +29,7 @@ import { siteSettingsUpdateSchema } from "@/lib/validation/site-settings";
 import { tagCreateSchema, tagUpdateSchema } from "@/lib/validation/content";
 import {
   blockDefinitionCreateSchema,
+  blockDefinitionEffectiveRenderSchema,
   blockDefinitionUpdateSchema,
   buildDataSchemaFromDefinition,
 } from "@/lib/validation/block-definitions";
@@ -149,6 +150,9 @@ export function blockDefinitionSnapshot(row: BlockDefinition & { fields: BlockFi
     name: row.name,
     description: row.description,
     layout: row.layout,
+    renderMode: row.renderMode,
+    htmlTemplate: row.htmlTemplate,
+    remapThemeColors: row.remapThemeColors,
     fields: [...row.fields]
       .sort((a, b) => a.order - b.order)
       .map((field) => ({
@@ -509,10 +513,21 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
         name: snapshot.name,
         description: snapshot.description,
         layout: snapshot.layout,
+        renderMode: snapshot.renderMode ?? "fields",
+        htmlTemplate: snapshot.htmlTemplate ?? null,
+        remapThemeColors: snapshot.remapThemeColors ?? false,
         fields: snapshot.fields,
       });
       if (!parsed.success) {
         return { ok: false, message: "Stored snapshot no longer matches the current block-type schema." };
+      }
+      const effectiveRender = blockDefinitionEffectiveRenderSchema.safeParse({
+        renderMode: snapshot.renderMode ?? "fields",
+        htmlTemplate: snapshot.htmlTemplate ?? null,
+        fields: snapshot.fields,
+      });
+      if (!effectiveRender.success) {
+        return { ok: false, message: "Stored snapshot has invalid HTML-template references." };
       }
 
       // Reconciling a field-level diff isn't worth the complexity here --
@@ -526,6 +541,9 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
             name: snapshot.name,
             description: snapshot.description,
             layout: snapshot.layout,
+            renderMode: snapshot.renderMode ?? "fields",
+            htmlTemplate: snapshot.htmlTemplate ?? null,
+            remapThemeColors: snapshot.remapThemeColors ?? false,
             fields: { create: fieldsCreateInput },
           },
         });
@@ -538,6 +556,9 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
       name: snapshot.name,
       description: snapshot.description,
       layout: snapshot.layout,
+      renderMode: snapshot.renderMode ?? "fields",
+      htmlTemplate: snapshot.htmlTemplate ?? null,
+      remapThemeColors: snapshot.remapThemeColors ?? false,
       fields: snapshot.fields,
     });
     if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current block-type schema." };
@@ -550,6 +571,9 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
           name: snapshot.name,
           description: snapshot.description,
           layout: snapshot.layout,
+          renderMode: snapshot.renderMode ?? "fields",
+          htmlTemplate: snapshot.htmlTemplate ?? null,
+          remapThemeColors: snapshot.remapThemeColors ?? false,
           createdBy: ctx.actorEmail,
           fields: { create: fieldsCreateInput },
         },

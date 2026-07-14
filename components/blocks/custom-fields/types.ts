@@ -33,6 +33,9 @@ export type BlockDefinitionWithFields = {
   id: string;
   name: string;
   layout: string;
+  renderMode: "fields" | "html";
+  htmlTemplate: string | null;
+  remapThemeColors: boolean;
   fields: CustomFieldDef[];
 };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useToast } from "@/components/admin/toast";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
 import { BLOCK_LAYOUT_TEMPLATES } from "@/lib/block-layouts";
@@ -29,6 +29,8 @@ export type FieldTypeValue =
   | "link"
   | "select"
   | "repeater";
+
+type RenderMode = "fields" | "html";
 
 /** Every field type except `repeater` -- used both for the type picker shown
  * inside a repeater's own item-field editor and for parsing/building that
@@ -99,6 +101,9 @@ export type BlockDefinitionApiRow = {
   name: string;
   description: string | null;
   layout: string;
+  renderMode: string;
+  htmlTemplate: string | null;
+  remapThemeColors: boolean;
   fields: ApiFieldRow[];
   usageCount: number;
 };
@@ -109,6 +114,9 @@ type BlockDefinitionRow = {
   name: string;
   description: string | null;
   layout: string;
+  renderMode: RenderMode;
+  htmlTemplate: string;
+  remapThemeColors: boolean;
   fields: FieldDraft[];
   usageCount: number;
 };
@@ -118,6 +126,9 @@ type DefinitionFormValues = {
   name: string;
   description: string;
   layout: string;
+  renderMode: RenderMode;
+  htmlTemplate: string;
+  remapThemeColors: boolean;
   fields: FieldDraft[];
 };
 
@@ -244,6 +255,9 @@ function apiRowToRow(row: BlockDefinitionApiRow): BlockDefinitionRow {
     name: row.name,
     description: row.description,
     layout: row.layout,
+    renderMode: row.renderMode === "html" ? "html" : "fields",
+    htmlTemplate: row.htmlTemplate ?? "",
+    remapThemeColors: row.remapThemeColors,
     fields: [...row.fields].sort((a, b) => a.order - b.order).map(draftFromApiField),
     usageCount: row.usageCount,
   };
@@ -282,8 +296,21 @@ function buildPayload(values: DefinitionFormValues, includeKey: boolean) {
     name: values.name.trim(),
     description: values.description.trim() ? values.description.trim() : null,
     layout: values.layout,
+    renderMode: values.renderMode,
+    htmlTemplate: values.htmlTemplate.trim() ? values.htmlTemplate : null,
+    remapThemeColors: values.remapThemeColors,
     fields: values.fields.map((field, index) => fieldPayloadFromDraft(field, index)),
   };
+}
+
+function repeaterSnippet(field: FieldDraft): string {
+  const itemPlaceholders = (field.config.fields ?? [])
+    .map((itemField) => itemField.key.trim())
+    .filter(Boolean)
+    .map((key) => `    {{${key}}}`)
+    .join("\n");
+  const body = itemPlaceholders ? `  <div>\n${itemPlaceholders}\n  </div>` : "  ";
+  return `{{#each ${field.key.trim()}}}\n${body}\n{{/each}}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +574,105 @@ function FieldListEditor({
 // Definition form (create + edit)
 // ---------------------------------------------------------------------------
 
+function HtmlTemplateEditor({
+  value,
+  fields,
+  remapThemeColors,
+  onChange,
+  onRemapThemeColorsChange,
+}: {
+  value: string;
+  fields: FieldDraft[];
+  remapThemeColors: boolean;
+  onChange: (value: string) => void;
+  onRemapThemeColorsChange: (enabled: boolean) => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fieldsWithKeys = fields.filter((field, index) => {
+    const key = field.key.trim();
+    return key.length > 0 && fields.findIndex((candidate) => candidate.key.trim() === key) === index;
+  });
+
+  function insertAtCursor(snippet: string) {
+    const textarea = textareaRef.current;
+    const selectionStart = textarea?.selectionStart ?? value.length;
+    const selectionEnd = textarea?.selectionEnd ?? value.length;
+    const nextValue = `${value.slice(0, selectionStart)}${snippet}${value.slice(selectionEnd)}`;
+    const nextCaret = selectionStart + snippet.length;
+    onChange(nextValue);
+
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border bg-surface-2 p-3">
+      <label className="flex flex-col gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+        HTML template
+        <textarea
+          ref={textareaRef}
+          required
+          rows={14}
+          maxLength={50000}
+          spellCheck={false}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={'<section>\n  <h2>{{heading}}</h2>\n</section>'}
+          className="min-h-64 resize-y rounded-md border border-border-strong bg-surface px-3 py-2 font-mono text-sm leading-6 text-foreground outline-none focus-visible:border-primary"
+        />
+        <span className="normal-case tracking-normal text-muted">
+          Embeds and iframes render, but inline <code className="font-mono">&lt;script&gt;</code> tags do not execute
+          when React inserts the HTML.
+        </span>
+      </label>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted">Insert placeholder</span>
+        {fieldsWithKeys.length === 0 ? (
+          <p className="text-xs text-muted">Add a field with a key to create placeholder shortcuts.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {fieldsWithKeys.map((field) => {
+              const key = field.key.trim();
+              const snippet = field.fieldType === "repeater" ? repeaterSnippet(field) : `{{${key}}}`;
+              const label = field.fieldType === "repeater" ? `Loop {{${key}}}` : `{{${key}}}`;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => insertAtCursor(snippet)}
+                  title={field.fieldType === "repeater" ? snippet : `Insert ${snippet}`}
+                  className="rounded-full border border-border-strong bg-surface px-2.5 py-1 font-mono text-xs text-foreground transition hover:border-primary hover:text-primary focus-visible:border-primary focus-visible:outline-none"
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-xs text-muted">Placeholders are replaced with each block instance&apos;s field values.</p>
+      </div>
+
+      <label className="flex items-start gap-2 text-sm text-foreground">
+        <input
+          type="checkbox"
+          checked={remapThemeColors}
+          onChange={(event) => onRemapThemeColorsChange(event.target.checked)}
+          className="mt-0.5 accent-primary"
+        />
+        <span>
+          Recolor colors you set to match the site theme
+          <span className="mt-0.5 block text-xs text-muted">
+            Inline text, background, and border colors are mapped to the nearest theme color.
+          </span>
+        </span>
+      </label>
+    </div>
+  );
+}
+
 function DefinitionForm({
   initial,
   keyEditable,
@@ -624,34 +750,86 @@ function DefinitionForm({
         />
       </label>
 
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">Layout</span>
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="text-xs font-medium uppercase tracking-wide text-muted">Render mode</legend>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {BLOCK_LAYOUT_TEMPLATES.map((template) => (
+          {(
+            [
+              { value: "fields", label: "Fields", description: "Arrange fields with a built-in layout." },
+              { value: "html", label: "HTML", description: "Author markup and insert field placeholders." },
+            ] as const
+          ).map((option) => (
             <label
-              key={template.id}
+              key={option.value}
               className={`flex cursor-pointer flex-col gap-1 rounded-md border p-2.5 text-sm transition ${
-                values.layout === template.id ? "border-primary bg-primary/10" : "border-border-strong bg-surface-2"
+                values.renderMode === option.value
+                  ? "border-primary bg-primary/10"
+                  : "border-border-strong bg-surface-2"
               }`}
             >
               <span className="flex items-center gap-2 font-medium text-foreground">
                 <input
                   type="radio"
-                  name="layout"
-                  checked={values.layout === template.id}
-                  onChange={() => setValues((prev) => ({ ...prev, layout: template.id }))}
+                  name={`render-mode-${keyEditable ? "new" : initial.key}`}
+                  checked={values.renderMode === option.value}
+                  onChange={() => setValues((prev) => ({ ...prev, renderMode: option.value }))}
                   className="accent-primary"
                 />
-                {template.label}
+                {option.label}
               </span>
-              <span className="text-xs text-muted">{template.description}</span>
+              <span className="text-xs text-muted">{option.description}</span>
             </label>
           ))}
         </div>
-      </div>
+      </fieldset>
+
+      {values.renderMode === "fields" ? (
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="text-xs font-medium uppercase tracking-wide text-muted">Layout</legend>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {BLOCK_LAYOUT_TEMPLATES.map((template) => (
+              <label
+                key={template.id}
+                className={`flex cursor-pointer flex-col gap-1 rounded-md border p-2.5 text-sm transition ${
+                  values.layout === template.id
+                    ? "border-primary bg-primary/10"
+                    : "border-border-strong bg-surface-2"
+                }`}
+              >
+                <span className="flex items-center gap-2 font-medium text-foreground">
+                  <input
+                    type="radio"
+                    name={`layout-${keyEditable ? "new" : initial.key}`}
+                    checked={values.layout === template.id}
+                    onChange={() => setValues((prev) => ({ ...prev, layout: template.id }))}
+                    className="accent-primary"
+                  />
+                  {template.label}
+                </span>
+                <span className="text-xs text-muted">{template.description}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : (
+        <HtmlTemplateEditor
+          value={values.htmlTemplate}
+          fields={values.fields}
+          remapThemeColors={values.remapThemeColors}
+          onChange={(htmlTemplate) => setValues((prev) => ({ ...prev, htmlTemplate }))}
+          onRemapThemeColorsChange={(remapThemeColors) =>
+            setValues((prev) => ({ ...prev, remapThemeColors }))
+          }
+        />
+      )}
 
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium uppercase tracking-wide text-muted">Fields</span>
+        <p className="text-xs text-muted">
+          {values.renderMode === "html"
+            ? "Fields supply the values referenced by {{placeholders}} in the HTML template."
+            : "Fields are arranged using the selected layout."}
+        </p>
         <FieldListEditor
           fields={values.fields}
           onChange={(fields) => setValues((prev) => ({ ...prev, fields }))}
@@ -764,7 +942,9 @@ export function BlockDefinitionsAdmin({ initialDefinitions }: { initialDefinitio
                   <p className="font-medium text-foreground">{definition.name}</p>
                   <p className="truncate font-mono text-xs text-muted">
                     {definition.key} · {definition.fields.length} field{definition.fields.length === 1 ? "" : "s"} ·{" "}
-                    {LAYOUT_LABEL_BY_ID[definition.layout] ?? definition.layout}
+                    {definition.renderMode === "html"
+                      ? "HTML template"
+                      : (LAYOUT_LABEL_BY_ID[definition.layout] ?? definition.layout)}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -799,6 +979,9 @@ export function BlockDefinitionsAdmin({ initialDefinitions }: { initialDefinitio
                       name: definition.name,
                       description: definition.description ?? "",
                       layout: definition.layout,
+                      renderMode: definition.renderMode,
+                      htmlTemplate: definition.htmlTemplate,
+                      remapThemeColors: definition.remapThemeColors,
                       fields: definition.fields,
                     }}
                     keyEditable={false}
@@ -815,7 +998,16 @@ export function BlockDefinitionsAdmin({ initialDefinitions }: { initialDefinitio
 
       {creating ? (
         <DefinitionForm
-          initial={{ key: "", name: "", description: "", layout: BLOCK_LAYOUT_TEMPLATES[0].id, fields: [] }}
+          initial={{
+            key: "",
+            name: "",
+            description: "",
+            layout: BLOCK_LAYOUT_TEMPLATES[0].id,
+            renderMode: "fields",
+            htmlTemplate: "",
+            remapThemeColors: false,
+            fields: [],
+          }}
           keyEditable
           submitLabel="Create block type"
           onSubmit={createDefinition}

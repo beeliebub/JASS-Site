@@ -1,322 +1,421 @@
-# PLAN.md — Header status slot, global edit lock, Link Grid ghost-line fix
+# PLAN.md — Raw-HTML mode for admin-authored custom blocks
 
 **Status: scoped, not yet implemented.** Nothing here carries over from any
-prior version of this file — the previous pass (admin-defined custom block
-types: `BlockDefinition`/`BlockFieldDefinition` schema, dynamic Zod
-validation, the block-type admin UI, and `CustomBlockRenderer`) is complete
-and shipped (commit `a0b985c`); do not look it up, do not renumber around it.
-Phase numbers below are local to this file only.
+prior version of this file. This plan *extends* the already-shipped custom
+block system (admin-defined `BlockDefinition`/`BlockFieldDefinition` types,
+the dynamic `Block.data` Zod builder in `lib/validation/block-definitions.ts`,
+the fixed-`layout` template renderer in
+`components/blocks/custom-block-renderer.tsx`, and the block-type builder in
+`components/admin/block-definitions-admin.tsx`, all commit `a0b985c`). That
+system is the baseline; do not re-plan it. Phase numbers below are local to
+this file only.
 
 **Hard rule, unchanged from every prior version of this file: this file's own
 nomenclature (`Phase N`, `PLAN.md`, decision numbers, etc.) must never be
 referenced in source code comments.** A comment has to stand on its own and
 still make sense after this file is deleted or replaced by the next one.
 
+---
+
 ## What this is
 
-Three unrelated items from the website to-do thread, bundled only because
-they were raised together:
+Today an admin builds a custom block *type* by declaring fields and picking
+one of four fixed arrangement templates (`stacked`/`banner`/`split`/
+`repeaterGrid` — `lib/block-layouts.ts`). The renderer guesses which field
+goes in which slot by field type. This plan adds a second authoring mode to
+the same `BlockDefinition`: **the admin writes the block's markup directly as
+raw HTML**, with `{{placeholder}}` references to the block type's own fields
+so each *instance* still fills in its own content.
 
-1. **Fix the Link Grid "ghost line" regression** — a page containing a Link
-   Grid block grows a spurious extra line/row when an admin enters then
-   leaves edit mode. It's purely visual and transient (a plain reload clears
-   it; nothing is written to the DB). A previous fix in this area resolved
-   one bug but introduced this one "of the same caliber."
-2. **Move the online-player counter into the site header** — put the online
-   counter in the currently-empty space in the header, between the `JASS`
-   logo (left) and the nav links (right). This becomes a **per-page**
-   setting, edited from the Pages admin (`app/admin/pages`), the same way the
-   Page Header block's content is authored. A page with no header content
-   configured leaves that space empty, exactly as it looks today.
-3. **OWNER-only global "disable all site editing" switch** — an OWNER (not a
-   plain ADMIN) can flip a single site-wide toggle that turns off all content
-   editing for everyone, and flip it back on.
+Rendered HTML is **auto-colored to match whatever theme it's displayed under**
+— for every visitor, on every page, including per-page themes and
+visitor-selected custom themes — by leaning on the existing 16-token CSS
+custom-property system rather than hardcoding any colors.
 
-The three phases are independent of one another and can land in any order (or
-in parallel). Only Phases 2 and 3 touch the database/schema; Phase 1 is a
-client-only bug fix.
+### Locked decisions (answered 2026-07-14 — do not re-litigate)
 
----
-
-## Phase 1 — Link Grid "ghost line" regression
-
-### The bug
-On any page that contains a Link Grid block, an admin toggling edit mode on
-and then off leaves behind an extra "ghost line" (a stray border/divider or
-empty grid row) that wasn't there before. It is **not** persisted — a reload
-removes it and the database is untouched — so this is entirely a
-client-render/DOM-lifecycle artifact, not a data bug.
-
-### Likely root cause (confirm by reproduction before fixing)
-The previous fix referenced in the report is almost certainly
-`components/blocks/block-shell.tsx`'s change from returning a Fragment in one
-branch and a `<div>` in the other, to **always** returning the same `<div>`
-whose className flips between edit chrome
-(`border border-dashed border-border-strong transition-colors …`) and
-`"contents"` (zero-footprint) when not in edit mode. That change correctly
-stopped React from tearing down and remounting block editors on every
-edit-mode toggle (which had been silently resetting Rules/Features editor
-state — the full rationale is in that file's doc comment). The "new issue of
-the same caliber" is the visible side effect that fix left on Link Grid:
-the shared `<div>` carries `transition-colors` and switches its border on/off
-in place, and `LinkGridBlock` itself renders a `<section className="border-b
-border-border">` in **both** its edit and visitor branches plus an inner
-`grid … gap-px … bg-border` whose gaps read as divider lines. The residual
-line is one of:
-- the `BlockShell` wrapper's border mid-transition (a `transition-colors`
-  div going from a real border color to `contents` can leave a painted edge
-  until the next full layout/reflow — which is what a reload forces), or
-- a Link Grid grid-gap divider that reflows differently once the wrapper
-  collapses back to `display: contents`.
-
-Reproduce first (dev server, log in as admin, open a page with a Link Grid,
-toggle edit mode on then off, inspect the DOM/computed styles for the stray
-line) and pin down which of these it actually is — do not fix blind.
-
-### Fix approach
-- Whatever the confirmed cause, the fix must **not** reintroduce the remount
-  bug the `BlockShell` doc comment describes: the wrapper element type must
-  stay a stable `<div>` across the edit/non-edit toggle (no Fragment↔div
-  swap, no changing `key`). Solve the visual artifact within that constraint
-  — e.g. drop the lingering `transition-colors` on the non-chrome state, or
-  force the collapsed state to a clean `contents`/no-border with no
-  transitional paint, or adjust where Link Grid's own `border-b`/`gap-px`
-  dividers sit relative to the shell.
-- Prefer a fix scoped to the smallest surface. If it turns out to be a
-  `BlockShell` issue, fix it there once (it benefits every block type); if
-  it's specific to `LinkGridBlock`'s section/grid borders, fix it there.
-
-### Verification (this phase has no DB footprint)
-- Toggle edit mode on→off repeatedly on a page with a Link Grid and confirm
-  no line accumulates and the DOM matches the post-reload state.
-- Re-check the original bug the prior fix addressed is still fixed: add a
-  rule/feature/link in edit mode, toggle edit mode, confirm the in-progress
-  local state does **not** reset (that was the regression the `BlockShell`
-  fix prevented — don't trade one for the other again).
-- Repeat with at least one other block type present to confirm the fix
-  didn't shift the artifact onto a different block.
-
-### Production-safety check for this phase
-No schema, migration, seed, env, or deploy-file changes — client render only.
-Nothing on the production-safety checklist in `CLAUDE.md` applies here beyond
-confirming the diff really is client-component-only.
+1. **HTML + field placeholders**, not static-only HTML. The definition stores
+   an HTML *template*; `{{fieldKey}}` placeholders interpolate the block
+   type's existing per-instance fields. A block type in HTML mode keeps its
+   `fields` (they supply placeholder values); it just ignores `layout`.
+2. **Full raw HTML is allowed** (no allowlist sanitizer on the *template*
+   itself). The admin's markup renders as authored. This is a deliberate
+   trust decision: ADMIN/OWNER are trusted authors. See the security section
+   — this introduces the project's first `dangerouslySetInnerHTML`, and there
+   is a real, non-obvious caveat about inline `<script>` execution.
+3. **Auto-theming is two-layered, with the second layer opt-in per block
+   type:**
+   - **Always on:** a scoped stylesheet colors *unstyled* bare elements
+     (headings, `p`, `a`, `button`, lists, tables, `code`, `hr`, `blockquote`,
+     …) from the current theme's tokens, and the 16 theme CSS variables are in
+     scope so the admin's own HTML can reference `var(--primary)` etc. The
+     admin's explicit colors are left untouched.
+   - **Opt-in toggle at creation time (`remapThemeColors`, default off):**
+     when enabled, explicit colors the admin set (inline `style`, presentation
+     attributes) are rewritten onto the nearest theme *token reference* so
+     even hardcoded colors follow the theme. Off by default so an admin who
+     wanted an exact color keeps it.
 
 ---
 
-## Phase 2 — Per-page online-counter slot in the site header
+## Phase 1 — Data model + validation
 
-### Goal
-The site header (`components/site-header.tsx`) gains an optional content slot
-in the empty space between the `JASS` logo and the desktop nav. Its content
-is configured **per page** from the Pages admin. When a page has nothing
-configured, the header looks exactly as it does today (empty space). The
-online-player counter (today's `LiveStatusBadge`, currently living in the
-home hero) is the content this slot is built to hold.
+### Schema (`prisma/schema.prisma`)
 
-### Locked scope decisions (answered 2026-07-14 — do not re-litigate)
-1. **Slot content model = a small set of kinds** (`none` | `status` | `text`).
-   A page can show the live online counter, or custom text, or nothing. This
-   is the flexible option; both a status widget and a free-form text field are
-   in scope.
-2. **The counter moves out of the home hero.** `LiveStatusBadge` is removed
-   from `components/home/hero-content.tsx` and the home page instead shows the
-   counter via its header slot (`kind: "status"`), so it isn't rendered twice.
-
-### Data model
-`Page` (in `prisma/schema.prisma`) gains one nullable column to hold the
-slot config as JSON (mirrors how `Block.data` stores per-instance JSON):
+`BlockDefinition` gains three columns, all additive and safe-defaulted so
+every existing definition keeps behaving exactly as today:
 
 ```prisma
-model Page {
+model BlockDefinition {
   // ...existing fields unchanged...
-  headerContent String?   // JSON; null = empty header slot (today's behavior)
+  renderMode       String   @default("fields")  // "fields" | "html"
+  htmlTemplate     String?                        // raw HTML w/ {{placeholders}}; required when renderMode == "html"
+  remapThemeColors Boolean  @default(false)       // opt-in explicit-color remap (Phase 4)
 }
 ```
 
-The JSON is a small discriminated shape validated by a new Zod schema in
-`lib/validation/pages.ts` (next to the existing page schemas), keyed on
-`kind`:
-- `{ kind: "status", label?: string, host?: string, port?: number,
-  useGlobalStatus?: boolean }` — the live online counter. When
-  `useGlobalStatus` (or no host/port), reuse the existing `/api/status`
-  target; otherwise ping the given host/port.
-- `{ kind: "text", text: string }` — free-form header text (the "similar to
-  the Page Header block" case).
-- `{ kind: "none" }` (or `null`/absent) — render nothing.
+- `renderMode` discriminates the two authoring modes. `"fields"` is the
+  existing behavior (arrange `fields` via `layout`); `"html"` renders
+  `htmlTemplate`. Defaulting to `"fields"` means every existing row is
+  unchanged. `layout` stays required at the schema level (keep it set even in
+  HTML mode — a definition switched back to `"fields"` still needs one; the
+  builder just hides the layout picker while in HTML mode).
+- `htmlTemplate` is nullable because `"fields"`-mode definitions have none.
+- `fields` (the `BlockFieldDefinition` relation) is **unchanged** — HTML mode
+  reuses it for placeholder values.
 
-Keep `null`/absent === `kind: "none"` meaning "render nothing" so every
-existing page is byte-identical to today until an admin configures a slot.
+### Migration
 
-### Rendering path
-- `components/site-header.tsx` (`SiteHeader`) takes a new optional prop
-  (e.g. `headerSlot?: ReactNode` or a small serializable
-  `headerContent` object it renders itself) and places it in the flex row
-  between the logo `<Link>` and the `<nav>` — the empty middle space today.
-  Must degrade to nothing when unset so the current layout is byte-identical
-  for pages without it. Consider the mobile header too (the `sm:hidden`
-  branch) — decide whether the slot shows on mobile or desktop-only.
-- `components/pages/site-chrome.tsx` (`SiteChrome`) threads the current
-  page's `headerContent` down to `SiteHeader`, the same way it already
-  receives and applies the per-page `theme`/`customThemeTokens` props. Add a
-  `headerContent`-shaped prop to `SiteChrome` and have each caller pass it:
-  - CMS-driven pages: `PageRenderer` already passes the `Page`'s theme into
-    `SiteChrome`; pass `headerContent` from the same `Page` row.
-  - The static account/admin/login/resource routes have no `Page` row, so
-    they pass nothing → empty slot (unchanged).
-- `kind: "status"` reuses `LiveStatusBadge` (or a small parameterized
-  variant taking host/port) so there's no second polling/formatting
-  implementation — `/api/status` and the `StatusBadge` presentational
-  component stay the source of truth. `kind: "text"` renders the string in
-  the same header row. `kind: "none"`/null renders nothing.
-- Remove `LiveStatusBadge` from `components/home/hero-content.tsx` and seed
-  (or leave for the admin to set) the home page's `headerContent` to
-  `kind: "status"` so the counter shows once, in the header, not in the hero.
-  Watch the home hero's layout after removing the badge — the hero's flex
-  `gap-8`/spacing above the heading assumed the badge was there.
+- Purely additive: three new columns, two with `@default`, one nullable, **no
+  backfill**. Confirm the generated `migration.sql` is `ALTER TABLE` /
+  `ADD COLUMN` only, with **no `INSERT`/`UPDATE` and no ids/values read off
+  this dev `prisma/dev.db`** (the `ac831b6` failure mode). A defaulted/nullable
+  column needs no data migration.
+- Prisma-7 note: generate via the CLAUDE.md workaround
+  (`node --no-turbofan node_modules/prisma/build/index.js migrate dev --name
+  custom-block-html-mode`), then read the SQL by hand.
 
-### Admin editing (`app/admin/pages`)
-- Add the header-slot editor to the existing Pages admin
-  (`components/admin/pages-admin.tsx` + `app/admin/pages/page.tsx`), as a new
-  per-page field in the same edit surface that already edits page
-  title/slug/theme. "Similar to current Page Header block" = an inline,
-  optional content editor; empty is the default and means "no header slot."
-- CRUD flows through the existing page-update API route — extend its Zod
-  payload (`lib/validation/pages.ts`) to accept `headerContent`, validated by
-  the schema above. Audit-log the change like every other page mutation
-  (`lib/audit-log.ts`), matching how page title/slug/theme edits are logged.
+### Validation (`lib/validation/block-definitions.ts`)
 
-### Production-safety check for this phase
-- **Migration is purely additive** — one new nullable `Page.headerContent`
-  column, no backfill. Confirm the generated `migration.sql` contains no
-  `INSERT`/`UPDATE` and **no hardcoded ids/rows read off this dev database**
-  (the `ac831b6` failure mode). A nullable column with no default needs no
-  data migration at all.
-- **`prisma/seed.ts` stays idempotent.** If the home page's slot is seeded
-  (e.g. to relocate the hero counter into the header on a fresh install),
-  it must be an upsert / guarded write inside the existing
-  `seedPagesAndNav()` bootstrap — never an unconditional `create`/`update`
-  that would clobber real production page content on first run. Leaving
-  `headerContent` unseeded (admins configure it themselves) is the safest
-  default and avoids touching seed at all.
-- **No new env vars** are expected; if the status widget needs a host/port
-  beyond the existing `MC_SERVER_HOST`/`MC_SERVER_PORT`, document it in both
-  `.env.example` and `docs/DEPLOYMENT.md`.
-- Deploy steps (`prisma migrate deploy` + `npm run db:seed`) need no change
-  unless seed is touched per above.
+- Extend `blockDefinitionCreateSchema` and `blockDefinitionUpdateSchema` with:
+  - `renderMode: z.enum(["fields", "html"]).default("fields")`
+  - `htmlTemplate: z.string().max(N).nullable().optional()` (pick a generous
+    but bounded cap, e.g. 50 000 chars, so the column can't be used to store
+    unbounded blobs)
+  - `remapThemeColors: z.boolean().default(false)`
+- Add a `superRefine` cross-field rule: when `renderMode === "html"`,
+  `htmlTemplate` must be a non-empty string. When `renderMode === "fields"`,
+  `htmlTemplate` may be null/absent (don't force clearing it, but it's ignored).
+- **Placeholder validation:** parse the template for `{{...}}` tokens (reusing
+  the same extractor Phase 2 defines) and reject any placeholder whose key
+  isn't a defined field `key` on this definition — a typo'd `{{titel}}` should
+  fail at save, not silently render an empty string forever. Repeater-loop
+  tokens (`{{#each key}}`/`{{/each}}`, Phase 2) validate that `key` is a
+  `repeater` field and that inner `{{itemKey}}` tokens are that repeater's
+  item-field keys. Keep this a *warning-grade strictness* decision consistent
+  with the existing `refineUniqueFieldKeys` refinements — a `ctx.addIssue`
+  with a clear path, not a thrown error.
+- The dynamic `Block.data` schema builder (`buildDataSchemaFromDefinition`)
+  and `defaultDataForFields` are **unchanged** — HTML-mode instances still
+  store the same per-field `Block.data`, so instance create/update through
+  `/api/blocks/**` needs no special-casing.
+
+### Production-safety for this phase
+
+Additive migration only (checked above); `prisma/seed.ts` untouched (no new
+block type is seeded — admins author these). No env vars, no Docker/deploy
+changes.
 
 ---
 
-## Phase 3 — OWNER-only global "disable all site editing" switch
+## Phase 2 — The template engine (shared, pure, dependency-free)
 
-### Goal
-A single site-wide switch, editable by an **OWNER only** (a plain ADMIN must
-not see or be able to flip it), that when off disables all content editing
-across the entire site for everyone — and can be turned back on by the OWNER.
-When editing is globally disabled, the edit-mode UI and every mutation are
-blocked; the OWNER's ability to re-enable it must itself never be blocked by
-the switch (otherwise it's a one-way lockout).
+A single pure module (e.g. `lib/custom-html-template.ts`) that both the
+server render path and the client live-preview import. No new npm dependency
+(this machine's install is fragile — see CLAUDE.md; a ~100-line regex
+interpolator is preferable to a templating package here).
 
-### Data model
-Add one boolean to the existing `SiteSettings` singleton
-(`prisma/schema.prisma`), defaulting to editing-enabled so existing/new
-installs behave exactly as today:
+### Placeholder syntax
 
-```prisma
-model SiteSettings {
-  // ...existing fields unchanged...
-  editingEnabled Boolean @default(true)
-}
+- `{{fieldKey}}` — substitutes a scalar field's value.
+- `{{#each repeaterKey}} … {{itemFieldKey}} … {{/each}}` — repeats the inner
+  fragment once per row of a `repeater` field, with `{{itemFieldKey}}`
+  resolving against each row. One level only (repeaters are already one level
+  deep by construction — `nonRepeaterFieldTypeSchema`).
+
+### Substitution + escaping semantics (correctness, not just security)
+
+Even though the *template* is trusted raw HTML, interpolated *values* must be
+escaped so a stray `<`, `&`, or `"` in a field value can't break the
+surrounding markup:
+
+- `text`, `number`, `boolean`, `select`, `color`, `link` (href),
+  `image` (src): **HTML-escape** the value on substitution (and
+  attribute-escape when the placeholder sits in an attribute context — the
+  simplest robust approach is to HTML-escape `&<>"'` uniformly, which is valid
+  in both text and quoted-attribute contexts). `boolean` renders as `""`/the
+  field's value per a documented convention; `number` null → empty string.
+- `richText`: the value is markdown. Convert it to **sanitized HTML** using
+  the exact existing pipeline (react-markdown + `rehype-sanitize`, the same as
+  `components/blocks/rich-text-field.tsx` / `RichTextBlock`) and interpolate
+  the result **without** re-escaping — this is the one field type whose value
+  is intentionally HTML. Server-side, render to a string via
+  `react-dom/server`'s `renderToStaticMarkup`. Keep sanitization on richText
+  regardless of the template-level "full raw HTML" decision — unsanitized
+  markdown-HTML buys nothing and the pipeline already exists.
+- Unknown/missing keys resolve to empty string (defensive — a stale template
+  referencing a since-deleted field must not throw at render).
+
+### Where interpolation runs
+
+- **View mode (visitors + admins not editing): server-side.** Do the
+  interpolation + richText render + (Phase 4) color remap in
+  `components/pages/page-renderer.tsx`'s existing per-block server pass, and
+  pass the finished HTML string down to the client block component as a
+  precomputed prop (e.g. `renderedHtml`). Rationale: keeps the heavy work
+  (markdown→HTML, color remap) off the client, and assembles the one
+  dangerous HTML string in a single auditable server location.
+- **Edit-mode live preview (admin editing an instance): client-side**, using
+  the *same* pure interpolation function for scalar fields. richText preview
+  can reuse the already-client react-markdown pipeline. This is a nicety, not
+  the source of truth — see Phase 6 for how edit mode actually captures field
+  values.
+
+Keep the core interpolation a pure `(template, fields, data) => string` so
+server and client share it verbatim.
+
+---
+
+## Phase 3 — Rendering + theme-matched coloring
+
+### The rendering element
+
+A new client component (e.g. `components/blocks/custom-html-block.tsx`, or an
+HTML branch inside `CustomBlockRenderer`) that, in **view mode**, renders the
+precomputed HTML string into a scoped wrapper:
+
+```tsx
+<Container className="py-6 sm:py-8">
+  <div className="custom-html-scope" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+</Container>
 ```
 
-(Name it for the safe default — `editingEnabled @default(true)` reads
-correctly on a fresh row created by `getSiteSettings()`'s upsert, which
-supplies no value for it. Avoid a `disabled`-style flag whose safe default is
-`false`, so the upsert's create path can't accidentally lock editing.)
+This is the project's first `dangerouslySetInnerHTML` (the security review
+noted its absence as a strength — see the security section for why this is an
+accepted, bounded exception).
 
-- Extend `ResolvedSiteSettings` + `getSiteSettings()` in
-  `lib/site-settings.ts` to surface `editingEnabled`.
-- Extend `siteSettingsUpdateSchema` in `lib/validation/site-settings.ts` with
-  `editingEnabled: z.boolean().optional()`.
+### Why theme-matching "just works" for every viewer (the key insight)
 
-### Enforcement (the important part — server-side, not just UI)
-The kill-switch must be enforced where writes actually happen, not only by
-hiding the toggle. In `lib/auth-guard.ts`:
-- Add a helper (e.g. `requireEditingEnabled()` / fold into a new
-  `requireEditor()`) that returns false when a **write** is attempted while
-  `editingEnabled` is false — regardless of ADMIN/OWNER role. Every mutation
-  route that currently gates on `requireAdmin()` for content edits
-  (`/api/blocks/**`, `/api/pages/**`, `/api/nav/**`, page/tag/block-definition
-  CRUD, content/hero edits, uploads used for editing, etc.) must also respect
-  this. Audit the call sites of `requireAdmin()` and apply consistently — a
-  missed route is a hole in the lock.
-- **Do not** gate the settings-update route that flips `editingEnabled`
-  itself on the switch, or the OWNER can't turn editing back on. That route
-  gates on `requireOwner()` only. Double-check the toggle write path is
-  exempt.
-- Account/user-management routes gated on `requireOwner()` are out of scope
-  for the lock (this is a *content-editing* switch); confirm the intended
-  boundary during review — e.g. does disabling editing also hide the
-  block-level edit chrome but leave user management working? Recommended:
-  yes, the switch only affects content editing, user management stays
-  OWNER-gated as today.
+The 16 theme tokens are **inherited CSS custom properties** set on `<html>`
+(visitor theme + accent + custom-theme inline vars, via
+`components/theme/*`) and re-set on `PageRenderer`'s per-page `[data-theme]`
+wrapper `<div>`. The custom-HTML block renders **inside** those wrappers, so at
+that point in the DOM `var(--primary)` etc. already resolve to *whatever theme
+this block is being displayed under* — per-page theme, a visitor's selected
+built-in theme, or a visitor's custom theme. Nothing block-specific has to
+detect or pass the theme; we just reference the tokens and the cascade does
+the rest, and it recolors live when a visitor switches themes (the theme
+provider mutates the same vars). Confirm during implementation that the
+wrapper sits inside both the `<html>` token scope and `PageRenderer`'s
+per-page `[data-theme]` div (it will, since blocks render within page body).
 
-### UI
-- **The toggle** lives in the OWNER-only area of the Site Settings admin
-  (`components/admin/site-settings-admin.tsx` + `app/admin/settings`),
-  rendered only when the session role is OWNER (client reflects
-  `requireOwner()`; the server route still re-checks — UI gating is not the
-  security boundary). A clear on/off control with a short explanation of what
-  it does site-wide.
-- **Edit-mode affordance** reflects the lock: when `editingEnabled` is false,
-  the `EditModeToggle` in `SiteHeader` should be disabled/hidden (or show a
-  "site editing is disabled" state) so admins aren't offered an edit mode
-  whose every save will 403. `EditModeProvider` (app/layout.tsx →
-  `components/admin/edit-mode-context.tsx`) can receive the current
-  `editingEnabled` value alongside `isAdmin` and force `editMode` to stay off
-  when editing is globally disabled — belt-and-suspenders with the
-  server-side enforcement, not a replacement for it.
-- Optionally surface a small banner in edit-capable views when the lock is on
-  so an OWNER remembers it's engaged.
+### The scoped stylesheet (`.custom-html-scope` in `app/globals.css`)
 
-### Audit log
-Flipping the switch is an admin mutation — log it via `lib/audit-log.ts` like
-every other settings change, including which OWNER changed it and to what
-value.
+Parallel to the existing `.markdown-content` block, add a `.custom-html-scope`
+rule set that colors bare elements from tokens, e.g.:
 
-### Production-safety check for this phase
-- **Migration is additive** — one new `SiteSettings.editingEnabled` column
-  **with `@default(true)`** so existing rows (there's a single singleton row)
-  and the upsert's create path both come out editing-enabled with no
-  backfill. Confirm the generated `migration.sql` has no `INSERT`/`UPDATE`
-  and no ids/values hardcoded from this dev database. If Prisma emits a
-  backfill for the new non-null column on existing rows, verify it's the
-  constant `true` default and keyed on nothing db-specific — never a literal
-  id from `prisma/dev.db`.
-- **`prisma/seed.ts` stays untouched / idempotent** — the singleton is
-  created lazily by `getSiteSettings()`'s upsert with the schema default;
-  nothing new needs seeding. Do not add an unconditional write.
-- **No new env vars**; no `docs/DEPLOYMENT.md` deploy-step change beyond the
-  standard `prisma migrate deploy`.
-- **No dev-only artifacts** — if a temp OWNER account or a flipped switch was
-  used to verify, reset `editingEnabled` back to `true` and remove any temp
-  account before the change is considered done.
+```css
+.custom-html-scope { color: var(--foreground); }
+.custom-html-scope h1, .custom-html-scope h2, .custom-html-scope h3,
+.custom-html-scope h4 { color: var(--foreground); font-weight: 600; }
+.custom-html-scope a { color: var(--primary); text-underline-offset: 2px; }
+.custom-html-scope button { background: var(--primary); color: var(--primary-foreground); }
+.custom-html-scope hr, .custom-html-scope table,
+.custom-html-scope th, .custom-html-scope td { border-color: var(--border-strong); }
+.custom-html-scope code, .custom-html-scope pre { background: var(--surface-2); }
+.custom-html-scope blockquote { color: var(--muted); border-left: 2px solid var(--border-strong); }
+/* …lists, small, hr, etc. — the same tag set .markdown-content already covers,
+   plus button/table which markdown never emits. */
+```
+
+- **Specificity discipline:** keep every selector a single class + tag
+  (low specificity) so the admin's own inline `style=""` (Phase 4 "leave
+  alone" case) and any classes they write reliably win. These rules are a
+  *floor* for unstyled markup, never an override of deliberate styling.
+- Reuse `.markdown-content`'s existing spacing/typography conventions where
+  they apply so custom-HTML output and richText output read consistently.
+
+### Verification
+
+- Place an HTML-mode block on a page; switch the page's theme in the Pages
+  admin and confirm the block recolors. As a visitor, switch built-in themes
+  and a custom theme and confirm the same block recolors each time with no
+  reload. Confirm an element the admin colored explicitly (with
+  `remapThemeColors` off) keeps its color across all themes.
 
 ---
 
-## Cross-cutting notes
+## Phase 4 — Opt-in explicit-color remap (`remapThemeColors`)
 
-- **Two migrations, two additive columns.** Phases 2 and 3 each add exactly
-  one nullable/defaulted column to an existing table. Generate them as
-  separate migrations (or one, if landed together) and read the resulting SQL
-  by hand per the `CLAUDE.md` production-safety pass — the live site deploys
-  by running these migrations against a *different* database than this dev
-  machine's, so the only safe migration data is keyed on stable schema
-  identifiers, never a row/id read off `prisma/dev.db`.
-- **Enforcement over concealment (Phase 3).** The security boundary for the
-  edit lock is the server-side guard in `lib/auth-guard.ts` applied at every
-  mutation route, exactly like the existing note in `edit-mode-context.tsx`
-  that client edit-mode state is "a UX gate only." Hiding the toggle/edit
-  chrome is UX; the guard is the actual lock.
-- **No new env vars expected** across all three phases; if that assumption
-  breaks (e.g. Phase 2's status widget needs new host/port config), update
-  `.env.example` and `docs/DEPLOYMENT.md` as part of that phase, not after.
+When a definition has `remapThemeColors === true`, run a transform over the
+interpolated HTML that rewrites explicit colors onto **theme-token references**
+(not fixed hexes) so remapped colors still follow whatever theme the block is
+shown under.
+
+### Approach
+
+- A server-side pure function (e.g. `remapColorsToTokens(html) => html`) run in
+  the same `page-renderer.tsx` pass, after interpolation.
+- Detect explicit colors via regex over inline `style="…"` declarations
+  (`color:`, `background`/`background-color:`, `border-color:`) and legacy
+  presentation attributes (`color=`, `bgcolor=`). A full DOM parse would need
+  a parser dependency; regex over inline styles/attributes is the pragmatic,
+  dependency-free scope. **Document the known limit:** colors declared inside a
+  `<style>` block within the template are not remapped (only inline styles /
+  attributes are). That's an acceptable v1 boundary given full raw HTML is
+  allowed anyway.
+- For each detected color, parse it with `lib/color.ts` (`parseHex` etc.) and
+  pick the **nearest theme token** by color distance against a single
+  **canonical reference palette** (the base obsidian token values from
+  `:root` in `globals.css`) — matching against a fixed palette (not the
+  live theme) is what lets the output be a token *reference*: e.g. `#ee2222`
+  → `var(--danger)`, `#33bb77` → `var(--primary)`. Because the replacement is
+  `var(--token)`, it then re-resolves per theme automatically (same cascade as
+  Phase 3).
+- Restrict the candidate token set to the semantically sensible ones for
+  foreground/background/border (`--foreground`, `--muted`, `--primary`,
+  `--accent`, `--danger`, `--info`, `--surface`, `--surface-2`, `--background`,
+  `--border`, `--border-strong`) so a stray off-white doesn't map to, say,
+  `--online`.
+
+### Notes
+
+- Keep this a **pure string transform** with unit-testable input/output — it's
+  the fiddliest piece and the easiest to get subtly wrong.
+- The toggle is authored in the block-type builder (Phase 5) and stored on the
+  definition (Phase 1); it is *not* a per-instance setting.
+
+---
+
+## Phase 5 — Admin UI (the block-type builder)
+
+`components/admin/block-definitions-admin.tsx` (+ its create/update flow
+through `/api/block-definitions/**`) gains the HTML authoring mode.
+
+- **Mode switch:** a `renderMode` toggle (Fields ⟷ HTML) on the definition
+  editor. In HTML mode, hide the `layout` picker (it's inert) and show:
+  - A `<textarea>` (monospace, like the richText field editor's textarea) for
+    `htmlTemplate`.
+  - A **placeholder palette**: the definition's current field keys rendered as
+    click-to-insert chips (`{{key}}`), plus the `{{#each}}…{{/each}}` snippet
+    for any repeater field, so the admin doesn't have to remember exact keys.
+    This is also why field-key validation (Phase 1) matters — the chips are the
+    happy path, hand-typed keys are the fallible one.
+  - The **`remapThemeColors` checkbox** with a one-line explanation ("Recolor
+    colors you set to match the site theme").
+- The **fields editor stays visible in HTML mode** — fields define the
+  placeholder values. (Copy tweak: in HTML mode, fields are "referenced by
+  `{{…}}`" rather than "arranged by a layout.")
+- Optional but recommended: a small **live preview** in the builder that
+  renders the template with each field's placeholder/sample value, using the
+  Phase 2 client interpolation + the `.custom-html-scope` styling, so the admin
+  sees theme-matched output before saving.
+- Thread the three new fields through the `/api/block-definitions` create/
+  update payloads and the GET shape. **Audit-log** create/update as today
+  (`lib/audit-log.ts`) — no new audit call sites, just make sure the new
+  fields ride along on the existing ones.
+
+---
+
+## Phase 6 — Wiring instance rendering through the existing pipeline
+
+The per-instance render path (`page-renderer.tsx` → `registry.tsx` →
+`page-blocks.tsx` → `custom-block-renderer.tsx`) must carry the three new
+definition fields and branch on `renderMode`.
+
+- **Thread the new fields onto `BlockDefinitionWithFields`** (the client-facing
+  shape in `components/blocks/registry.tsx`) and the
+  `BlockDefinitionApiRow`/`toBlockDefinitionWithFields` mapping in
+  `components/pages/page-blocks.tsx` and the server prefetch in
+  `page-renderer.tsx`. Add `renderMode`, `htmlTemplate`, `remapThemeColors`
+  (and, for view mode, the server-precomputed `renderedHtml`).
+- **Branch in `CustomBlockRenderer`:** if `definition.renderMode === "html"`,
+  render the Phase 3 HTML component instead of a `LAYOUT_TEMPLATES` template.
+  The existing layout templates and their slot-guessing are untouched for
+  `"fields"` mode.
+- **Edit mode for an HTML-mode instance:** there are no inline-editable slots
+  inside arbitrary admin HTML, so in edit mode render a simple **field form**
+  — reuse the existing per-field input components
+  (`components/blocks/custom-fields/*`, the same ones the `stacked` template
+  uses) in a stacked editor so admins edit each field's value, saving via the
+  existing `onSaveData`/`PUT /api/blocks/[id]` path. View mode shows the
+  interpolated HTML; edit mode shows the form (+ optional live preview from
+  Phase 5's shared interpolator). This keeps HTML-mode instances editable
+  without trying to make arbitrary markup contenteditable.
+- **Add-block flow is unchanged:** `defaultDataForFields` already seeds a new
+  instance's `Block.data` from the fields; HTML-mode types add through the
+  same picker in `page-blocks.tsx` with no special case.
+- `MissingBlockDefinitionNotice` and the built-in block types are untouched.
+
+---
+
+## Cross-cutting: security & the full-raw-HTML decision
+
+Full raw HTML was chosen deliberately (locked decision 2). Record the
+consequences so they aren't a surprise later:
+
+- **This is the first `dangerouslySetInnerHTML` in the app.** The stored-XSS
+  surface it opens is bounded to content authored by ADMIN/OWNER accounts
+  (only they can create/edit block types and instances). The threat it accepts
+  is a *compromised admin session* being able to persist markup that runs for
+  every visitor. That is the accepted trade for the requested power.
+  - **Recommendation (not blocking):** consider gating HTML *type creation* to
+    OWNER (not any ADMIN) given the elevated capability, mirroring the
+    OWNER-vs-ADMIN split the site already draws elsewhere. Confirm with the
+    user before implementing if desired.
+- **Non-obvious correctness caveat — inline `<script>` does not execute via
+  `innerHTML`.** Browsers do **not** run `<script>` tags inserted through
+  `innerHTML`/`dangerouslySetInnerHTML`. So "full raw HTML" gets iframes,
+  embeds, styles, and all structural/visual markup working out of the box, but
+  an inline `<script>` in the template will **not** run as-authored. If truly
+  executable inline scripts are required, that needs a deliberate
+  post-mount "script activation" step (clone each `<script>` node into a fresh
+  element so the browser executes it) — a well-known pattern, but one that
+  meaningfully raises the security weight and should be an explicit,
+  separately-confirmed decision, not smuggled in. Default plan: **do not**
+  auto-activate scripts; document that iframes/embeds work and inline scripts
+  don't. Flag this to the user.
+- **CSP interaction (forward-looking).** A future security-headers pass
+  (previously queued) that adds a strict `Content-Security-Policy` will
+  conflict with admin inline `style`/`<style>` and any script activation
+  (`'unsafe-inline'`/nonce concerns). Note this here so whoever implements CSP
+  knows custom-HTML blocks are a deliberate inline-content source to design
+  around, not an oversight.
+- **richText values stay sanitized** (Phase 2) — the one place per-instance
+  markdown becomes HTML keeps `rehype-sanitize`.
+
+## Cross-cutting: production-safety checklist (per CLAUDE.md)
+
+- **One additive migration**, three defaulted/nullable columns on
+  `BlockDefinition`, **no backfill, no dev-db ids/values in the SQL.** Read the
+  generated `migration.sql` by hand before calling it done (the `ac831b6`
+  lesson) — the live site runs this against a *different* database.
+- **`prisma/seed.ts` untouched.** No new block type is seeded; if a demo
+  HTML-mode type is ever added for illustration it must be an upsert inside the
+  guarded `seedPagesAndNav()` bootstrap, never an unconditional create.
+- **No new env vars, no Docker/`docker-compose`/`Caddyfile` changes, no new
+  deploy step** — the existing `prisma migrate deploy` + `npm run db:seed`
+  flow covers this.
+- **No dev-only artifacts:** delete any scratch HTML-mode block types/instances
+  and any temp admin account created for interactive verification before
+  considering the work done.
+
+## Suggested build order
+
+Phases 1 → 2 → 3 give a working, theme-matched HTML block with scalar
+placeholders (the core deliverable). Phase 6 wires it into the instance
+pipeline (needed for 3 to be visible on a real page — 3 and 6 land together in
+practice). Phase 4 (color remap) and the repeater `{{#each}}` half of Phase 2
+are independent add-ons that can follow. Phase 5 (builder UI) is needed for an
+admin to author one at all, but can be developed in parallel against the
+Phase 1 schema.

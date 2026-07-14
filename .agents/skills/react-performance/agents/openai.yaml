@@ -1,0 +1,7 @@
+interface:
+  display_name: "React Performance"
+  short_description: "React Performance guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $react-performance when the task calls for React Performance."
+policy:
+  allow_implicit_invocation: true

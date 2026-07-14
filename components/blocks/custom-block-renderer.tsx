@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { useEffect, useRef, type ComponentType } from "react";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { Container } from "@/components/container";
 import type { BlockLayoutTemplateId } from "@/lib/block-layouts";
@@ -185,12 +185,19 @@ const LAYOUT_TEMPLATES: Record<BlockLayoutTemplateId, ComponentType<TemplateProp
 export function CustomBlockRenderer({
   definition,
   data,
+  renderedHtml,
   onSaveData,
 }: {
   definition: BlockDefinitionWithFields;
   data: Record<string, unknown>;
+  renderedHtml?: string;
   onSaveData: (next: Record<string, unknown>) => Promise<void>;
 }) {
+  const { editMode, isAdmin } = useEditMode();
+  const latestData = useRef(data);
+  useEffect(() => {
+    latestData.current = data;
+  }, [data]);
   const sortedFields = [...definition.fields].sort((a, b) => a.order - b.order);
   // Unrecognized `layout` (e.g. a definition edited outside the admin UI, or
   // a future template id from a newer version of this app) -- fall back to
@@ -198,7 +205,29 @@ export function CustomBlockRenderer({
   const Template = LAYOUT_TEMPLATES[definition.layout as BlockLayoutTemplateId] ?? StackedTemplate;
 
   function onFieldChange(key: string, next: unknown) {
-    return onSaveData({ ...data, [key]: next });
+    const updated = { ...latestData.current, [key]: next };
+    latestData.current = updated;
+    return onSaveData(updated);
+  }
+
+  if (definition.renderMode === "html") {
+    const showEditor = isAdmin && editMode;
+    return (
+      <Container className="py-6 sm:py-8">
+        {showEditor ? (
+          <div className="flex flex-col gap-4">
+            {sortedFields.map((field) => (
+              <FieldSlot key={field.key} field={field} data={data} onFieldChange={onFieldChange} />
+            ))}
+          </div>
+        ) : (
+          // Block definitions are authored only by trusted site admins. The
+          // template is intentionally raw; interpolated ordinary values are
+          // escaped and rich-text values are sanitized before this point.
+          <div className="custom-html-scope" dangerouslySetInnerHTML={{ __html: renderedHtml ?? "" }} />
+        )}
+      </Container>
+    );
   }
 
   return (

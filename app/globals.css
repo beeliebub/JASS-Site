@@ -431,3 +431,96 @@ body {
   background: none;
   padding: 0;
 }
+
+/* Baseline presentation for trusted admin-authored HTML. Theme variables
+   are inherited from the active site/page theme; inline styles and other
+   author-supplied styling remain free to override these low-specificity
+   defaults. */
+.custom-html-scope {
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+.custom-html-scope > * + * {
+  margin-top: 1em;
+}
+
+.custom-html-scope h1,
+.custom-html-scope h2,
+.custom-html-scope h3,
+.custom-html-scope h4,
+.custom-html-scope h5,
+.custom-html-scope h6 {
+  color: var(--foreground);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.custom-html-scope h1 { font-size: 1.5rem; }
+.custom-html-scope h2 { font-size: 1.25rem; }
+.custom-html-scope h3 { font-size: 1.0625rem; }
+
+.custom-html-scope a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.custom-html-scope strong { color: var(--foreground); font-weight: 600; }
+.custom-html-scope small { color: var(--muted); }
+
+.custom-html-scope ul,
+.custom-html-scope ol {
+  padding-left: 1.25em;
+}
+.custom-html-scope ul { list-style: disc; }
+.custom-html-scope ol { list-style: decimal; }
+
+.custom-html-scope blockquote {
+  border-left: 2px solid var(--border-strong);
+  color: var(--muted);
+  padding-left: 1em;
+}
+
+.custom-html-scope code,
+.custom-html-scope pre {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
+.custom-html-scope code { padding: 0.1em 0.35em; font-size: 0.875em; }
+.custom-html-scope pre { overflow-x: auto; padding: 1em; }
+.custom-html-scope pre code { background: none; padding: 0; }
+
+.custom-html-scope button {
+  background: var(--primary);
+  border-radius: var(--radius-sm);
+  color: var(--primary-foreground);
+  cursor: pointer;
+  padding: 0.5em 0.875em;
+}
+
+.custom-html-scope hr {
+  border-color: var(--border-strong);
+  margin-block: 1.5em;
+}
+
+.custom-html-scope table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.custom-html-scope table,
+.custom-html-scope th,
+.custom-html-scope td {
+  border: 1px solid var(--border-strong);
+}
+
+.custom-html-scope th,
+.custom-html-scope td {
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.custom-html-scope th { background: var(--surface-2); color: var(--foreground); }

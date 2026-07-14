@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  extractCustomHtmlPlaceholders,
+  validateCustomHtmlTemplateSyntax,
+  type CustomHtmlTemplateField,
+} from "@/lib/custom-html-template";
 import { slugSchema } from "@/lib/validation/pages";
 
 /**
@@ -33,7 +38,7 @@ export const blockFieldTypeSchema = z.enum([
 export type BlockFieldType = z.infer<typeof blockFieldTypeSchema>;
 
 /** Every field type except `repeater` itself -- used for a repeater field's
- * own row/item fields, so "one level of nesting only" (locked decision) is a
+ * own row/item fields, so "one level of nesting only" is a
  * structural Zod guarantee (this enum has no `repeater` member to recurse
  * into) rather than something a runtime check could forget to enforce. */
 export const nonRepeaterFieldTypeSchema = z.enum([
@@ -192,15 +197,129 @@ function refineUniqueFieldKeys(data: { fields?: { key: string }[] }, ctx: z.Refi
   });
 }
 
+export const blockDefinitionRenderModeSchema = z.enum(["fields", "html"]);
+export type BlockDefinitionRenderMode = z.infer<typeof blockDefinitionRenderModeSchema>;
+
+const htmlTemplateSchema = z.string().max(50_000).nullable().optional();
+
+function usesPlaceholderInQuotedAttribute(template: string, key: string): boolean {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `<[^>]*\\s[\\w:-]+\\s*=\\s*(["'])[^"']*{{\\s*${escapedKey}\\s*}}[^"']*\\1`,
+    "i",
+  ).test(template);
+}
+
+/** Returns author-facing errors for placeholder references that do not
+ * match the definition's scalar fields or one-level repeater item fields. */
+export function validateCustomHtmlTemplatePlaceholders(
+  template: string,
+  fields: readonly CustomHtmlTemplateField[],
+): string[] {
+  const errors: string[] = [];
+  errors.push(...validateCustomHtmlTemplateSyntax(template));
+  const fieldsByKey = new Map(fields.map((field) => [field.key, field]));
+  const references = extractCustomHtmlPlaceholders(template);
+
+  for (const key of references.scalarKeys) {
+    const field = fieldsByKey.get(key);
+    if (!field) {
+      errors.push(`Unknown placeholder "{{${key}}}" -- define a field with that key or update the template.`);
+      continue;
+    }
+    if (field.fieldType === "repeater") {
+      errors.push(
+        `Placeholder "{{${key}}}" references a repeater field -- use "{{#each ${key}}}...{{/each}}" instead.`,
+      );
+    }
+  }
+
+  for (const field of fields) {
+    if (field.fieldType !== "richText") continue;
+    if (usesPlaceholderInQuotedAttribute(template, field.key)) {
+      errors.push(`Rich-text placeholder "{{${field.key}}}" must be used as HTML content, not in an attribute.`);
+    }
+  }
+
+  for (const loopMatch of template.matchAll(/{{\s*#each\s+([^{}\s]+)\s*}}([\s\S]*?){{\s*\/each\s*}}/g)) {
+    const repeaterField = fieldsByKey.get(loopMatch[1]);
+    if (repeaterField?.fieldType !== "repeater") continue;
+    const parsedConfig = repeaterConfigSchema.safeParse(repeaterField.config);
+    if (!parsedConfig.success) continue;
+    for (const itemField of parsedConfig.data.fields) {
+      if (itemField.fieldType === "richText" && usesPlaceholderInQuotedAttribute(loopMatch[2], itemField.key)) {
+        errors.push(
+          `Rich-text placeholder "{{${itemField.key}}}" inside repeater "${repeaterField.key}" must be used as HTML content, not in an attribute.`,
+        );
+      }
+    }
+  }
+
+  for (const repeaterReference of references.repeaters) {
+    const field = fieldsByKey.get(repeaterReference.key);
+    if (!field) {
+      errors.push(
+        `Unknown repeater "{{#each ${repeaterReference.key}}}" -- define a repeater field with that key or update the template.`,
+      );
+      continue;
+    }
+    if (field.fieldType !== "repeater") {
+      errors.push(`Loop "{{#each ${repeaterReference.key}}}" must reference a repeater field.`);
+      continue;
+    }
+
+    const parsedConfig = repeaterConfigSchema.safeParse(field.config);
+    if (!parsedConfig.success) continue;
+    const itemKeys = new Set(parsedConfig.data.fields.map((itemField) => itemField.key));
+    for (const itemKey of repeaterReference.itemKeys) {
+      if (!itemKeys.has(itemKey)) {
+        errors.push(
+          `Unknown placeholder "{{${itemKey}}}" inside repeater "${repeaterReference.key}" -- define that item field or update the template.`,
+        );
+      }
+    }
+  }
+
+  return errors;
+}
+
+function refineHtmlTemplateRequired(
+  data: {
+    renderMode?: BlockDefinitionRenderMode;
+    htmlTemplate?: string | null;
+    fields?: CustomHtmlTemplateField[];
+  },
+  ctx: z.RefinementCtx,
+) {
+  if (data.renderMode === "html" && !data.htmlTemplate?.trim()) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["htmlTemplate"],
+      message: "An HTML template is required when the render mode is HTML.",
+    });
+    return;
+  }
+
+  if (data.renderMode !== "html" || !data.htmlTemplate || !data.fields) return;
+
+  for (const message of validateCustomHtmlTemplatePlaceholders(data.htmlTemplate, data.fields)) {
+    ctx.addIssue({ code: "custom", path: ["htmlTemplate"], message });
+  }
+}
+
 export const blockDefinitionCreateSchema = z
   .object({
     key: slugSchema,
     name: z.string().min(1).max(200),
     description: z.string().max(1000).nullable().optional(),
     layout: z.string().min(1).max(80),
+    renderMode: blockDefinitionRenderModeSchema.default("fields"),
+    htmlTemplate: htmlTemplateSchema,
+    remapThemeColors: z.boolean().default(false),
     fields: z.array(blockFieldDefinitionSchema).max(50),
   })
-  .superRefine(refineUniqueFieldKeys);
+  .superRefine(refineUniqueFieldKeys)
+  .superRefine(refineHtmlTemplateRequired);
 
 /** `key` is immutable after create (stable identifier a `Block.data` schema
  * is built against) -- deliberately absent here, unlike `pageUpdateSchema`'s
@@ -210,9 +329,23 @@ export const blockDefinitionUpdateSchema = z
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(1000).nullable().optional(),
     layout: z.string().min(1).max(80).optional(),
+    renderMode: blockDefinitionRenderModeSchema.optional(),
+    htmlTemplate: htmlTemplateSchema,
+    remapThemeColors: z.boolean().optional(),
     fields: z.array(blockFieldDefinitionSchema).max(50).optional(),
   })
   .superRefine(refineUniqueFieldKeys);
+
+/** Validates the resolved render state after a partial update has been
+ * merged with the definition's persisted mode, template, and fields. */
+export const blockDefinitionEffectiveRenderSchema = z
+  .object({
+    renderMode: blockDefinitionRenderModeSchema,
+    htmlTemplate: htmlTemplateSchema,
+    fields: z.array(blockFieldDefinitionSchema).max(50),
+  })
+  .superRefine(refineUniqueFieldKeys)
+  .superRefine(refineHtmlTemplateRequired);
 
 // ---------------------------------------------------------------------------
 // Dynamic `Block.data` schema builder

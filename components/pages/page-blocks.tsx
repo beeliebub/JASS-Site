@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { AddButton } from "@/components/admin/list-controls";
@@ -39,6 +39,9 @@ type BlockDefinitionApiRow = {
   id: string;
   name: string;
   layout: string;
+  renderMode: "fields" | "html";
+  htmlTemplate: string | null;
+  remapThemeColors: boolean;
   fields: BlockDefinitionApiField[];
 };
 
@@ -60,6 +63,9 @@ function toBlockDefinitionWithFields(row: BlockDefinitionApiRow): BlockDefinitio
     id: row.id,
     name: row.name,
     layout: row.layout,
+    renderMode: row.renderMode,
+    htmlTemplate: row.htmlTemplate,
+    remapThemeColors: row.remapThemeColors,
     fields: [...row.fields]
       .sort((a, b) => a.order - b.order)
       .map((field) => ({
@@ -98,6 +104,9 @@ export function PageBlocks({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [customDefinitions, setCustomDefinitions] = useState<BlockDefinitionApiRow[]>([]);
+  const saveChains = useRef(new Map<string, Promise<void>>());
+  const saveVersions = useRef(new Map<string, number>());
+  const lastSuccessfulHtml = useRef(new Map<string, string>());
 
   const sorted = [...blocks].sort((a, b) => a.order - b.order);
   const showChrome = isAdmin && editMode;
@@ -136,20 +145,47 @@ export function PageBlocks({
   };
 
   async function saveBlockData(id: string, data: unknown) {
-    const previous = blocks;
+    const previousBlock = blocks.find((block) => block.id === id);
+    const version = (saveVersions.current.get(id) ?? 0) + 1;
+    saveVersions.current.set(id, version);
     setBlocks((prev) => prev.map((blk) => (blk.id === id ? { ...blk, data } : blk)));
 
-    try {
+    const previousSave = saveChains.current.get(id) ?? Promise.resolve();
+    const save = previousSave.catch(() => undefined).then(async () => {
       const res = await fetch(`/api/blocks/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data }),
       });
       if (!res.ok) throw new Error(await parseError(res, "Failed to save block."));
+      const { data: saved } = (await res.json()) as { data: { renderedHtml?: string } };
+      if (saved.renderedHtml !== undefined) lastSuccessfulHtml.current.set(id, saved.renderedHtml);
+      if (saved.renderedHtml !== undefined && saveVersions.current.get(id) === version) {
+        setBlocks((prev) => prev.map((blk) => (blk.id === id ? { ...blk, renderedHtml: saved.renderedHtml } : blk)));
+      }
+    });
+    saveChains.current.set(id, save);
+
+    try {
+      await save;
     } catch (error) {
-      setBlocks(previous);
+      if (saveVersions.current.get(id) === version && previousBlock) {
+        setBlocks((prev) =>
+          prev.map((blk) =>
+            blk.id === id
+              ? {
+                  ...blk,
+                  data: previousBlock.data,
+                  renderedHtml: lastSuccessfulHtml.current.get(id) ?? previousBlock.renderedHtml,
+                }
+              : blk,
+          ),
+        );
+      }
       showError(error instanceof Error ? error.message : "Failed to save block.");
       throw error;
+    } finally {
+      if (saveChains.current.get(id) === save) saveChains.current.delete(id);
     }
   }
 
@@ -234,10 +270,19 @@ export function PageBlocks({
         body: JSON.stringify({ pageId, type: "custom", blockDefinitionId: definition.id, order: nextOrder, data }),
       });
       if (!res.ok) throw new Error(await parseError(res, "Failed to add block."));
-      const { data: created } = (await res.json()) as { data: { id: string; order: number } };
+      const { data: created } = (await res.json()) as {
+        data: { id: string; order: number; renderedHtml?: string };
+      };
       setBlocks((prev) => [
         ...prev,
-        { id: created.id, type: "custom", order: created.order, data, blockDefinitionId: definition.id },
+        {
+          id: created.id,
+          type: "custom",
+          order: created.order,
+          data,
+          blockDefinitionId: definition.id,
+          renderedHtml: created.renderedHtml,
+        },
       ]);
       setPickerOpen(false);
     } catch (error) {

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Prisma Patterns"
+  short_description: "Prisma Patterns guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $prisma-patterns when the task calls for Prisma Patterns."
+policy:
+  allow_implicit_invocation: true

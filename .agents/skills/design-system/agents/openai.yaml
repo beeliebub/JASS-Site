@@ -1,0 +1,7 @@
+interface:
+  display_name: "Design System"
+  short_description: "Design System guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $design-system when the task calls for Design System."
+policy:
+  allow_implicit_invocation: true

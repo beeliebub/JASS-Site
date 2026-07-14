@@ -395,7 +395,7 @@ export function LinkGridBlock({
             className="text-sm font-medium tracking-wide text-muted uppercase"
           />
           <div className="mt-6 grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-3">
-            {links.map((link) => {
+            {links.map((link, index) => {
               const textContent = (
                 <>
                   <span className={`flex items-center justify-between text-base font-semibold text-foreground transition-colors ${hoverClass}`}>
@@ -409,7 +409,7 @@ export function LinkGridBlock({
               );
               return (
                 <Link
-                  key={link.href}
+                  key={index}
                   href={link.href}
                   className={`group bg-surface p-6 transition-colors hover:bg-surface-2 ${
                     link.image ? "flex items-start gap-4" : "flex flex-col gap-2"

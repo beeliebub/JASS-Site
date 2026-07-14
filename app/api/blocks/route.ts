@@ -6,6 +6,7 @@ import { blockCreateSchema } from "@/lib/validation/pages";
 import { buildDataSchemaFromDefinition } from "@/lib/validation/block-definitions";
 import { pagePath } from "@/lib/content";
 import { blockSnapshot, recordAuditLog } from "@/lib/audit-log";
+import { renderCustomHtml } from "@/lib/render-custom-html";
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
     // which aren't known until fetched here.
     let dataToStore: unknown = parsed.data.data;
     let blockDefinitionId: string | null = null;
+    let renderedHtml: string | undefined;
 
     if (parsed.data.type === "custom") {
       const definition = await prisma.blockDefinition.findUnique({
@@ -52,6 +54,7 @@ export async function POST(req: Request) {
 
       dataToStore = dataParsed.data;
       blockDefinitionId = definition.id;
+      renderedHtml = renderCustomHtml(definition, dataParsed.data as Record<string, unknown>);
     }
 
     const block = await prisma.$transaction(async (tx) => {
@@ -77,7 +80,7 @@ export async function POST(req: Request) {
     });
 
     revalidatePath(pagePath(page.slug));
-    return apiSuccess(block, { status: 201 });
+    return apiSuccess({ ...block, renderedHtml }, { status: 201 });
   } catch (error) {
     return internalError(error);
   }

@@ -1,0 +1,7 @@
+interface:
+  display_name: "React Patterns"
+  short_description: "React Patterns guidance for the JASS project."
+  brand_color: "#F97316"
+  default_prompt: "Use $react-patterns when the task calls for React Patterns."
+policy:
+  allow_implicit_invocation: true

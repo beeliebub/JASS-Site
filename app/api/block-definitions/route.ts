@@ -56,6 +56,9 @@ export async function POST(req: Request) {
           name: parsed.data.name,
           description: parsed.data.description ?? null,
           layout: parsed.data.layout,
+          renderMode: parsed.data.renderMode,
+          htmlTemplate: parsed.data.htmlTemplate ?? null,
+          remapThemeColors: parsed.data.remapThemeColors,
           createdBy: user?.email,
           fields: {
             create: parsed.data.fields.map((field) => ({
