@@ -1,4 +1,5 @@
 import type { Block, Page } from "@/app/generated/prisma/client";
+import { prisma } from "@/lib/prisma";
 import {
   CONTENT_KEYS,
   getFeaturesByBlockIds,
@@ -8,7 +9,17 @@ import {
   getSiteContent,
 } from "@/lib/content";
 import { BLOCK_TYPES, parseBlockData, type BlockType } from "@/lib/validation/pages";
-import { defaultBlockData, type ClientBlock, type ReferenceData } from "@/components/blocks/registry";
+import {
+  buildDataSchemaFromDefinition,
+  defaultDataForFields,
+  type BlockFieldType,
+} from "@/lib/validation/block-definitions";
+import {
+  defaultBlockData,
+  type BlockDefinitionWithFields,
+  type ClientBlock,
+  type ReferenceData,
+} from "@/components/blocks/registry";
 import type { PostDisplayData } from "@/components/blocks/post-display-block";
 import { PageBlocks } from "@/components/pages/page-blocks";
 
@@ -16,6 +27,14 @@ export type PageWithBlocks = Page & { blocks: Block[] };
 
 function isBlockType(value: string): value is BlockType {
   return (BLOCK_TYPES as readonly string[]).includes(value);
+}
+
+function safeJsonParse(raw: string): unknown {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
 }
 
 /** Groups `rows` by `keyOf(row)` into a `Record<key, row[]>` -- used below to
@@ -57,6 +76,15 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
   const featureGridBlockIds = page.blocks.filter((b) => b.type === "featureGrid").map((b) => b.id);
   const postListBlockIds = page.blocks.filter((b) => b.type === "postList").map((b) => b.id);
   const hasHero = page.blocks.some((b) => b.type === "hero");
+  // Distinct definitions referenced by this page's custom blocks -- several
+  // instances of the same BlockDefinition only need it fetched once.
+  const blockDefinitionIds = Array.from(
+    new Set(
+      page.blocks
+        .filter((b) => b.type === "custom" && b.blockDefinitionId)
+        .map((b) => b.blockDefinitionId as string),
+    ),
+  );
 
   // `postDisplay` blocks don't own posts -- they select other blocks' posts
   // by tag -- so we need each instance's own `data.tagIds` *before* the
@@ -83,13 +111,49 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
   // are no postDisplay blocks, or every one of them has zero tags selected.
   const tagIdUnion = Array.from(new Set(postDisplayBlocks.flatMap((b) => b.tagIds)));
 
-  const [ruleSections, features, posts, matchedPosts, siteContent] = await Promise.all([
+  const [ruleSections, features, posts, matchedPosts, siteContent, blockDefinitions] = await Promise.all([
     ruleListBlockIds.length ? getRuleSectionsByBlockIds(ruleListBlockIds) : Promise.resolve([]),
     featureGridBlockIds.length ? getFeaturesByBlockIds(featureGridBlockIds) : Promise.resolve([]),
     postListBlockIds.length ? getPostsByBlockIds(postListBlockIds) : Promise.resolve([]),
     tagIdUnion.length ? getPostsByTagIds(tagIdUnion) : Promise.resolve([]),
     hasHero ? getSiteContent() : Promise.resolve(undefined),
+    blockDefinitionIds.length
+      ? prisma.blockDefinition.findMany({
+          where: { id: { in: blockDefinitionIds } },
+          include: { fields: { orderBy: { order: "asc" } } },
+        })
+      : Promise.resolve([]),
   ]);
+
+  // Keyed by id for the flatMap below's dynamic-schema validation, which
+  // needs each field's `config` as the raw JSON *string*
+  // (buildDataSchemaFromDefinition/defaultDataForFields both parse it
+  // themselves, same as every other caller of those two functions) --
+  // separate from `blockDefinitionsById` just below, whose `config` is
+  // pre-parsed for the client-rendering shape instead.
+  const rawDefinitionsById = new Map(blockDefinitions.map((d) => [d.id, d]));
+
+  // Parsed once here (not re-parsed per rendering pass) -- see
+  // BlockDefinitionWithFields's doc comment in custom-fields/types.ts on why
+  // `config` arrives already-parsed at this point.
+  const blockDefinitionsById: Record<string, BlockDefinitionWithFields> = {};
+  for (const definition of blockDefinitions) {
+    blockDefinitionsById[definition.id] = {
+      id: definition.id,
+      name: definition.name,
+      layout: definition.layout,
+      fields: definition.fields.map((field) => ({
+        id: field.id,
+        key: field.key,
+        label: field.label,
+        fieldType: field.fieldType as BlockFieldType,
+        order: field.order,
+        required: field.required,
+        helpText: field.helpText,
+        config: safeJsonParse(field.config),
+      })),
+    };
+  }
 
   const postsByBlockId = groupBy(
     posts.map((post) => ({ ...post, publishedAt: post.publishedAt.toISOString() })),
@@ -117,9 +181,44 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
     ruleSectionsByBlockId: groupBy(ruleSections, (s) => s.blockId),
     featuresByBlockId: groupBy(features, (f) => f.blockId),
     postsByBlockId,
+    blockDefinitionsById,
   };
 
   const clientBlocks: ClientBlock[] = page.blocks.flatMap((block): ClientBlock[] => {
+    if (block.type === "custom") {
+      const rawDefinition = block.blockDefinitionId ? rawDefinitionsById.get(block.blockDefinitionId) : undefined;
+      // Deleted/missing definition -- skip the block, same "don't crash the
+      // page for visitors" stance as an unknown legacy built-in type below.
+      // registry.tsx's "custom" entry additionally guards against this (a
+      // notice for admins) for the narrower case where the block still made
+      // it into clientBlocks some other way, but it shouldn't when skipped
+      // here.
+      if (!rawDefinition) return [];
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(block.data);
+      } catch {
+        parsed = undefined;
+      }
+
+      // Same guard-against-corrupt/stale-rows idea as built-in types below,
+      // just validated against this definition's own dynamic schema instead
+      // of a static one.
+      const schema = buildDataSchemaFromDefinition(rawDefinition.fields);
+      const result = schema.safeParse(parsed);
+      const data = result.success ? result.data : defaultDataForFields(rawDefinition.fields);
+
+      const customBlock: ClientBlock = {
+        id: block.id,
+        type: "custom",
+        order: block.order,
+        data,
+        blockDefinitionId: block.blockDefinitionId,
+      };
+      return [customBlock];
+    }
+
     if (!isBlockType(block.type)) {
       // Unknown/legacy type -- skip rather than crash the page for visitors.
       return [];

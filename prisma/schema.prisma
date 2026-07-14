@@ -86,18 +86,66 @@ model CustomTheme {
 // `data` is JSON-as-string (matches the existing ContentBlock.value
 // convention -- no native SQLite JSON type) -- parse/validate at the API
 // boundary per `type` with the discriminated union in lib/validation/pages.ts.
+// `type: "custom"` is the one exception: its `data` shape isn't known
+// statically, so it's validated against `blockDefinition`'s own field
+// definitions instead (see lib/validation/block-definitions.ts).
 model Block {
-  id           String        @id @default(cuid())
-  page         Page          @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  pageId       String
-  order        Int
-  type         String
-  data         String
-  updatedAt    DateTime      @updatedAt
-  updatedBy    String?
-  ruleSections RuleSection[]
-  features     Feature[]
-  posts        Post[]
+  id                String           @id @default(cuid())
+  page              Page             @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  pageId            String
+  order             Int
+  type              String
+  data              String
+  updatedAt         DateTime         @updatedAt
+  updatedBy         String?
+  ruleSections      RuleSection[]
+  features          Feature[]
+  posts             Post[]
+  blockDefinition   BlockDefinition? @relation("CustomBlockInstances", fields: [blockDefinitionId], references: [id])
+  blockDefinitionId String?
+}
+
+// Admin-authored block *type*. A definition's `fields` describe the shape of
+// `Block.data` for every `Block` row with `type: "custom"` and this
+// definition's id as `blockDefinitionId` -- see the dynamic-schema builder in
+// lib/validation/block-definitions.ts. `key` is immutable after create (it's
+// never actually read back out anywhere yet, only guaranteed unique/stable
+// for whenever something needs a durable non-id reference); `name` is the
+// only admin-facing label. `layout` is one of a fixed set of template ids
+// (rendered by components/blocks/custom-block-renderer.tsx), always set --
+// there is no "no layout chosen yet" state.
+model BlockDefinition {
+  id          String                 @id @default(cuid())
+  key         String                 @unique
+  name        String
+  description String?
+  layout      String
+  fields      BlockFieldDefinition[]
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  createdBy   String?
+  blocks      Block[]                @relation("CustomBlockInstances")
+}
+
+// One field on a BlockDefinition. `key` is the JSON key this field occupies
+// on every Block.data instance of the owning definition; `order` is display
+// order in both the field editor and (per-template) instance rendering.
+// `config` is JSON-as-string, shaped per `fieldType` (see
+// lib/validation/block-definitions.ts) -- for `fieldType: "repeater"`,
+// `config.fields` holds the row's own item field defs inline as JSON (not
+// more BlockFieldDefinition rows), each restricted to a non-repeater
+// fieldType so repeaters never nest more than one level deep.
+model BlockFieldDefinition {
+  id                String          @id @default(cuid())
+  blockDefinition   BlockDefinition @relation(fields: [blockDefinitionId], references: [id], onDelete: Cascade)
+  blockDefinitionId String
+  key               String
+  label             String
+  fieldType         String
+  order             Int
+  required          Boolean         @default(false)
+  helpText          String?
+  config            String
 }
 
 // One level of dropdown nesting only (enforced in lib/validation/pages.ts,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { AddButton } from "@/components/admin/list-controls";
@@ -10,13 +10,69 @@ import {
   blockComponents,
   blockTypeLabels,
   defaultBlockData,
+  type BlockDefinitionWithFields,
   type ClientBlock,
   type ReferenceData,
 } from "@/components/blocks/registry";
+import { defaultDataForFields, type BlockFieldType } from "@/lib/validation/block-definitions";
 
 async function parseError(res: Response, fallback: string) {
   const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
   return body?.error?.message ?? fallback;
+}
+
+/** Shape `GET /api/block-definitions` returns (see
+ * app/api/block-definitions/route.ts) -- `fields[].config` is still the raw
+ * JSON string column, matching `defaultDataForFields`'s expected input
+ * directly (it parses `config` itself). */
+type BlockDefinitionApiField = {
+  id: string;
+  key: string;
+  label: string;
+  fieldType: string;
+  order: number;
+  required: boolean;
+  helpText: string | null;
+  config: string;
+};
+type BlockDefinitionApiRow = {
+  id: string;
+  name: string;
+  layout: string;
+  fields: BlockDefinitionApiField[];
+};
+
+function safeJsonParse(raw: string): unknown {
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Same conversion page-renderer.tsx does server-side for the blocks already
+ * on a page at load time -- run here too so a custom block added through the
+ * picker below (which didn't exist yet when the server rendered this page)
+ * still has a resolvable definition to render against, without needing a
+ * full page reload. */
+function toBlockDefinitionWithFields(row: BlockDefinitionApiRow): BlockDefinitionWithFields {
+  return {
+    id: row.id,
+    name: row.name,
+    layout: row.layout,
+    fields: [...row.fields]
+      .sort((a, b) => a.order - b.order)
+      .map((field) => ({
+        id: field.id,
+        key: field.key,
+        label: field.label,
+        fieldType: field.fieldType as BlockFieldType,
+        order: field.order,
+        required: field.required,
+        helpText: field.helpText,
+        config: safeJsonParse(field.config),
+      })),
+  };
 }
 
 /**
@@ -24,7 +80,8 @@ async function parseError(res: Response, fallback: string) {
  * RulesEditor/FeaturesEditor's list state, one level up. Renders bare
  * content for visitors/non-edit-mode admins; in edit mode, wraps each block
  * in BlockShell (reorder/delete) and offers an "Add block" picker below the
- * last one.
+ * last one, offering both the fixed `ADDABLE_BLOCK_TYPES` and any live
+ * admin-authored `BlockDefinition`s.
  */
 export function PageBlocks({
   pageId,
@@ -40,9 +97,43 @@ export function PageBlocks({
   const [blocks, setBlocks] = useState(initialBlocks);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [customDefinitions, setCustomDefinitions] = useState<BlockDefinitionApiRow[]>([]);
 
   const sorted = [...blocks].sort((a, b) => a.order - b.order);
   const showChrome = isAdmin && editMode;
+
+  // Fetched once for the picker's second group (live admin-authored block
+  // types) -- gated on isAdmin since only admins ever see the picker, so a
+  // visitor never pays for this request. Also merged into referenceData
+  // below so a freshly-added custom block instance (whose definition wasn't
+  // part of page-renderer.tsx's server-side prefetch, since it didn't exist
+  // at page-load time) still renders immediately instead of showing
+  // MissingBlockDefinitionNotice until the next reload.
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    fetch("/api/block-definitions")
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Failed to load block types."))))
+      .then((body: { data: BlockDefinitionApiRow[] }) => {
+        if (!cancelled) setCustomDefinitions(body.data);
+      })
+      .catch(() => {
+        // Non-fatal: the picker's custom-type group just stays empty; every
+        // built-in type still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  const customDefinitionsById: Record<string, BlockDefinitionWithFields> = {};
+  for (const row of customDefinitions) {
+    customDefinitionsById[row.id] = toBlockDefinitionWithFields(row);
+  }
+  const mergedReferenceData: ReferenceData = {
+    ...referenceData,
+    blockDefinitionsById: { ...referenceData.blockDefinitionsById, ...customDefinitionsById },
+  };
 
   async function saveBlockData(id: string, data: unknown) {
     const previous = blocks;
@@ -132,21 +223,49 @@ export function PageBlocks({
     }
   }
 
+  async function addCustomBlock(definition: BlockDefinitionApiRow) {
+    setAdding(true);
+    const nextOrder = blocks.length ? Math.max(...blocks.map((b) => b.order)) + 1 : 0;
+    const data = defaultDataForFields(definition.fields);
+    try {
+      const res = await fetch("/api/blocks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageId, type: "custom", blockDefinitionId: definition.id, order: nextOrder, data }),
+      });
+      if (!res.ok) throw new Error(await parseError(res, "Failed to add block."));
+      const { data: created } = (await res.json()) as { data: { id: string; order: number } };
+      setBlocks((prev) => [
+        ...prev,
+        { id: created.id, type: "custom", order: created.order, data, blockDefinitionId: definition.id },
+      ]);
+      setPickerOpen(false);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Failed to add block.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
   return (
     <div className="flex flex-col">
       {sorted.map((block, i) => {
         const Renderer = blockComponents[block.type];
+        const label =
+          block.type === "custom"
+            ? (mergedReferenceData.blockDefinitionsById?.[block.blockDefinitionId ?? ""]?.name ?? "Custom block")
+            : blockTypeLabels[block.type];
         return (
           <BlockShell
             key={block.id}
-            label={blockTypeLabels[block.type]}
+            label={label}
             canMoveUp={i > 0}
             canMoveDown={i < sorted.length - 1}
             onMoveUp={() => moveBlock(block.id, -1)}
             onMoveDown={() => moveBlock(block.id, 1)}
             onDelete={() => deleteBlock(block.id)}
           >
-            <Renderer block={block} referenceData={referenceData} onSaveData={(next) => saveBlockData(block.id, next)} />
+            <Renderer block={block} referenceData={mergedReferenceData} onSaveData={(next) => saveBlockData(block.id, next)} />
           </BlockShell>
         );
       })}
@@ -166,6 +285,21 @@ export function PageBlocks({
                   {blockTypeLabels[type]}
                 </button>
               ))}
+              {customDefinitions.length > 0 && (
+                <div className="flex basis-full flex-wrap items-center gap-2 border-t border-border pt-2">
+                  {customDefinitions.map((definition) => (
+                    <button
+                      key={definition.id}
+                      type="button"
+                      onClick={() => addCustomBlock(definition)}
+                      disabled={adding}
+                      className="flex h-9 items-center justify-center rounded-md border border-dashed border-border-strong px-3 text-sm font-medium text-foreground transition hover:border-primary hover:text-primary motion-safe:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {definition.name}
+                    </button>
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => setPickerOpen(false)}

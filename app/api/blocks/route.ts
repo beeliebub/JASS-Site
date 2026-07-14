@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
 import { apiSuccess, badRequest, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
 import { blockCreateSchema } from "@/lib/validation/pages";
+import { buildDataSchemaFromDefinition } from "@/lib/validation/block-definitions";
 import { pagePath } from "@/lib/content";
 import { blockSnapshot, recordAuditLog } from "@/lib/audit-log";
 
@@ -25,13 +26,41 @@ export async function POST(req: Request) {
     const page = await prisma.page.findUnique({ where: { id: parsed.data.pageId } });
     if (!page) return notFound("Page");
 
+    // Built-in types are already fully validated by `blockCreateSchema`'s
+    // discriminated union above (each arm carries its own
+    // `blockDataSchemas` entry as `data`) -- `"custom"` is the one
+    // exception, whose union arm only checks `data: z.unknown()` since the
+    // real shape depends on the referenced `BlockDefinition`'s fields,
+    // which aren't known until fetched here.
+    let dataToStore: unknown = parsed.data.data;
+    let blockDefinitionId: string | null = null;
+
+    if (parsed.data.type === "custom") {
+      const definition = await prisma.blockDefinition.findUnique({
+        where: { id: parsed.data.blockDefinitionId },
+        include: { fields: true },
+      });
+      // Reachable if a stale client submits after the definition was
+      // deleted -- the DELETE guard on /api/block-definitions/[id] should
+      // normally prevent this by rejecting while any block still uses it.
+      if (!definition) return notFound("Block type");
+
+      const dataSchema = buildDataSchemaFromDefinition(definition.fields);
+      const dataParsed = dataSchema.safeParse(parsed.data.data);
+      if (!dataParsed.success) return validationError(dataParsed.error);
+
+      dataToStore = dataParsed.data;
+      blockDefinitionId = definition.id;
+    }
+
     const block = await prisma.$transaction(async (tx) => {
       const created = await tx.block.create({
         data: {
           pageId: parsed.data.pageId,
           type: parsed.data.type,
           order: parsed.data.order,
-          data: JSON.stringify(parsed.data.data),
+          data: JSON.stringify(dataToStore),
+          blockDefinitionId,
           updatedBy: user?.email,
         },
       });

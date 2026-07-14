@@ -523,6 +523,21 @@ export const blockCreateSchema = z.discriminatedUnion("type", [
     order: z.number().int(),
     data: blockDataSchemas.serverStatus,
   }),
+  /** Admin-defined block type (`BlockDefinition`), not one of the fixed
+   * `BLOCK_TYPES` above. `data`'s real shape depends on the referenced
+   * definition's fields, which aren't known until the route fetches it --
+   * so, same two-stage-validation idea as `blockUpdateSchema.data` below,
+   * this only checks the envelope shape here; the route builds and applies
+   * the definition's actual schema via `buildDataSchemaFromDefinition`
+   * (see lib/validation/block-definitions.ts) once it has fetched the
+   * `BlockDefinition` row. */
+  z.object({
+    type: z.literal("custom"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    blockDefinitionId: z.string().min(1),
+    data: z.unknown(),
+  }),
 ]);
 
 /** `PUT /api/blocks/[id]` body: reordering and/or a content edit. `data`'s

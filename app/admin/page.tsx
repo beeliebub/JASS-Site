@@ -18,6 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 const managementLinks = [
   { href: "/admin/pages", title: "Pages", description: "Create custom pages, publish/unpublish, delete." },
   { href: "/admin/nav", title: "Navigation", description: "Header nav items and one level of dropdowns." },
+  { href: "/admin/block-types", title: "Block types", description: "Define custom block types — fields, layout, and config — for the page builder." },
   { href: "/admin/post-slugs", title: "Post slugs", description: "Every post's slug, grouped by page and block." },
   { href: "/admin/tags", title: "Tags", description: "Rename, recolor, and clean up post tags." },
   { href: "/admin/images", title: "Images", description: "Every uploaded image, used/unused, delete the orphans." },

@@ -18,7 +18,11 @@ import { AccordionBlock, type AccordionData } from "@/components/blocks/accordio
 import { TableBlock, type TableData } from "@/components/blocks/table-block";
 import { TocBlock, type TocData } from "@/components/blocks/toc-block";
 import { ServerStatusBlock, type ServerStatusData } from "@/components/blocks/server-status-block";
+import { CustomBlockRenderer, MissingBlockDefinitionNotice } from "@/components/blocks/custom-block-renderer";
+import type { BlockDefinitionWithFields } from "@/components/blocks/custom-fields/types";
 import { BLOCK_TYPES, blockTypeLabels, type BlockType } from "@/lib/validation/pages";
+
+export type { BlockDefinitionWithFields } from "@/components/blocks/custom-fields/types";
 
 /**
  * Type -> component lookup ("a lookup object, not a long
@@ -72,14 +76,23 @@ export type ReferenceData = {
   ruleSectionsByBlockId?: Record<string, SectionWithRules[]>;
   featuresByBlockId?: Record<string, Feature[]>;
   postsByBlockId?: Record<string, ClientPost[]>;
+  /** One entry per distinct `blockDefinitionId` referenced by this page's
+   * `type: "custom"` blocks -- populated in page-renderer.tsx's existing
+   * server-side prefetch, same shape as the maps above. The "custom" entry
+   * in `blockComponents` below looks a block's own definition up here by
+   * `block.blockDefinitionId`. */
+  blockDefinitionsById?: Record<string, BlockDefinitionWithFields>;
 };
 
 export type ClientBlock = {
   id: string;
-  type: BlockType;
+  type: BlockType | "custom";
   order: number;
   data: unknown;
   heroContent?: HeroContentData;
+  /** Set only for `type: "custom"` blocks -- which `BlockDefinition`
+   * (looked up in `referenceData.blockDefinitionsById`) this instance is. */
+  blockDefinitionId?: string | null;
 };
 
 export type BlockComponentProps = {
@@ -88,7 +101,7 @@ export type BlockComponentProps = {
   onSaveData: (next: unknown) => Promise<void>;
 };
 
-export const blockComponents: Record<BlockType, ComponentType<BlockComponentProps>> = {
+export const blockComponents: Record<BlockType | "custom", ComponentType<BlockComponentProps>> = {
   hero: ({ block, onSaveData }) => {
     const heroData = block.data as HeroData;
     if (!block.heroContent) return null;
@@ -195,6 +208,24 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
       onSaveData={onSaveData as (next: ServerStatusData) => Promise<void>}
     />
   ),
+  // Admin-defined block type -- looks its own BlockDefinition up in
+  // referenceData (populated in page-renderer.tsx) by blockDefinitionId and
+  // hands off to CustomBlockRenderer, which arranges the definition's fields
+  // per its own `layout` template. A missing/stale definition (shouldn't be
+  // reachable given DELETE /api/block-definitions/[id]'s usage guard, but
+  // see MissingBlockDefinitionNotice's own doc comment) renders a minimal
+  // notice instead of crashing.
+  custom: ({ block, referenceData, onSaveData }) => {
+    const definition = referenceData.blockDefinitionsById?.[block.blockDefinitionId ?? ""];
+    if (!definition) return <MissingBlockDefinitionNotice />;
+    return (
+      <CustomBlockRenderer
+        definition={definition}
+        data={(block.data ?? {}) as Record<string, unknown>}
+        onSaveData={onSaveData as (next: Record<string, unknown>) => Promise<void>}
+      />
+    );
+  },
 };
 
 // blockTypeLabels moved to lib/validation/pages.ts (re-exported here so

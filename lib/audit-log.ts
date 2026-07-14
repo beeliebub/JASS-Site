@@ -1,5 +1,7 @@
 import type {
   Block,
+  BlockDefinition,
+  BlockFieldDefinition,
   CustomTheme,
   NavItem,
   Page,
@@ -23,6 +25,11 @@ import { navItemCreateSchema, navItemUpdateSchema } from "@/lib/validation/nav-i
 import { customThemeCreateSchema, customThemeUpdateSchema } from "@/lib/validation/custom-themes";
 import { siteSettingsUpdateSchema } from "@/lib/validation/site-settings";
 import { tagCreateSchema, tagUpdateSchema } from "@/lib/validation/content";
+import {
+  blockDefinitionCreateSchema,
+  blockDefinitionUpdateSchema,
+  buildDataSchemaFromDefinition,
+} from "@/lib/validation/block-definitions";
 import { CUSTOM_THEME_TOKEN_FIELDS, type CustomThemeTokenField } from "@/lib/themes";
 import { imagePath, packPath } from "@/lib/uploads";
 
@@ -44,6 +51,7 @@ export const AUDIT_ENTITY_TYPES = [
   "SiteSettings",
   "UploadedImage",
   "Tag",
+  "BlockDefinition",
 ] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 export type AuditAction = "create" | "update" | "delete";
@@ -123,6 +131,32 @@ export function blockSnapshot(row: Block) {
     order: row.order,
     type: row.type,
     data: JSON.parse(row.data) as unknown,
+    // Null for every built-in block type; set for `type: "custom"`. Captured
+    // here so undoing the deletion of a custom block recreates it still
+    // pointing at its `BlockDefinition` instead of silently becoming a
+    // type-less orphan -- see the `Block` undo handler below.
+    blockDefinitionId: row.blockDefinitionId,
+  };
+}
+
+export function blockDefinitionSnapshot(row: BlockDefinition & { fields: BlockFieldDefinition[] }) {
+  return {
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    description: row.description,
+    layout: row.layout,
+    fields: [...row.fields]
+      .sort((a, b) => a.order - b.order)
+      .map((field) => ({
+        key: field.key,
+        label: field.label,
+        fieldType: field.fieldType,
+        order: field.order,
+        required: field.required,
+        helpText: field.helpText,
+        config: JSON.parse(field.config) as unknown,
+      })),
   };
 }
 
@@ -290,7 +324,28 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     const snapshot = parseSnapshot<ReturnType<typeof blockSnapshot>>(entry.before);
     if (!snapshot) return { ok: false, message: "No prior state recorded for this entry." };
 
-    const dataParsed = parseBlockData(snapshot.type, snapshot.data);
+    // `parseBlockData` only knows the static `blockDataSchemas` map -- it
+    // has no entry for `"custom"`, so a custom block's snapshot has to be
+    // validated against its own `BlockDefinition`'s dynamic schema instead
+    // (same split the live PUT route uses).
+    let dataParsed: { success: true; data: unknown } | { success: false };
+    if (snapshot.type === "custom") {
+      if (!snapshot.blockDefinitionId) {
+        return { ok: false, message: "Stored snapshot is missing its block type reference." };
+      }
+      const definition = await tx.blockDefinition.findUnique({
+        where: { id: snapshot.blockDefinitionId },
+        include: { fields: true },
+      });
+      if (!definition) {
+        return { ok: false, message: "The block type this block used no longer exists." };
+      }
+      const customParsed = buildDataSchemaFromDefinition(definition.fields).safeParse(snapshot.data);
+      dataParsed = customParsed.success ? { success: true, data: customParsed.data } : { success: false };
+    } else {
+      const staticParsed = parseBlockData(snapshot.type, snapshot.data);
+      dataParsed = staticParsed.success ? { success: true, data: staticParsed.data } : { success: false };
+    }
     if (!dataParsed.success) return { ok: false, message: "Stored snapshot no longer matches this block type's schema." };
     const orderParsed = blockUpdateSchema.shape.order.safeParse(snapshot.order);
     if (!orderParsed.success) return { ok: false, message: "Stored snapshot has an invalid order value." };
@@ -301,7 +356,12 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
       return safeWrite(() =>
         tx.block.update({
           where: { id: entry.entityId },
-          data: { order: snapshot.order, data: JSON.stringify(dataParsed.data), updatedBy: ctx.actorEmail },
+          data: {
+            order: snapshot.order,
+            data: JSON.stringify(dataParsed.data),
+            blockDefinitionId: snapshot.blockDefinitionId,
+            updatedBy: ctx.actorEmail,
+          },
         }),
       );
     }
@@ -318,6 +378,7 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
           type: snapshot.type,
           order: snapshot.order,
           data: JSON.stringify(dataParsed.data),
+          blockDefinitionId: snapshot.blockDefinitionId,
           updatedBy: ctx.actorEmail,
         },
       }),
@@ -394,6 +455,97 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     const parsed = tagCreateSchema.safeParse(fields);
     if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current tag schema." };
     return safeWrite(() => tx.tag.create({ data: { ...fields, id: entry.entityId } }));
+  },
+
+  // -------------------------------------------------------------------
+  BlockDefinition: async (tx, entry, ctx) => {
+    if (entry.action === "create") {
+      // A live custom Block instance's `blockDefinitionId` FK is
+      // ON DELETE SET NULL (not RESTRICT/CASCADE) -- deleting the
+      // definition out from under it wouldn't fail, it would silently turn
+      // the block into an orphaned `type: "custom"` row with no definition.
+      // Same "never cascade-delete live page content" rule the live DELETE
+      // route enforces, re-checked here since undo is a second path to the
+      // same delete.
+      const usageCount = await tx.block.count({ where: { blockDefinitionId: entry.entityId } });
+      if (usageCount > 0) {
+        return {
+          ok: false,
+          message: `Can't undo -- ${usageCount} block instance(s) on live pages still use this block type. Remove or replace them first.`,
+        };
+      }
+      // BlockFieldDefinition rows cascade-delete at the database level
+      // (onDelete: Cascade), so deleting the definition itself is enough.
+      return deleteIfExists(() => tx.blockDefinition.delete({ where: { id: entry.entityId } }));
+    }
+
+    const snapshot = parseSnapshot<ReturnType<typeof blockDefinitionSnapshot>>(entry.before);
+    if (!snapshot) return { ok: false, message: "No prior state recorded for this entry." };
+
+    const fieldsCreateInput = snapshot.fields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      fieldType: field.fieldType,
+      order: field.order,
+      required: field.required,
+      helpText: field.helpText,
+      config: JSON.stringify(field.config),
+    }));
+
+    if (entry.action === "update") {
+      const existing = await tx.blockDefinition.findUnique({ where: { id: entry.entityId } });
+      if (!existing) return { ok: false, message: "This block type no longer exists." };
+
+      const parsed = blockDefinitionUpdateSchema.safeParse({
+        name: snapshot.name,
+        description: snapshot.description,
+        layout: snapshot.layout,
+        fields: snapshot.fields,
+      });
+      if (!parsed.success) {
+        return { ok: false, message: "Stored snapshot no longer matches the current block-type schema." };
+      }
+
+      // Reconciling a field-level diff isn't worth the complexity here --
+      // same delete-all-and-recreate approach the live PUT route uses,
+      // inside the same transaction as the rest of the restore.
+      return safeWrite(async () => {
+        await tx.blockFieldDefinition.deleteMany({ where: { blockDefinitionId: entry.entityId } });
+        await tx.blockDefinition.update({
+          where: { id: entry.entityId },
+          data: {
+            name: snapshot.name,
+            description: snapshot.description,
+            layout: snapshot.layout,
+            fields: { create: fieldsCreateInput },
+          },
+        });
+      });
+    }
+
+    // delete -> recreate
+    const parsed = blockDefinitionCreateSchema.safeParse({
+      key: snapshot.key,
+      name: snapshot.name,
+      description: snapshot.description,
+      layout: snapshot.layout,
+      fields: snapshot.fields,
+    });
+    if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current block-type schema." };
+
+    return safeWrite(() =>
+      tx.blockDefinition.create({
+        data: {
+          id: entry.entityId,
+          key: snapshot.key,
+          name: snapshot.name,
+          description: snapshot.description,
+          layout: snapshot.layout,
+          createdBy: ctx.actorEmail,
+          fields: { create: fieldsCreateInput },
+        },
+      }),
+    );
   },
 
   // -------------------------------------------------------------------
