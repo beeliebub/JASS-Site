@@ -3,8 +3,8 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiError, apiSuccess, badRequest, internalError, unauthorized } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiError, apiSuccess, badRequest, editingDisabled, internalError, unauthorized } from "@/lib/api-response";
 import { imagePath, tempImagePath } from "@/lib/uploads";
 
 const MAX_IMAGE_BYTES = 10485760; // 10 MiB
@@ -46,6 +46,7 @@ function detectImageFormat(buf: Buffer): ImageFormat | null {
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const originRejection = rejectCrossOrigin(req);
   if (originRejection) return originRejection;

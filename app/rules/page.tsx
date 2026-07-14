@@ -6,6 +6,7 @@ import { SiteChrome } from "@/components/pages/site-chrome";
 import { resolvePageTheme } from "@/lib/custom-themes";
 import { formatPageTitle, siteConfig } from "@/lib/site-config";
 import { getSiteSettings } from "@/lib/site-settings";
+import { parseHeaderContent } from "@/lib/validation/pages";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("rules");
@@ -22,7 +23,11 @@ export default async function RulesPage() {
   const { theme, customThemeTokens } = await resolvePageTheme(page);
 
   return (
-    <SiteChrome theme={theme} customThemeTokens={customThemeTokens}>
+    <SiteChrome
+      theme={theme}
+      customThemeTokens={customThemeTokens}
+      headerContent={parseHeaderContent(page.headerContent)}
+    >
       <PageRenderer page={page} />
     </SiteChrome>
   );

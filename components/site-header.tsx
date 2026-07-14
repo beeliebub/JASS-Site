@@ -6,7 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import { Container } from "@/components/container";
 import { siteConfig } from "@/lib/site-config";
 import { EditModeToggle } from "@/components/admin/edit-mode-toggle";
+import { LiveStatusBadge } from "@/components/home/live-status-badge";
 import { navItemHref } from "@/lib/routes";
+import type { HeaderContent } from "@/lib/validation/pages";
 
 type NavPage = { slug: string } | null;
 type NavChild = { id: string; label: string; href: string | null; page: NavPage };
@@ -27,7 +29,15 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; navItems: NavTop[] }) {
+export function SiteHeader({
+  isAdmin = false,
+  navItems,
+  headerContent,
+}: {
+  isAdmin?: boolean;
+  navItems: NavTop[];
+  headerContent?: HeaderContent | null;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -69,6 +79,22 @@ export function SiteHeader({ isAdmin = false, navItems }: { isAdmin?: boolean; n
           <span aria-hidden className="h-2.5 w-2.5 rounded-sm bg-primary" />
           {siteConfig.name}
         </Link>
+
+        {headerContent?.kind === "status" && (
+          <div className="hidden min-w-0 flex-1 justify-center px-4 sm:flex">
+            <LiveStatusBadge
+              label={headerContent.label}
+              host={headerContent.host}
+              port={headerContent.port}
+              useGlobalStatus={headerContent.useGlobalStatus}
+            />
+          </div>
+        )}
+        {headerContent?.kind === "text" && (
+          <div className="hidden min-w-0 flex-1 justify-center px-4 sm:flex">
+            <span className="truncate text-sm font-medium text-muted">{headerContent.text}</span>
+          </div>
+        )}
 
         {/* Desktop nav: dropdowns open on hover or focus (aria-haspopup/
             aria-expanded), not a strict ARIA `role="menu"` widget -- simpler

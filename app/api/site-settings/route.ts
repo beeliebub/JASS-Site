@@ -1,7 +1,14 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, badRequest, internalError, unauthorized, validationError } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled, requireOwner } from "@/lib/auth-guard";
+import {
+  apiSuccess,
+  badRequest,
+  editingDisabled,
+  internalError,
+  unauthorized,
+  validationError,
+} from "@/lib/api-response";
 import { getSiteSettings } from "@/lib/site-settings";
 import { siteSettingsUpdateSchema } from "@/lib/validation/site-settings";
 import { recordAuditLog, siteSettingsSnapshot } from "@/lib/audit-log";
@@ -29,7 +36,17 @@ export async function PUT(req: Request) {
   const parsed = siteSettingsUpdateSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
-  const { faviconImageId, embedImageId, embedTitle, embedDescription, pageTitleSuffix } = parsed.data;
+  const { faviconImageId, embedImageId, embedTitle, embedDescription, pageTitleSuffix, editingEnabled } = parsed.data;
+  const changesEditingLock = editingEnabled !== undefined;
+
+  if (changesEditingLock) {
+    if (!(await requireOwner())) return unauthorized("Owner access required.");
+    if (Object.keys(parsed.data).some((key) => key !== "editingEnabled")) {
+      return badRequest("editingEnabled must be updated by itself.");
+    }
+  } else if (!(await requireEditingEnabled())) {
+    return editingDisabled();
+  }
 
   try {
     // Re-validate image ids against real UploadedImage rows server-side --
@@ -51,6 +68,7 @@ export async function PUT(req: Request) {
       ...(embedTitle !== undefined ? { embedTitle } : {}),
       ...(embedDescription !== undefined ? { embedDescription } : {}),
       ...(pageTitleSuffix !== undefined ? { pageTitleSuffix } : {}),
+      ...(editingEnabled !== undefined ? { editingEnabled } : {}),
       updatedBy: user?.email,
     };
 

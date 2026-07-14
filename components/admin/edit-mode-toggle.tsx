@@ -9,7 +9,7 @@ import { useEditMode } from "@/components/admin/edit-mode-context";
  * non-admin session).
  */
 export function EditModeToggle() {
-  const { editMode, isAdmin, toggle } = useEditMode();
+  const { editMode, isAdmin, editingEnabled, toggle } = useEditMode();
 
   if (!isAdmin) return null;
 
@@ -17,9 +17,13 @@ export function EditModeToggle() {
     <button
       type="button"
       onClick={toggle}
+      disabled={!editingEnabled}
       aria-pressed={editMode}
+      title={editingEnabled ? undefined : "Site editing is disabled by the owner"}
       className={`flex h-9 shrink-0 items-center gap-2 rounded-full border px-3 text-xs font-medium transition motion-safe:active:scale-95 ${
-        editMode
+        !editingEnabled
+          ? "cursor-not-allowed border-border text-muted opacity-60"
+          : editMode
           ? "border-primary/50 bg-primary/10 text-primary"
           : "border-border-strong text-muted hover:text-foreground"
       }`}
@@ -36,7 +40,7 @@ export function EditModeToggle() {
           }`}
         />
       </span>
-      Edit mode
+      {editingEnabled ? "Edit mode" : "Editing locked"}
     </button>
   );
 }

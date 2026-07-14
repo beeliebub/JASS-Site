@@ -1,6 +1,6 @@
 /**
  * Server status badge -- purely presentational. The real data
- * source: `components/home/live-status-badge.tsx` polls `GET /api/status`
+ * source: `components/home/live-status-badge.tsx` polls the status API
  * (live Server List Ping, server-cached ~30s) and passes the result in here
  * as `status`. `stubStatus` remains as the default fallback for any other
  * caller that doesn't have live data on hand.
@@ -19,11 +19,16 @@ const stubStatus: ServerStatus = {
   maxPlayers: 100,
 };
 
-export function StatusBadge({ status = stubStatus }: { status?: ServerStatus }) {
+export function StatusBadge({ status = stubStatus, label }: { status?: ServerStatus; label?: string }) {
+  const stateLabel = status.online ? "Online" : "Offline";
+  const accessibleLabel = label
+    ? `${label}: ${stateLabel}${status.online ? `, ${status.players} of ${status.maxPlayers} players` : ""}`
+    : undefined;
   return (
     <div
       className="inline-flex h-9 items-center gap-2.5 rounded-full border border-border bg-surface px-3.5 text-sm"
       role="status"
+      aria-label={accessibleLabel}
     >
       <span className="relative flex h-2 w-2 shrink-0">
         {status.online && (
@@ -36,16 +41,20 @@ export function StatusBadge({ status = stubStatus }: { status?: ServerStatus }) 
         />
       </span>
       <span className="font-medium text-foreground">
-        {status.online ? "Online" : "Offline"}
+        {label ?? stateLabel}
       </span>
-      {status.online && (
+      {(status.online || label) && (
         <>
           <span aria-hidden className="text-border-strong">
             &middot;
           </span>
-          <span className="font-mono text-muted">
-            {status.players}/{status.maxPlayers}
-          </span>
+          {status.online ? (
+            <span className="font-mono text-muted">
+              {status.players}/{status.maxPlayers}
+            </span>
+          ) : (
+            <span className="text-muted">{stateLabel}</span>
+          )}
         </>
       )}
     </div>

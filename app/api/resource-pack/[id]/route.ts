@@ -1,13 +1,14 @@
 import { revalidatePath } from "next/cache";
 import fs from "node:fs";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, conflict, internalError, notFound, unauthorized } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, conflict, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
 import { packPath } from "@/lib/uploads";
 import { recordAuditLog, resourcePackSnapshot } from "@/lib/audit-log";
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const user = await getSessionUser();
   const { id } = await params;

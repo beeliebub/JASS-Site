@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, badRequest, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, badRequest, editingDisabled, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
 import { contentBlockValueSchema } from "@/lib/validation/content";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ key: string }> }) {
@@ -18,6 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ key: st
 
 export async function PUT(req: Request, { params }: { params: Promise<{ key: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const { key } = await params;
 

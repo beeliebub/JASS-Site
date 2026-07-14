@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, badRequest, conflict, editingDisabled, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { getCustomThemes } from "@/lib/custom-themes";
 import { customThemeCreateSchema } from "@/lib/validation/custom-themes";
 import { customThemeSnapshot, recordAuditLog } from "@/lib/audit-log";
@@ -17,6 +17,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   let body: unknown;
   try {

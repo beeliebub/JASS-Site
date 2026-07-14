@@ -17,8 +17,10 @@ import {
   blockUpdateSchema,
   pageCreateSchema,
   pageUpdateSchema,
+  parseHeaderContent,
   parseBlockData,
   protectedSlugChangeError,
+  serializeHeaderContent,
   userUpdateSchema,
 } from "@/lib/validation/pages";
 import { navItemCreateSchema, navItemUpdateSchema } from "@/lib/validation/nav-items";
@@ -121,6 +123,7 @@ export function pageSnapshot(row: Page) {
     protected: row.protected,
     theme: row.theme,
     customThemeId: row.customThemeId,
+    headerContent: parseHeaderContent(row.headerContent),
   };
 }
 
@@ -206,6 +209,8 @@ export function siteSettingsSnapshot(row: SiteSettings) {
     embedImageId: row.embedImageId,
     embedTitle: row.embedTitle,
     embedDescription: row.embedDescription,
+    pageTitleSuffix: row.pageTitleSuffix,
+    editingEnabled: row.editingEnabled,
   };
 }
 
@@ -298,20 +303,24 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
       const slugError = protectedSlugChangeError(existing, snapshot.slug);
       if (slugError) return { ok: false, message: slugError };
 
-      const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId };
+      const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId, headerContent: snapshot.headerContent };
       const parsed = pageUpdateSchema.safeParse(stripNullish(fields));
       if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current page schema." };
 
-      return safeWrite(() => tx.page.update({ where: { id: entry.entityId }, data: { ...fields, updatedBy: ctx.actorEmail } }));
+      const { headerContent, ...pageFields } = fields;
+      const serializedHeaderContent = serializeHeaderContent(headerContent);
+      return safeWrite(() => tx.page.update({ where: { id: entry.entityId }, data: { ...pageFields, ...(serializedHeaderContent === undefined ? {} : { headerContent: serializedHeaderContent }), updatedBy: ctx.actorEmail } }));
     }
 
     // delete -> recreate
-    const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId };
+    const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId, headerContent: snapshot.headerContent };
     const parsed = pageCreateSchema.safeParse(stripNullish(fields));
     if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current page schema." };
 
+    const { headerContent, ...pageFields } = fields;
+    const serializedHeaderContent = serializeHeaderContent(headerContent);
     return safeWrite(() =>
-      tx.page.create({ data: { id: entry.entityId, ...fields, protected: snapshot.protected, updatedBy: ctx.actorEmail } }),
+      tx.page.create({ data: { id: entry.entityId, ...pageFields, ...(serializedHeaderContent === undefined ? {} : { headerContent: serializedHeaderContent }), protected: snapshot.protected, updatedBy: ctx.actorEmail } }),
     );
   },
 
@@ -659,7 +668,7 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
   SiteSettings: async (tx, entry, ctx) => {
     if (entry.action === "create") {
       // Deleting the singleton is safe: getSiteSettings() recreates it with
-      // all-null defaults on next read, so this is equivalent to "reset to
+      // schema defaults on next read, so this is equivalent to "reset to
       // defaults", not an error state.
       return deleteIfExists(() => tx.siteSettings.delete({ where: { id: entry.entityId } }));
     }
@@ -671,6 +680,8 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
       embedImageId: snapshot.embedImageId,
       embedTitle: snapshot.embedTitle,
       embedDescription: snapshot.embedDescription,
+      pageTitleSuffix: snapshot.pageTitleSuffix,
+      editingEnabled: snapshot.editingEnabled,
     };
     const parsed = siteSettingsUpdateSchema.safeParse(stripNullish(fields));
     if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current settings schema." };

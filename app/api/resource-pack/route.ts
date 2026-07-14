@@ -5,8 +5,8 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiError, apiSuccess, badRequest, internalError, notFound, unauthorized } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiError, apiSuccess, badRequest, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
 import { packPath, prunePacks, tempPackPath } from "@/lib/uploads";
 import { recordAuditLog, resourcePackSnapshot } from "@/lib/audit-log";
 
@@ -60,6 +60,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const originRejection = rejectCrossOrigin(req);
   if (originRejection) return originRejection;

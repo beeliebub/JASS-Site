@@ -7,6 +7,8 @@ type EditModeContextValue = {
   editMode: boolean;
   /** True whenever the viewer has an admin session, regardless of toggle state. */
   isAdmin: boolean;
+  /** False when the OWNER has engaged the site-wide content-editing lock. */
+  editingEnabled: boolean;
   toggle: () => void;
 };
 
@@ -20,17 +22,25 @@ const EditModeContext = createContext<EditModeContextValue | null>(null);
  * every mutation route re-checks the session server-side (see
  * lib/auth-guard.ts), so this component leaking would not be a security bug.
  */
-export function EditModeProvider({ isAdmin, children }: { isAdmin: boolean; children: ReactNode }) {
+export function EditModeProvider({
+  isAdmin,
+  editingEnabled,
+  children,
+}: {
+  isAdmin: boolean;
+  editingEnabled: boolean;
+  children: ReactNode;
+}) {
   const [enabled, setEnabled] = useState(false);
 
   const toggle = useCallback(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || !editingEnabled) return;
     setEnabled((v) => !v);
-  }, [isAdmin]);
+  }, [isAdmin, editingEnabled]);
 
   const value = useMemo<EditModeContextValue>(
-    () => ({ editMode: isAdmin && enabled, isAdmin, toggle }),
-    [isAdmin, enabled, toggle],
+    () => ({ editMode: isAdmin && editingEnabled && enabled, isAdmin, editingEnabled, toggle }),
+    [isAdmin, editingEnabled, enabled, toggle],
   );
 
   return <EditModeContext.Provider value={value}>{children}</EditModeContext.Provider>;

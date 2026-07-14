@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, badRequest, conflict, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, badRequest, conflict, editingDisabled, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
 import { blockDefinitionUpdateSchema } from "@/lib/validation/block-definitions";
 import { blockDefinitionSnapshot, recordAuditLog } from "@/lib/audit-log";
 
@@ -23,6 +23,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const { id } = await params;
 
@@ -96,6 +97,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const { id } = await params;
   const user = await getSessionUser();

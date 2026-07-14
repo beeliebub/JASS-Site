@@ -1,8 +1,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
-import { pageCreateSchema, RESERVED_SLUGS } from "@/lib/validation/pages";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, badRequest, conflict, editingDisabled, internalError, unauthorized, validationError } from "@/lib/api-response";
+import { pageCreateSchema, RESERVED_SLUGS, serializeHeaderContent } from "@/lib/validation/pages";
 import { pagePath } from "@/lib/content";
 import { pageSnapshot, recordAuditLog } from "@/lib/audit-log";
 
@@ -36,6 +36,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   let body: unknown;
   try {
@@ -83,6 +84,7 @@ export async function POST(req: Request) {
           metaDescription: parsed.data.metaDescription ?? null,
           published: parsed.data.published ?? false,
           theme: parsed.data.theme ?? null,
+          headerContent: serializeHeaderContent(parsed.data.headerContent) ?? null,
           protected: false,
           updatedBy: user?.email,
         },

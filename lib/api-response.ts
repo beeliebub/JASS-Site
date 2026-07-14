@@ -38,6 +38,10 @@ export function unauthorized(message = "Authentication required.") {
   return apiError(401, "unauthorized", message);
 }
 
+export function editingDisabled() {
+  return apiError(403, "site_editing_disabled", "Site editing is currently disabled.");
+}
+
 export function notFound(resource: string) {
   return apiError(404, "not_found", `${resource} not found.`);
 }

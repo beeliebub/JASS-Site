@@ -20,7 +20,7 @@ export default async function AdminPagesPage() {
         <p className="text-sm text-muted">
           Home/Rules/Features/News are protected — they can&apos;t be deleted or have their slug changed, but every
           block on them is still editable. New pages start empty; add blocks to them from the page itself in edit
-          mode.
+          mode. Header content is optional and appears between the logo and desktop navigation.
         </p>
       </div>
 

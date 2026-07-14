@@ -122,7 +122,7 @@ export function AuditPreviewModal({ payload, onClose }: { payload: AuditPreviewP
           </button>
         </div>
         <div className="overflow-auto p-5">
-          <EditModeProvider isAdmin={false}>
+          <EditModeProvider isAdmin={false} editingEnabled={false}>
             <Component block={block} referenceData={referenceData} onSaveData={noopSave} />
           </EditModeProvider>
         </div>

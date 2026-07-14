@@ -7,6 +7,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { THEME_IDS, type ThemeId } from "@/lib/themes";
 import type { CustomThemeTokens } from "@/lib/custom-themes";
+import type { HeaderContent } from "@/lib/validation/pages";
 
 function isThemeId(value: string): value is ThemeId {
   return (THEME_IDS as readonly string[]).includes(value);
@@ -32,10 +33,12 @@ function isThemeId(value: string): value is ThemeId {
 export async function SiteChrome({
   theme,
   customThemeTokens,
+  headerContent,
   children,
 }: {
   theme?: string | null;
   customThemeTokens?: CustomThemeTokens | null;
+  headerContent?: HeaderContent | null;
   children: ReactNode;
 }) {
   const [session, navItems, customThemes] = await Promise.all([auth(), getNavTree(), getVisibleCustomThemes()]);
@@ -43,7 +46,7 @@ export async function SiteChrome({
 
   const chrome = (
     <>
-      <SiteHeader isAdmin={isAdmin} navItems={navItems} />
+      <SiteHeader isAdmin={isAdmin} navItems={navItems} headerContent={headerContent} />
       <main id="main-content" className="flex flex-1 flex-col">
         {children}
       </main>

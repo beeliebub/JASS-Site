@@ -83,6 +83,7 @@ export default async function RootLayout({
 }>) {
   const session = await auth();
   const isAdmin = isAdminRole(session?.user?.role);
+  const settings = await getSiteSettings();
 
   return (
     <html
@@ -111,7 +112,9 @@ export default async function RootLayout({
         </a>
         <ThemeProvider>
           <ToastProvider>
-            <EditModeProvider isAdmin={isAdmin}>{children}</EditModeProvider>
+            <EditModeProvider isAdmin={isAdmin} editingEnabled={settings.editingEnabled}>
+              {children}
+            </EditModeProvider>
           </ToastProvider>
         </ThemeProvider>
       </body>

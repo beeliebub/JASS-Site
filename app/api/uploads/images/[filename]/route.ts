@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { Readable } from "node:stream";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, conflict, internalError, notFound, unauthorized } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, conflict, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
 import { imagePath, isUploadedImageInUse } from "@/lib/uploads";
 import { recordAuditLog, uploadedImageSnapshot } from "@/lib/audit-log";
 
@@ -66,6 +66,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ filename
  */
 export async function DELETE(_req: Request, { params }: { params: Promise<{ filename: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const user = await getSessionUser();
   const { filename: id } = await params;

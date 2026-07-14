@@ -34,6 +34,7 @@ model Page {
   slug            String       @unique
   title           String
   metaDescription String?
+  headerContent   String? // JSON; null = no content between the site logo and navigation
   published       Boolean      @default(false)
   protected       Boolean      @default(false)
   theme           String? // one of lib/themes.ts THEME_IDS; null = follow visitor theme
@@ -283,7 +284,7 @@ model AuditLogEntry {
   @@index([entityType, entityId])
 }
 
-// Site-wide favicon + link-share (embed) defaults. Singleton row
+// Site-wide editing access, favicon, and link-share/embed defaults. Singleton row
 // (fixed id, upsert-on-read via lib/site-settings.ts) rather than the
 // generic ContentBlock key-value store, since these fields have a stronger
 // shape (validated image references, bounded text) -- same reasoning as
@@ -297,6 +298,7 @@ model SiteSettings {
   embedTitle       String?
   embedDescription String?
   pageTitleSuffix  String?
+  editingEnabled   Boolean        @default(true)
   updatedAt        DateTime       @updatedAt
   updatedBy        String?
 }

@@ -1,10 +1,11 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
+import { requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
 import {
   apiSuccess,
   badRequest,
   conflict,
+  editingDisabled,
   internalError,
   notFound,
   unauthorized,
@@ -15,6 +16,7 @@ import { requireValidTagIds } from "@/lib/tag-ownership";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const { id } = await params;
 
@@ -59,6 +61,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   const { id } = await params;
 

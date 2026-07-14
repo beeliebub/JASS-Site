@@ -9,7 +9,12 @@ import { DeleteButton } from "@/components/admin/list-controls";
 import { EditableText } from "@/components/admin/editable-text";
 import { pagePath } from "@/lib/routes";
 import { THEME_IDS, THEMES, type ThemeId } from "@/lib/themes";
-import { slugSchema } from "@/lib/validation/pages";
+import {
+  parseHeaderContent,
+  serializeHeaderContent,
+  slugSchema,
+  type HeaderContent,
+} from "@/lib/validation/pages";
 
 /**
  * `preferFieldDetail` is opt-in (only createPage/saveSlug pass it): when the
@@ -37,6 +42,160 @@ function slugify(input: string) {
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+type StatusHeaderContent = Extract<HeaderContent, { kind: "status" }>;
+
+function usesGlobalStatus(content: StatusHeaderContent): boolean {
+  return content.useGlobalStatus ?? !(content.host && content.port);
+}
+
+function HeaderContentEditor({
+  page,
+  onSave,
+}: {
+  page: Page;
+  onSave: (content: HeaderContent | null) => Promise<void>;
+}) {
+  const { showError } = useToast();
+  const [draft, setDraft] = useState<HeaderContent>(() => parseHeaderContent(page.headerContent) ?? { kind: "none" });
+  const [saving, setSaving] = useState(false);
+
+  async function persist(next: HeaderContent) {
+    const previous = draft;
+    setDraft(next);
+    setSaving(true);
+    try {
+      await onSave(next.kind === "none" ? null : next);
+    } catch (error) {
+      setDraft(previous);
+      showError(error instanceof Error ? error.message : "Failed to update header content.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function updateStatus(patch: Partial<StatusHeaderContent>) {
+    if (draft.kind !== "status") return;
+    setDraft({ ...draft, ...patch });
+  }
+
+  return (
+    <div className="flex min-w-64 flex-col gap-2">
+      <select
+        value={draft.kind}
+        onChange={(event) => {
+          const kind = event.target.value as HeaderContent["kind"];
+          if (kind === "none") void persist({ kind: "none" });
+          if (kind === "status") void persist({ kind: "status", useGlobalStatus: true });
+          if (kind === "text") setDraft({ kind: "text", text: "" });
+        }}
+        disabled={saving}
+        aria-label={`Header content for ${page.title}`}
+        className="h-8 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary disabled:opacity-60"
+      >
+        <option value="none">None</option>
+        <option value="status">Server status</option>
+        <option value="text">Text</option>
+      </select>
+
+      {draft.kind === "text" && (
+        <input
+          type="text"
+          value={draft.text}
+          maxLength={200}
+          placeholder="Header text"
+          disabled={saving}
+          aria-label={`Header text for ${page.title}`}
+          onChange={(event) => setDraft({ kind: "text", text: event.target.value })}
+          onBlur={() => {
+            const text = draft.text.trim();
+            void persist(text ? { kind: "text", text } : { kind: "none" });
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+          className="h-8 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none placeholder:text-muted focus-visible:border-primary disabled:opacity-60"
+        />
+      )}
+
+      {draft.kind === "status" && (
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-2">
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={usesGlobalStatus(draft)}
+              disabled={saving}
+              onChange={(event) => {
+                const next: StatusHeaderContent = {
+                  ...draft,
+                  useGlobalStatus: event.target.checked,
+                  port: event.target.checked ? draft.port : (draft.port ?? 25565),
+                };
+                void persist(next);
+              }}
+            />
+            Use global server
+          </label>
+          <input
+            type="text"
+            value={draft.label ?? ""}
+            maxLength={80}
+            placeholder="Optional label"
+            disabled={saving}
+            aria-label={`Status label for ${page.title}`}
+            onChange={(event) => updateStatus({ label: event.target.value })}
+            onBlur={() => {
+              const label = draft.label?.trim();
+              void persist({ ...draft, label: label || undefined });
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+            className="h-8 rounded-md border border-border-strong bg-surface px-2 text-xs text-foreground outline-none placeholder:text-muted focus-visible:border-primary disabled:opacity-60"
+          />
+          {!usesGlobalStatus(draft) && (
+            <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
+              <input
+                type="text"
+                value={draft.host ?? ""}
+                maxLength={300}
+                placeholder="mc.example.net"
+                disabled={saving}
+                aria-label={`Status host for ${page.title}`}
+                onChange={(event) => updateStatus({ host: event.target.value })}
+                onBlur={() => {
+                  const host = draft.host?.trim();
+                  void persist({ ...draft, host: host || undefined });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+                className="h-8 min-w-0 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus-visible:border-primary disabled:opacity-60"
+              />
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                value={draft.port ?? ""}
+                disabled={saving}
+                aria-label={`Status port for ${page.title}`}
+                onChange={(event) => updateStatus({ port: event.target.value ? Number(event.target.value) : undefined })}
+                onBlur={() => {
+                  const port = draft.port ? Math.min(Math.max(draft.port, 1), 65535) : undefined;
+                  void persist({ ...draft, port });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+                className="h-8 min-w-0 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary disabled:opacity-60"
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function PagesAdmin({
@@ -125,6 +284,17 @@ export function PagesAdmin({
     setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, slug: parsed.data } : p)));
   }
 
+  async function saveHeaderContent(page: Page, content: HeaderContent | null) {
+    const res = await fetch(`/api/pages/${page.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ headerContent: content }),
+    });
+    if (!res.ok) throw new Error(await parseError(res, "Failed to update header content."));
+    const headerContent = serializeHeaderContent(content) ?? null;
+    setPages((prev) => prev.map((candidate) => (candidate.id === page.id ? { ...candidate, headerContent } : candidate)));
+  }
+
   async function deletePage(page: Page) {
     if (typeof window !== "undefined" && !window.confirm(`Delete "${page.title}"? This can't be undone.`)) return;
     const previous = pages;
@@ -161,14 +331,15 @@ export function PagesAdmin({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="overflow-hidden rounded-md border border-border">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[1100px] text-left text-sm">
           <thead className="bg-surface-2 text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-4 py-2.5 font-medium">Title</th>
               <th className="px-4 py-2.5 font-medium">Slug</th>
               <th className="px-4 py-2.5 font-medium">Status</th>
               <th className="px-4 py-2.5 font-medium">Theme</th>
+              <th className="px-4 py-2.5 font-medium">Header</th>
               <th className="px-4 py-2.5 font-medium">&nbsp;</th>
             </tr>
           </thead>
@@ -249,6 +420,9 @@ export function PagesAdmin({
                       </optgroup>
                     )}
                   </select>
+                </td>
+                <td className="px-4 py-3 align-top">
+                  <HeaderContentEditor page={page} onSave={(content) => saveHeaderContent(page, content)} />
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">

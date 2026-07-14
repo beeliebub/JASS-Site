@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { getSiteSettings } from "@/lib/site-settings";
 
 /**
  * True for both site-editing roles. `OWNER` is a superset of `ADMIN` (it can
@@ -18,6 +19,16 @@ export function isAdminRole(role: string | undefined | null): boolean {
 export async function requireAdmin(): Promise<boolean> {
   const session = await auth();
   return isAdminRole(session?.user?.role);
+}
+
+/**
+ * Server-side content-mutation gate. This is intentionally separate from
+ * `requireAdmin()` so read-only admin routes and OWNER-only account/settings
+ * operations can remain available while site editing is locked.
+ */
+export async function requireEditingEnabled(): Promise<boolean> {
+  const settings = await getSiteSettings();
+  return settings.editingEnabled;
 }
 
 /**

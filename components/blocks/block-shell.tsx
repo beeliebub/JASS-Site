@@ -53,7 +53,7 @@ export function BlockShell({
     <div
       className={
         showChrome
-          ? "group/block relative border border-dashed border-border-strong transition-colors hover:border-primary"
+          ? "group/block relative border border-dashed border-border-strong hover:border-primary"
           : "contents"
       }
     >

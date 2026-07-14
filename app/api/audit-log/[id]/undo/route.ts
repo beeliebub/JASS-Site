@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser, requireAdmin, requireOwner } from "@/lib/auth-guard";
-import { apiSuccess, conflict, internalError, notFound, unauthorized } from "@/lib/api-response";
+import { getSessionUser, requireAdmin, requireEditingEnabled, requireOwner } from "@/lib/auth-guard";
+import { apiSuccess, conflict, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
 import { UndoConflictError, recordAuditLog, undoAuditEntryOrThrow, type AuditAction, type AuditEntityType } from "@/lib/audit-log";
 
 function revalidateForEntity(entityType: string) {
@@ -19,6 +19,26 @@ function revalidateForEntity(entityType: string) {
   if (entityType === "User") revalidatePath("/admin/users");
 }
 
+function snapshotEditingEnabled(snapshot: string | null): boolean | undefined {
+  if (!snapshot) return undefined;
+  try {
+    const value = (JSON.parse(snapshot) as { editingEnabled?: unknown }).editingEnabled;
+    return typeof value === "boolean" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function changesEditingLock(entry: { before: string | null; after: string | null }): boolean {
+  const before = snapshotEditingEnabled(entry.before);
+  const after = snapshotEditingEnabled(entry.after);
+
+  if (before !== undefined && after !== undefined) return before !== after;
+  // Creating/deleting the singleton only changes the lock when the stored
+  // side is false; an absent row is recreated with the safe true default.
+  return before === false || after === false;
+}
+
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
 
@@ -30,13 +50,18 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const entry = await prisma.auditLogEntry.findUnique({ where: { id } });
     if (!entry) return notFound("Audit log entry");
 
-    // User-entity mutations are owner-only everywhere else in this codebase
-    // (POST/PUT/DELETE /api/users/** all gate on requireOwner(), never the
-    // weaker requireAdmin() this route otherwise uses) -- undo writes
-    // directly via a transaction client, bypassing those routes entirely, so
-    // it must re-check the same invariant here or an ADMIN could use undo to
-    // delete/modify other users, including restoring a stale OWNER role.
-    if (entry.entityType === "User" && !(await requireOwner())) return unauthorized();
+    // Undo writes directly through a transaction client, bypassing the API
+    // guards for the affected entity. Preserve the same boundaries here:
+    // User management and changes to the lock itself remain reversible by an
+    // OWNER while editing is disabled. Other site-settings undo operations
+    // are ordinary content mutations and stay locked with everything else.
+    const changesOwnerOnlySetting = entry.entityType === "SiteSettings" && changesEditingLock(entry);
+    if ((entry.entityType === "User" || changesOwnerOnlySetting) && !(await requireOwner())) {
+      return unauthorized();
+    }
+    if (entry.entityType !== "User" && !changesOwnerOnlySetting && !(await requireEditingEnabled())) {
+      return editingDisabled();
+    }
 
     // Undo is itself audited (never a silent, untracked bypass of the trail):
     // the recorded action mirrors what undo actually did to the entity

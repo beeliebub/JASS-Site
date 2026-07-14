@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, badRequest, internalError, unauthorized, validationError } from "@/lib/api-response";
+import { requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, badRequest, editingDisabled, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { ruleCreateSchema } from "@/lib/validation/content";
 
 // Rules take their parent via `sectionId` in the body rather than nesting
@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   let body: unknown;
   try {

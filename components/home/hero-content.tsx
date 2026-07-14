@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Container } from "@/components/container";
-import { LiveStatusBadge } from "@/components/home/live-status-badge";
 import { CopyIpButton } from "@/components/home/copy-ip-button";
 import { EditableContent } from "@/components/admin/editable-content";
 import { TONE_STYLES } from "@/components/blocks/tones";
@@ -86,8 +85,6 @@ export function HeroContent({
         className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background"
       />
       <Container className="relative flex flex-col gap-8 py-16 sm:py-24 lg:py-28">
-        <LiveStatusBadge />
-
         <div className="flex flex-col gap-4">
           {headingOverride ? (
             <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-balance text-foreground sm:text-5xl lg:text-6xl">

@@ -19,7 +19,7 @@ export default async function AdminSettingsPage() {
         </p>
       </div>
 
-      <SiteSettingsAdmin />
+      <SiteSettingsAdmin isOwner={session.user.role === "OWNER"} />
     </Container>
   );
 }

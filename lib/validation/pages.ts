@@ -34,6 +34,43 @@ export const slugSchema = z
  * visitor theme" -- see `Page.theme` in prisma/schema.prisma. */
 export const themeSchema = z.enum(THEME_IDS);
 
+const statusHeaderContentSchema = z.object({
+  kind: z.literal("status"),
+  label: z.string().trim().min(1).max(80).optional(),
+  host: z.string().trim().min(1).max(300).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+  useGlobalStatus: z.boolean().optional(),
+});
+
+const textHeaderContentSchema = z.object({
+  kind: z.literal("text"),
+  text: z.string().trim().min(1).max(200),
+});
+
+export const headerContentSchema = z.discriminatedUnion("kind", [
+  statusHeaderContentSchema,
+  textHeaderContentSchema,
+  z.object({ kind: z.literal("none") }),
+]);
+
+export type HeaderContent = z.infer<typeof headerContentSchema>;
+
+/** Invalid or explicitly-empty stored values render as an empty slot. */
+export function parseHeaderContent(raw: string | null | undefined): HeaderContent | null {
+  if (!raw) return null;
+  try {
+    const parsed = headerContentSchema.safeParse(JSON.parse(raw));
+    return parsed.success && parsed.data.kind !== "none" ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function serializeHeaderContent(content: HeaderContent | null | undefined): string | null | undefined {
+  if (content === undefined) return undefined;
+  return content === null || content.kind === "none" ? null : JSON.stringify(content);
+}
+
 function refineNotReserved<T extends { slug?: string }>(data: T, ctx: z.RefinementCtx) {
   if (data.slug && (RESERVED_SLUGS as readonly string[]).includes(data.slug)) {
     ctx.addIssue({ code: "custom", path: ["slug"], message: `"${data.slug}" is a reserved slug.` });
@@ -66,6 +103,7 @@ export const pageCreateSchema = z
     published: z.boolean().optional(),
     theme: themeSchema.nullable().optional(),
     customThemeId: z.string().min(1).nullable().optional(),
+    headerContent: headerContentSchema.nullable().optional(),
   })
   .superRefine(refineNotReserved)
   .superRefine(refineExclusiveTheme);
@@ -78,6 +116,7 @@ export const pageUpdateSchema = z
     published: z.boolean().optional(),
     theme: themeSchema.nullable().optional(),
     customThemeId: z.string().min(1).nullable().optional(),
+    headerContent: headerContentSchema.nullable().optional(),
   })
   .superRefine(refineNotReserved)
   .superRefine(refineExclusiveTheme);

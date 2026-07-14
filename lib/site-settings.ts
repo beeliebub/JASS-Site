@@ -2,8 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { imagePath } from "@/lib/uploads";
 
 /**
- * Server-only data layer for site-wide settings (favicon +
- * link-share/embed defaults). Upsert-on-read singleton row, mirroring
+ * Server-only data layer for site-wide settings (editing access, favicon,
+ * and link-share/embed defaults). Upsert-on-read singleton row, mirroring
  * `getSiteContent()`'s pattern in lib/content.ts, except `SiteSettings` is a
  * single fixed-id row rather than a key-value map. No `server-only` package
  * is installed, so don't import this from a Client Component.
@@ -19,6 +19,7 @@ export type ResolvedSiteSettings = {
   embedTitle: string | null;
   embedDescription: string | null;
   pageTitleSuffix: string | null;
+  editingEnabled: boolean;
 };
 
 function imageUrl(image: { sha1: string; ext: string } | null | undefined): string | null {
@@ -26,7 +27,7 @@ function imageUrl(image: { sha1: string; ext: string } | null | undefined): stri
 }
 
 /**
- * Always returns a fully-resolved row -- creates the singleton with all-null
+ * Always returns a fully-resolved row -- creates the singleton with schema
  * defaults on first read if it doesn't exist yet, so callers (admin GET,
  * app/layout.tsx's generateMetadata) never have to special-case "no row yet".
  */
@@ -46,6 +47,7 @@ export async function getSiteSettings(): Promise<ResolvedSiteSettings> {
     embedTitle: settings.embedTitle,
     embedDescription: settings.embedDescription,
     pageTitleSuffix: settings.pageTitleSuffix,
+    editingEnabled: settings.editingEnabled,
   };
 }
 

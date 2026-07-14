@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-guard";
-import { apiSuccess, badRequest, conflict, internalError, unauthorized, validationError } from "@/lib/api-response";
+import { requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
+import { apiSuccess, badRequest, conflict, editingDisabled, internalError, unauthorized, validationError } from "@/lib/api-response";
 import { postCreateSchema } from "@/lib/validation/content";
 import { requireOwningBlock } from "@/lib/block-ownership";
 import { requireValidTagIds } from "@/lib/tag-ownership";
@@ -17,6 +17,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
 
   let body: unknown;
   try {

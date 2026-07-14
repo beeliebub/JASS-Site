@@ -5,6 +5,7 @@ import { PageRenderer } from "@/components/pages/page-renderer";
 import { SiteChrome } from "@/components/pages/site-chrome";
 import { resolvePageTheme } from "@/lib/custom-themes";
 import { getSiteSettings } from "@/lib/site-settings";
+import { parseHeaderContent } from "@/lib/validation/pages";
 
 // Dynamic rather than static so the title/description/OG copy always match
 // whatever an admin has edited in place -- including the live server IP --
@@ -45,7 +46,11 @@ export default async function Home() {
   const { theme, customThemeTokens } = await resolvePageTheme(page);
 
   return (
-    <SiteChrome theme={theme} customThemeTokens={customThemeTokens}>
+    <SiteChrome
+      theme={theme}
+      customThemeTokens={customThemeTokens}
+      headerContent={parseHeaderContent(page.headerContent)}
+    >
       <PageRenderer page={page} />
     </SiteChrome>
   );

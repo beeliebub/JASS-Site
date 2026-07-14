@@ -5,7 +5,7 @@ import type { ResolvedSiteSettings } from "@/lib/site-settings";
 import { useToast } from "@/components/admin/toast";
 
 /**
- * Admin editor for site-wide favicon + link-share (embed) defaults.
+ * Admin editor for editing access, favicon, and link-share/embed defaults.
  * Mirrors components/admin/custom-themes-admin.tsx's conventions (local
  * `useState`, `useToast()` for feedback, a `parseError`-shaped helper reading
  * `body.error`) and reuses components/blocks/image-block.tsx's exact
@@ -27,6 +27,7 @@ type SettingsUpdate = Partial<{
   embedTitle: string | null;
   embedDescription: string | null;
   pageTitleSuffix: string | null;
+  editingEnabled: boolean;
 }>;
 
 // The upload route's response didn't originally carry the `UploadedImage`
@@ -123,7 +124,7 @@ function ImageUploadField({
   );
 }
 
-export function SiteSettingsAdmin() {
+export function SiteSettingsAdmin({ isOwner }: { isOwner: boolean }) {
   const { showError, showSuccess } = useToast();
   const [settings, setSettings] = useState<ResolvedSiteSettings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -134,6 +135,7 @@ export function SiteSettingsAdmin() {
   const [savingText, setSavingText] = useState(false);
   const [pageTitleSuffixDraft, setPageTitleSuffixDraft] = useState("");
   const [savingPageTitleSuffix, setSavingPageTitleSuffix] = useState(false);
+  const [savingEditingEnabled, setSavingEditingEnabled] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,6 +248,23 @@ export function SiteSettingsAdmin() {
     }
   }
 
+  async function handleEditingEnabledChange() {
+    if (!settings || !isOwner) return;
+
+    const nextEditingEnabled = !settings.editingEnabled;
+    setSavingEditingEnabled(true);
+    try {
+      await updateSettings({ editingEnabled: nextEditingEnabled });
+      showSuccess(nextEditingEnabled ? "Site editing enabled." : "Site editing disabled.");
+      // The root provider receives this server-owned setting. Reload so every
+      // open editing affordance is reconciled immediately after the switch.
+      window.location.reload();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Failed to change the editing lock.");
+      setSavingEditingEnabled(false);
+    }
+  }
+
   if (loadError) {
     return (
       <div className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-danger">
@@ -262,6 +281,64 @@ export function SiteSettingsAdmin() {
 
   return (
     <div className="flex flex-col gap-6">
+      {isOwner && (
+        <section className="flex flex-col gap-4 rounded-md border border-border bg-surface p-4">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-sm font-semibold text-foreground">Site editing</h3>
+            <p className="text-pretty text-xs text-muted">
+              Controls content editing for every administrator. User management stays available, and only an owner
+              can change this setting or turn editing back on.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Editing is {settings.editingEnabled ? "enabled" : "disabled"}
+              </p>
+              <p className="text-xs text-muted">
+                {settings.editingEnabled
+                  ? "Administrators can enter edit mode and save content changes."
+                  : "Edit mode and all content mutations are currently locked."}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.editingEnabled}
+              onClick={handleEditingEnabledChange}
+              disabled={savingEditingEnabled}
+              className={`flex min-h-11 items-center gap-3 rounded-full border px-4 text-sm font-medium transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                settings.editingEnabled
+                  ? "border-primary/50 bg-primary/10 text-primary"
+                  : "border-border-strong bg-surface-2 text-muted hover:text-foreground"
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`relative flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                  settings.editingEnabled ? "bg-primary" : "border border-border-strong bg-background"
+                }`}
+              >
+                <span
+                  className={`absolute h-4 w-4 rounded-full bg-background shadow-sm transition-transform ${
+                    settings.editingEnabled ? "translate-x-4.5" : "translate-x-0.5"
+                  }`}
+                />
+              </span>
+              {savingEditingEnabled ? "Saving…" : settings.editingEnabled ? "Enabled" : "Disabled"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {!settings.editingEnabled && (
+        <div className="rounded-md border border-info/40 bg-info/10 px-4 py-3 text-sm text-foreground" role="status">
+          Site editing is locked. Only the owner switch above remains writable; other changes on this page will be
+          rejected until editing is enabled again.
+        </div>
+      )}
+
       <ImageUploadField
         label="Favicon"
         hint="Shown as the browser tab icon site-wide. Falls back to the default icon when unset."
