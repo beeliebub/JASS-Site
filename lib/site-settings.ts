@@ -18,6 +18,7 @@ export type ResolvedSiteSettings = {
   embedImageUrl: string | null;
   embedTitle: string | null;
   embedDescription: string | null;
+  pageTitleSuffix: string | null;
 };
 
 function imageUrl(image: { sha1: string; ext: string } | null | undefined): string | null {
@@ -44,6 +45,7 @@ export async function getSiteSettings(): Promise<ResolvedSiteSettings> {
     embedImageUrl: imageUrl(settings.embedImage),
     embedTitle: settings.embedTitle,
     embedDescription: settings.embedDescription,
+    pageTitleSuffix: settings.pageTitleSuffix,
   };
 }
 

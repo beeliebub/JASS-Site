@@ -117,6 +117,7 @@ export const BLOCK_TYPES = [
   "accordion",
   "table",
   "toc",
+  "serverStatus",
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -141,6 +142,7 @@ export const blockTypeLabels: Record<BlockType, string> = {
   accordion: "Accordion / FAQ",
   table: "Table",
   toc: "Table of contents",
+  serverStatus: "Server status",
 };
 
 /** Shared block-tone enum -- see `lib/themes.ts`. Widens
@@ -311,13 +313,64 @@ const tocDataSchema = z.object({
     .max(30),
 });
 
+/** Server Status: per-block-instance list of servers to show live/manual
+ * status for (main Minecraft server, an optional second Minecraft server,
+ * Hytale, etc.) -- stored as plain JSON on `Block.data`, same
+ * "each block instance owns its own config" convention as
+ * `postDisplayDataSchema.tagIds`, not a shared table/global list.
+ * `protocol: "minecraft-java"` entries are pinged live via
+ * `lib/mc-status.ts`'s `getServerStatusFor` (through
+ * `POST /api/server-status`), keyed by `host`/`port`. `protocol: "manual"`
+ * entries have no real ping path today (no confirmed Hytale status-query
+ * protocol/library in this stack -- `minecraft-server-util` is
+ * Minecraft-Java-specific) and are instead admin-toggled directly:
+ * `manualOnline`/`manualPlayers`/`manualMaxPlayers` are read straight off
+ * this JSON and rendered as-is, no fetch involved. `host`/`port` stay
+ * optional+nullable so a "manual" entry never needs throwaway values for
+ * fields it doesn't use. Capped at 5 entries, matching the cap enforced by
+ * `POST /api/server-status` on the same array shape. */
+const serverStatusDataSchema = z.object({
+  servers: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        protocol: z.enum(["minecraft-java", "manual"]),
+        host: z.string().max(300).nullable().optional(),
+        port: z.number().int().min(1).max(65535).nullable().optional(),
+        manualOnline: z.boolean().optional(),
+        manualPlayers: z.number().int().min(0).max(100000).optional(),
+        manualMaxPlayers: z.number().int().min(0).max(100000).optional(),
+      }),
+    )
+    .max(5),
+});
+
+/** One admin-configurable hero CTA button -- see `HeroButton` in
+ * components/home/hero-content.tsx, which this shape mirrors exactly.
+ * `tone` reuses the shared `toneSchema`/`TONES` enum rather than a new
+ * color system (same convention as pageHeader/callout/linkGrid above). */
+const heroButtonSchema = z.object({
+  label: z.string().min(1).max(60),
+  href: z.string().min(1).max(300),
+  tone: toneSchema,
+});
+
 /** `hero` still overrides heading/tagline per-instance directly
  * on `block.data` -- it reads a singleton (`getSiteContent()`), not a shared
  * collection, so it never had the "which rows show" problem that ownership
- * fixed for the other three data-referencing block types below. */
+ * fixed for the other three data-referencing block types below.
+ *
+ * `buttons` is optional/nullable (not required) and capped at 4 entries
+ * (same convention as `postDisplayDataSchema.tagIds`'s cap below) so
+ * existing `hero` Block rows -- `data` is today just `{}` or
+ * `{headingOverride, taglineOverride}` -- keep validating unchanged.
+ * Unset/empty is a meaningful state ("use today's two hardcoded CTA
+ * buttons"), handled as a code-level fallback in HeroContent, not a Zod
+ * default written into stored data. */
 const heroDataSchema = z.object({
   headingOverride: z.string().max(200).nullable().optional(),
   taglineOverride: z.string().max(300).nullable().optional(),
+  buttons: z.array(heroButtonSchema).max(4).nullable().optional(),
 });
 
 /** ruleList/featureGrid/postList blocks each own their
@@ -360,6 +413,18 @@ const postListDataSchema = z.object({
  * is added, before an admin has configured anything. */
 const postDisplayDataSchema = z.object({
   tagIds: z.array(z.string()).max(20),
+  // Same field names/caps as pageHeaderDataSchema's heading/description, but
+  // both nullable+optional (not required) -- an existing postDisplay Block's
+  // stored JSON is just `{tagIds: [...]}` today and must keep validating,
+  // and the admin UI (post-display-block.tsx) follows the
+  // HeroOverrideControls "null means unset, falls back to nothing rendered"
+  // convention rather than pageHeaderDataSchema's own required-heading one.
+  heading: z.string().max(200).nullable().optional(),
+  description: z.string().max(1000).nullable().optional(),
+  // Mirrors postListDataSchema's own `limit` field exactly -- this instance's
+  // own cap on how many of its (tag-matched) posts render, independent of
+  // any Post List block's limit.
+  limit: z.number().int().min(1).max(200).nullable().optional(),
 });
 
 /** Per-type `data` shape, keyed by `Block.type`. Used both to validate on
@@ -380,6 +445,7 @@ export const blockDataSchemas = {
   accordion: accordionDataSchema,
   table: tableDataSchema,
   toc: tocDataSchema,
+  serverStatus: serverStatusDataSchema,
 } as const satisfies Record<BlockType, z.ZodTypeAny>;
 
 export const blockTypeSchema = z.enum(BLOCK_TYPES);
@@ -451,6 +517,12 @@ export const blockCreateSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("table"), pageId: z.string().min(1), order: z.number().int(), data: blockDataSchemas.table }),
   z.object({ type: z.literal("toc"), pageId: z.string().min(1), order: z.number().int(), data: blockDataSchemas.toc }),
+  z.object({
+    type: z.literal("serverStatus"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    data: blockDataSchemas.serverStatus,
+  }),
 ]);
 
 /** `PUT /api/blocks/[id]` body: reordering and/or a content edit. `data`'s

@@ -5,6 +5,8 @@ import { Container } from "@/components/container";
 import { LiveStatusBadge } from "@/components/home/live-status-badge";
 import { CopyIpButton } from "@/components/home/copy-ip-button";
 import { EditableContent } from "@/components/admin/editable-content";
+import { TONE_STYLES } from "@/components/blocks/tones";
+import type { Tone } from "@/lib/themes";
 
 /** The site-wide hero fields, fetched server-side once per page render in
  * page-renderer.tsx (see its `getSiteContent()` call) and threaded through
@@ -23,12 +25,44 @@ export type HeroContentData = {
   serverIpKey: string;
 };
 
+/** One admin-configurable hero CTA button -- label/href/tone, `tone`
+ * reusing the shared `TONES` enum (see lib/themes.ts) rather than a new
+ * color system. Mirrors `heroButtonSchema` in lib/validation/pages.ts. */
+export type HeroButton = { label: string; href: string; tone: Tone };
+
+/** Today's exact two hardcoded CTA buttons, used as a fallback whenever a
+ * hero block's `data.buttons` is unset or empty -- see heroDataSchema's doc
+ * comment in lib/validation/pages.ts. Keeps existing pages rendering
+ * identically until an admin actually edits the buttons for that instance. */
+const DEFAULT_HERO_BUTTONS: HeroButton[] = [
+  { label: "Explore Features", href: "/features", tone: "primary" },
+  { label: "Read the Rules", href: "/rules", tone: "neutral" },
+];
+
+/** Maps a button's `tone` to Tailwind classes. `primary` and `neutral`
+ * reproduce today's original two button styles exactly (filled primary /
+ * outlined neutral) so the fallback above renders pixel-identical to
+ * before. The other `TONES` values reuse the shared `TONE_STYLES` tint
+ * (components/blocks/tones.tsx, already backing CalloutBlock/
+ * CtaBannerBlock/LinkGridBlock) as an outlined treatment, matching
+ * CtaBannerBlock's non-neutral button styling. */
+function heroButtonToneClasses(tone: Tone): string {
+  if (tone === "primary") return "bg-primary text-primary-foreground hover:bg-primary-hover";
+  if (tone === "neutral") return "border border-border-strong text-foreground hover:bg-surface-2";
+  const styles = TONE_STYLES[tone];
+  return `border ${styles.container} ${styles.title} hover:bg-current/20`;
+}
+
 export type HeroContentProps = HeroContentData & {
   /** Per-instance override -- read live off `block.data` by
    * registry.tsx's `hero` entry on every render, so editing it via
    * HeroOverrideControls updates the visible heading immediately. */
   headingOverride?: string | null;
   taglineOverride?: string | null;
+  /** Per-instance CTA button list, same live-read-off-`block.data`
+   * convention as the overrides above. Unset/empty falls back to
+   * `DEFAULT_HERO_BUTTONS`. */
+  buttons?: HeroButton[] | null;
 };
 
 export function HeroContent({
@@ -40,7 +74,9 @@ export function HeroContent({
   serverIpKey,
   headingOverride,
   taglineOverride,
+  buttons,
 }: HeroContentProps) {
+  const activeButtons = buttons && buttons.length > 0 ? buttons : DEFAULT_HERO_BUTTONS;
   return (
     <section className="relative overflow-hidden border-b border-border bg-grid">
       {/* Fade the grid texture out toward the bottom so it reads as a
@@ -93,18 +129,15 @@ export function HeroContent({
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row">
-          <Link
-            href="/features"
-            className="flex h-11 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition hover:bg-primary-hover motion-safe:active:scale-[0.97]"
-          >
-            Explore Features
-          </Link>
-          <Link
-            href="/rules"
-            className="flex h-11 items-center justify-center rounded-md border border-border-strong px-5 text-sm font-medium text-foreground transition hover:bg-surface-2 motion-safe:active:scale-[0.97]"
-          >
-            Read the Rules
-          </Link>
+          {activeButtons.map((button, i) => (
+            <Link
+              key={i}
+              href={button.href}
+              className={`flex h-11 items-center justify-center rounded-md px-5 text-sm font-medium transition motion-safe:active:scale-[0.97] ${heroButtonToneClasses(button.tone)}`}
+            >
+              {button.label}
+            </Link>
+          ))}
         </div>
       </Container>
     </section>

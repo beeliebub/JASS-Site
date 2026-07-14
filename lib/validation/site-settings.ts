@@ -14,6 +14,7 @@ export const siteSettingsUpdateSchema = z.object({
   embedImageId: z.string().min(1).nullable().optional(),
   embedTitle: z.string().max(70).nullable().optional(),
   embedDescription: z.string().max(200).nullable().optional(),
+  pageTitleSuffix: z.string().max(40).nullable().optional(),
 });
 
 export type SiteSettingsUpdateInput = z.infer<typeof siteSettingsUpdateSchema>;

@@ -248,6 +248,7 @@ model SiteSettings {
   embedImage       UploadedImage? @relation("SiteSettingsEmbed", fields: [embedImageId], references: [id], onDelete: SetNull)
   embedTitle       String?
   embedDescription String?
+  pageTitleSuffix  String?
   updatedAt        DateTime       @updatedAt
   updatedBy        String?
 }

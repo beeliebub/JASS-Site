@@ -3,12 +3,14 @@ import { Container } from "@/components/container";
 import { LoginForm } from "@/components/auth/login-form";
 import { SiteChrome } from "@/components/pages/site-chrome";
 import { getPageBySlug } from "@/lib/content";
-import { formatPageTitle } from "@/lib/site-config";
+import { formatPageTitle, siteConfig } from "@/lib/site-config";
+import { getSiteSettings } from "@/lib/site-settings";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("login");
+  const settings = await getSiteSettings();
   return {
-    title: page ? formatPageTitle(page.title) : "Login",
+    title: page ? formatPageTitle(page.title, settings.pageTitleSuffix ?? siteConfig.name) : "Login",
   };
 }
 

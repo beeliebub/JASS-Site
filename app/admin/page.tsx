@@ -4,12 +4,14 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Container } from "@/components/container";
 import { getPageBySlug } from "@/lib/content";
-import { formatPageTitle } from "@/lib/site-config";
+import { formatPageTitle, siteConfig } from "@/lib/site-config";
+import { getSiteSettings } from "@/lib/site-settings";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("admin");
+  const settings = await getSiteSettings();
   return {
-    title: page ? formatPageTitle(page.title) : "Admin",
+    title: page ? formatPageTitle(page.title, settings.pageTitleSuffix ?? siteConfig.name) : "Admin",
   };
 }
 

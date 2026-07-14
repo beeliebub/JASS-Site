@@ -5,12 +5,14 @@ import { Container } from "@/components/container";
 import { ChangePasswordForm } from "@/components/account/change-password-form";
 import { SiteChrome } from "@/components/pages/site-chrome";
 import { getPageBySlug } from "@/lib/content";
-import { formatPageTitle } from "@/lib/site-config";
+import { formatPageTitle, siteConfig } from "@/lib/site-config";
+import { getSiteSettings } from "@/lib/site-settings";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("account");
+  const settings = await getSiteSettings();
   return {
-    title: page ? formatPageTitle(page.title) : "Account",
+    title: page ? formatPageTitle(page.title, settings.pageTitleSuffix ?? siteConfig.name) : "Account",
   };
 }
 

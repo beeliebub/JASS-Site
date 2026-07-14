@@ -29,7 +29,7 @@ export async function PUT(req: Request) {
   const parsed = siteSettingsUpdateSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
-  const { faviconImageId, embedImageId, embedTitle, embedDescription } = parsed.data;
+  const { faviconImageId, embedImageId, embedTitle, embedDescription, pageTitleSuffix } = parsed.data;
 
   try {
     // Re-validate image ids against real UploadedImage rows server-side --
@@ -50,6 +50,7 @@ export async function PUT(req: Request) {
       ...(embedImageId !== undefined ? { embedImageId } : {}),
       ...(embedTitle !== undefined ? { embedTitle } : {}),
       ...(embedDescription !== undefined ? { embedDescription } : {}),
+      ...(pageTitleSuffix !== undefined ? { pageTitleSuffix } : {}),
       updatedBy: user?.email,
     };
 

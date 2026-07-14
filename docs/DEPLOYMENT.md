@@ -150,6 +150,7 @@ one before anyone else can be invited:
 
 ```bash
 node --no-turbofan node_modules/prisma/build/index.js migrate deploy
+npm run db:seed -- --pages-only
 npm run create-admin -- <email> <strong-password> --role OWNER
 ```
 
@@ -158,6 +159,31 @@ prompting or generating new ones; it's the correct command for production.
 `--role` accepts `OWNER` or `ADMIN`, case-insensitive, and defaults to `ADMIN`
 if omitted — so every subsequent invite after the first OWNER should
 normally omit it unless that invitee also needs account-management rights.)
+
+**Run `npm run db:seed -- --pages-only` after every deploy, not just the
+first.** This is a permanent part of the redeploy process from here on, not
+a one-off step for the initial launch. `seedPagesAndNav()` and
+`seedStaticRoutePages()` (the two functions `--pages-only` runs) are both
+guarded/upsert-based specifically so they're safe to run repeatedly against
+a live database that already has real admin-authored content — but that
+safety only pays off if the step is actually routine. Skipping it on any
+deploy after the first is exactly how the `resource`/`login`/`account`/
+`admin` protected `Page` rows ended up missing in production: those rows
+were added to `seedStaticRoutePages()` after the first deploy, and because
+redeploys only ran `migrate deploy`, that new seed-backfill logic never
+reached the live database. Future code changes will keep adding backfill
+logic the same way (new protected pages, new default nav items, etc.), and
+each one depends on this step running on every deploy to actually take
+effect.
+
+**Always use `--pages-only`, never the bare `npm run db:seed`.** Without the
+flag, `main()` also runs `seedContentBlocks()`, `seedRuleSections()`,
+`seedFeatures()`, and `seedPosts()` — which unconditionally reset
+`ContentBlock`/`Rule`/`Feature`/`Post` to their hardcoded placeholder values
+on every run, with no guard for existing content. Running the bare command
+against a live site would destroy real admin-edited copy, rules, features,
+and posts. `--pages-only` skips exactly those four functions and only runs
+the two safe, guarded ones above.
 
 ## Backup story for the SQLite DB
 

@@ -19,12 +19,14 @@ const ALLOWED_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"
 
 const TITLE_MAX = 70;
 const DESCRIPTION_MAX = 200;
+const PAGE_TITLE_SUFFIX_MAX = 40;
 
 type SettingsUpdate = Partial<{
   faviconImageId: string | null;
   embedImageId: string | null;
   embedTitle: string | null;
   embedDescription: string | null;
+  pageTitleSuffix: string | null;
 }>;
 
 // The upload route's response didn't originally carry the `UploadedImage`
@@ -130,6 +132,8 @@ export function SiteSettingsAdmin() {
   const [titleDraft, setTitleDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
   const [savingText, setSavingText] = useState(false);
+  const [pageTitleSuffixDraft, setPageTitleSuffixDraft] = useState("");
+  const [savingPageTitleSuffix, setSavingPageTitleSuffix] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +146,7 @@ export function SiteSettingsAdmin() {
         setSettings(data);
         setTitleDraft(data.embedTitle ?? "");
         setDescriptionDraft(data.embedDescription ?? "");
+        setPageTitleSuffixDraft(data.pageTitleSuffix ?? "");
       } catch (error) {
         if (!cancelled) setLoadError(error instanceof Error ? error.message : "Failed to load settings.");
       }
@@ -224,6 +229,20 @@ export function SiteSettingsAdmin() {
       showError(error instanceof Error ? error.message : "Failed to save changes.");
     } finally {
       setSavingText(false);
+    }
+  }
+
+  async function handleSavePageTitleSuffix(e: FormEvent) {
+    e.preventDefault();
+    setSavingPageTitleSuffix(true);
+    try {
+      const next = pageTitleSuffixDraft.trim();
+      await updateSettings({ pageTitleSuffix: next ? next : null });
+      showSuccess("Page title suffix saved.");
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Failed to save changes.");
+    } finally {
+      setSavingPageTitleSuffix(false);
     }
   }
 
@@ -318,6 +337,45 @@ export function SiteSettingsAdmin() {
           className="flex h-9 w-fit items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {savingText ? "Saving…" : "Save text"}
+        </button>
+      </form>
+
+      <form
+        onSubmit={handleSavePageTitleSuffix}
+        className="flex flex-col gap-4 rounded-md border border-border bg-surface p-4"
+      >
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-semibold text-foreground">Page title suffix</h3>
+          <p className="text-xs text-muted">
+            Appended after every page&apos;s title in the browser tab, e.g. &quot;Rules&quot; becomes
+            &quot;Rules — {pageTitleSuffixDraft.trim() || "JASS"}&quot;. Leave blank to use the site&apos;s
+            default name. Home is the one exception -- it always builds its own tab title.
+          </p>
+        </div>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="flex items-center justify-between text-xs font-medium text-muted">
+            <span>Suffix</span>
+            <span>
+              {pageTitleSuffixDraft.length}/{PAGE_TITLE_SUFFIX_MAX}
+            </span>
+          </span>
+          <input
+            type="text"
+            value={pageTitleSuffixDraft}
+            onChange={(e) => setPageTitleSuffixDraft(e.target.value.slice(0, PAGE_TITLE_SUFFIX_MAX))}
+            maxLength={PAGE_TITLE_SUFFIX_MAX}
+            placeholder="JASS"
+            className="h-9 rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-foreground outline-none focus-visible:border-primary disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        </label>
+
+        <button
+          type="submit"
+          disabled={savingPageTitleSuffix}
+          className="flex h-9 w-fit items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {savingPageTitleSuffix ? "Saving…" : "Save suffix"}
         </button>
       </form>
     </div>

@@ -5,6 +5,8 @@ import { requireAdmin } from "@/lib/auth-guard";
 import { PageRenderer } from "@/components/pages/page-renderer";
 import { SiteChrome } from "@/components/pages/site-chrome";
 import { resolvePageTheme } from "@/lib/custom-themes";
+import { formatPageTitle, siteConfig } from "@/lib/site-config";
+import { getSiteSettings } from "@/lib/site-settings";
 
 // Next resolves more-specific static segments (app/admin, app/login, app/api,
 // app/news/[slug]) before falling through to this catch-all, so those routes
@@ -20,9 +22,10 @@ export async function generateMetadata({
   const { slug } = await params;
   const page = await getPageBySlug(slug);
   if (!page) return { title: "Page not found" };
+  const settings = await getSiteSettings();
 
   return {
-    title: page.title,
+    title: formatPageTitle(page.title, settings.pageTitleSuffix ?? siteConfig.name),
     description: page.metaDescription ?? undefined,
   };
 }

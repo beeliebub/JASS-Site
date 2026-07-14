@@ -4,12 +4,14 @@ import { getPageBySlug } from "@/lib/content";
 import { PageRenderer } from "@/components/pages/page-renderer";
 import { SiteChrome } from "@/components/pages/site-chrome";
 import { resolvePageTheme } from "@/lib/custom-themes";
-import { formatPageTitle } from "@/lib/site-config";
+import { formatPageTitle, siteConfig } from "@/lib/site-config";
+import { getSiteSettings } from "@/lib/site-settings";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("news");
+  const settings = await getSiteSettings();
   return {
-    title: page ? formatPageTitle(page.title) : "Page not found",
+    title: page ? formatPageTitle(page.title, settings.pageTitleSuffix ?? siteConfig.name) : "Page not found",
     description: "Updates, patch notes, and announcements from the JASS Minecraft server.",
   };
 }

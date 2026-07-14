@@ -17,6 +17,7 @@ import { CodeBlock, type CodeData } from "@/components/blocks/code-block";
 import { AccordionBlock, type AccordionData } from "@/components/blocks/accordion-block";
 import { TableBlock, type TableData } from "@/components/blocks/table-block";
 import { TocBlock, type TocData } from "@/components/blocks/toc-block";
+import { ServerStatusBlock, type ServerStatusData } from "@/components/blocks/server-status-block";
 import { BLOCK_TYPES, blockTypeLabels, type BlockType } from "@/lib/validation/pages";
 
 /**
@@ -97,6 +98,7 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
           {...block.heroContent}
           headingOverride={heroData.headingOverride}
           taglineOverride={heroData.taglineOverride}
+          buttons={heroData.buttons}
         />
         <HeroOverrideControls data={heroData} onSaveData={onSaveData as (next: HeroData) => Promise<void>} />
       </>
@@ -187,6 +189,12 @@ export const blockComponents: Record<BlockType, ComponentType<BlockComponentProp
   toc: ({ block, onSaveData }) => (
     <TocBlock data={block.data as TocData} onSaveData={onSaveData as (next: TocData) => Promise<void>} />
   ),
+  serverStatus: ({ block, onSaveData }) => (
+    <ServerStatusBlock
+      data={block.data as ServerStatusData}
+      onSaveData={onSaveData as (next: ServerStatusData) => Promise<void>}
+    />
+  ),
 };
 
 // blockTypeLabels moved to lib/validation/pages.ts (re-exported here so
@@ -197,13 +205,15 @@ export { blockTypeLabels };
 
 /** Default `data` for a freshly-added block of `type`, sent as the POST body. */
 export const defaultBlockData: Record<BlockType, unknown> = {
-  hero: { headingOverride: null, taglineOverride: null },
+  hero: { headingOverride: null, taglineOverride: null, buttons: null },
   ruleList: {},
   featureGrid: {},
   postList: { limit: null },
   // Explicit empty selection, not "everything" -- see postDisplayDataSchema's
-  // doc comment in lib/validation/pages.ts.
-  postDisplay: { tagIds: [] },
+  // doc comment in lib/validation/pages.ts. heading/description/limit all
+  // start unset (null), matching hero's headingOverride/taglineOverride
+  // default-null convention for the same nullable+optional schema shape.
+  postDisplay: { tagIds: [], heading: null, description: null, limit: null },
   pageHeader: { heading: "New section" },
   callout: { variant: "info", body: "Add a message here." },
   linkGrid: { links: [] },
@@ -218,6 +228,7 @@ export const defaultBlockData: Record<BlockType, unknown> = {
   accordion: { items: [] },
   table: { caption: "", headers: ["Column 1", "Column 2"], rows: [["", ""]] },
   toc: { heading: "", items: [] },
+  serverStatus: { servers: [] },
 };
 
 /** Block types offered in the "Add block" picker. All `BLOCK_TYPES` are

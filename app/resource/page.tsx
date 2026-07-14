@@ -4,12 +4,14 @@ import { getPageBySlug } from "@/lib/content";
 import { ResourcePackView } from "@/components/resource/resource-pack-view";
 import { ResourcePackAdmin } from "@/components/resource/resource-pack-admin";
 import { SiteChrome } from "@/components/pages/site-chrome";
-import { formatPageTitle } from "@/lib/site-config";
+import { formatPageTitle, siteConfig } from "@/lib/site-config";
+import { getSiteSettings } from "@/lib/site-settings";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("resource");
+  const settings = await getSiteSettings();
   return {
-    title: page ? formatPageTitle(page.title) : "Resource",
+    title: page ? formatPageTitle(page.title, settings.pageTitleSuffix ?? siteConfig.name) : "Resource",
     description: "Download the official JASS resource pack and get the server.properties snippet to auto-apply it.",
   };
 }
