@@ -66,13 +66,16 @@ Copy `.env.example` to `.env` and fill in real values:
 
 - `DATABASE_URL` — SQLite file path (default `file:./prisma/dev.db`)
 - `AUTH_SECRET` — Auth.js session secret
-- `MC_SERVER_HOST` / `MC_SERVER_PORT` — Minecraft server for the live status ping (Phase 5)
+- `MC_SERVER_HOST` / `MC_SERVER_PORT` — Minecraft server for the live Minecraft-Java status ping
 
 ## Production-safety check (mandatory — every change, not just migrations)
 
-The live site is deployed manually: the user pulls this repo to a VPS and
-runs `prisma migrate deploy` + `npm run db:seed` (see `docs/DEPLOYMENT.md`)
-against **a different SQLite database than this dev machine's**. A change
+This checkout is the development/source repository, not the live site. Work in
+this workspace does not modify the deployed VPS; a later deployment pulls this
+repository to the VPS and applies the release there. The live site is deployed
+manually by running `prisma migrate deploy` + `npm run db:seed -- --pages-only` (see
+`docs/DEPLOYMENT.md`) against **a different SQLite database than this dev
+machine's**. A change
 that only works against *this* `prisma/dev.db` is not done. This already
 broke a real deploy once — commit `ac831b6`: a migration's backfill `UPDATE`
 statements had `Block.id` values hardcoded from this dev database; those ids
@@ -115,9 +118,60 @@ There's no staging environment for this project (see `docs/DEPLOYMENT.md`),
 so this is a careful reading pass over the diff — migration SQL and seed
 changes especially — not a live rehearsal against a second database.
 
+## Page slugs and redirects
+
+Custom page slugs may contain one to three lowercase kebab-case segments joined
+by `/` (for example, `games/minecraft`). Exact static slugs remain reserved,
+and nested slugs cannot begin with `admin`, `api`, `login`, `account`, `news`,
+or `resource`; nested paths under `rules`, `features`, and `home` remain valid.
+Pages may optionally redirect to an absolute HTTP(S) URL or a root-relative
+path. Protected pages cannot redirect, and root-relative redirect chains are
+cycle-checked before they are written.
+
 ## Project structure
 
 - `app/` — routes, layouts, pages (App Router)
 - `components/` — shared UI components
 - `lib/` — data layer, Prisma client singleton, utilities
 - `prisma/` — schema, migrations, and the local SQLite DB file
+
+## Agent workflow
+
+Non-trivial work runs through **`/orchestrator`** (`.claude/commands/orchestrator.md`): scope →
+explore → design → harden the design → implement → verify → production-safety pass → review →
+sync docs → feed the hardening pattern library → keep the agent/skill files current → summarize.
+
+- **Project agents** live in `.claude/agents/`. The workflow ones are `code-explorer`, `architect`,
+  `code-architect`, `planner`, `hardening-analyst`, `build-error-resolver`, `code-reviewer`,
+  `security-reviewer`, `silent-failure-hunter`, `performance-optimizer`, `refactor-cleaner`, and
+  `doc-updater`. `hardening-analyst` is the adversarial pass — it reviews a plan *before* code is
+  written and the implementation again afterwards, and it carries a numbered Pattern Library of
+  defect shapes that have actually occurred in this codebase.
+- **Project skills** are `jass-stack-pro` (this stack and this app's architecture) and
+  `typescript-coding-standards` (general TypeScript style here). Both live under `.claude/skills/`
+  and are mirrored into `.agents/skills/` for Codex.
+- The hardening Pattern Library is **append-only and grows every run**. `hardening-analyst` cannot
+  edit its own file; whoever ran the workflow appends the new patterns it proposes, numbering them
+  sequentially and never renumbering existing entries.
+
+### Ephemeral planning documents (`PLAN.md`)
+
+`PLAN.md` in the project root is an **ephemeral work queue, not documentation**. It is never a source
+of truth about how the site behaves, and its contents are never migrated into `README.md`,
+`AGENTS.md`, `docs/DEPLOYMENT.md`, or a code comment. The only valid edits are adding scoped work,
+deleting items that have landed, and clearing the file back to its reusable skeleton once the queue is
+empty. Do not delete the file itself.
+
+### Git
+
+Read-only git (`git status`, `git diff`, `git log`, `git show`) is expected — the production-safety
+pass above is a careful read of the diff. **Never commit, push, branch, stage, reset, revert, stash,
+or rewrite history**; the user owns every write to git history.
+
+### No AI-attribution in shipped artifacts
+
+No code comment, JSDoc, schema comment, documentation line, or commit message may reference AI agents,
+reviews, or the orchestration process — no "found in review", no agent names, no `PLAN.md` phase
+labels or decision numbers. State the underlying reasoning directly, the way `lib/auth-guard.ts` and
+`lib/uploads.ts` already do: a comment must explain why the rule exists and still make sense to
+someone reading the file cold.

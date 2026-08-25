@@ -4,9 +4,7 @@
  * doesn't replace the existing expandable raw-JSON "Details" view, just adds
  * a human-readable line above it. Deliberately doesn't import
  * `lib/audit-log.ts` -- that module pulls in `node:fs` and server-only
- * validation schemas that have no business in a client bundle (same reason
- * `components/admin/audit-log-admin.tsx` already duplicates
- * `AUDIT_ENTITY_TYPES` instead of importing it). `blockTypeLabels` is
+ * validation schemas that have no business in a client bundle. `blockTypeLabels` is
  * imported from lib/validation/pages.ts specifically (not
  * components/blocks/registry.tsx, which re-exports the same binding) since
  * that file also imports every block component -- far more than this
@@ -48,6 +46,7 @@ function displayField(entityType: string, snapshot: Snapshot): string {
       return typeof snapshot.label === "string" ? snapshot.label : "";
     case "CustomTheme":
     case "Tag":
+    case "BlockDefinition":
       return typeof snapshot.name === "string" ? snapshot.name : "";
     case "User":
       return (typeof snapshot.name === "string" && snapshot.name) || String(snapshot.email ?? "");

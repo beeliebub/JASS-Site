@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --no-turbofan node_modules/typescript/lib/tsc.js *)",
+      "Bash(node --no-turbofan node_modules/eslint/bin/eslint.js *)",
+      "Bash(node --no-turbofan node_modules/prisma/build/index.js *)",
+      "Bash(node --no-turbofan -r tsx/cjs *)",
+      "Bash(node -v)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(npm run dev)",
+      "Bash(npm ls *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
+    ]
+  }
+}

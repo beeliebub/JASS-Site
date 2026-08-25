@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { useToast } from "@/components/admin/toast";
 import { summarizeAuditEntry } from "@/lib/audit-log-summary";
 import { pagePath } from "@/lib/routes";
+import { AUDIT_ENTITY_TYPES, type AuditEntityType } from "@/lib/audit-entity-types";
 import { AuditPreviewModal, isPreviewableBlockType, type AuditPreviewPayload } from "@/components/admin/audit-preview-modal";
 
 /**
@@ -15,25 +16,9 @@ import { AuditPreviewModal, isPreviewableBlockType, type AuditPreviewPayload } f
  * undo, which is not literally destructive but does overwrite live data --
  * same affordance `deletePage` uses).
  *
- * Deliberately duplicates the entity-type list rather than importing
- * `AUDIT_ENTITY_TYPES` from lib/audit-log.ts -- that module also imports
- * `node:fs` (for resource-pack undo) and other server-only validation
- * schemas, which has no business being pulled into a client bundle.
+ * The entity-type list lives in a dependency-free module rather than
+ * lib/audit-log.ts, whose resource-pack undo path imports server-only modules.
  */
-
-const ENTITY_TYPES = [
-  "Page",
-  "Block",
-  "NavItem",
-  "CustomTheme",
-  "User",
-  "ResourcePack",
-  "SiteSettings",
-  "UploadedImage",
-  "Tag",
-] as const;
-
-type AuditEntityType = (typeof ENTITY_TYPES)[number];
 type AuditAction = "create" | "update" | "delete";
 
 type AuditLogEntry = {
@@ -114,7 +99,7 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
   // filter option for non-owners avoids offering a control that would just
   // 401 -- same reasoning as not showing an editable slug control that always
   // fails server-side for protected pages.
-  const visibleEntityTypes = isOwner ? ENTITY_TYPES : ENTITY_TYPES.filter((type) => type !== "User");
+  const visibleEntityTypes = isOwner ? AUDIT_ENTITY_TYPES : AUDIT_ENTITY_TYPES.filter((type) => type !== "User");
   const { showError, showSuccess } = useToast();
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [page, setPage] = useState(1);

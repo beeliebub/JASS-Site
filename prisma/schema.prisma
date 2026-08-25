@@ -28,13 +28,16 @@ model User {
 
 // Block-based page builder. Home/Rules/Features/News are migrated
 // into this system as `protected` rows (blocks delete + slug change); admins
-// can additionally create fully custom pages rendered via app/[slug].
+// can additionally create fully custom pages rendered via app/[...slug].
+// A non-null redirectUrl turns a page into a redirect page; protected pages
+// cannot be assigned or changed to redirect elsewhere.
 model Page {
   id              String       @id @default(cuid())
   slug            String       @unique
   title           String
   metaDescription String?
   headerContent   String? // JSON; null = no content between the site logo and navigation
+  redirectUrl     String? // absolute http(s) or root-relative redirect target
   published       Boolean      @default(false)
   protected       Boolean      @default(false)
   theme           String? // one of lib/themes.ts THEME_IDS; null = follow visitor theme

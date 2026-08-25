@@ -19,7 +19,23 @@ export type LiveStatusBadgeProps = {
   host?: string;
   port?: number;
   useGlobalStatus?: boolean;
+  protocol?: "minecraft-java" | "manual";
+  manualOnline?: boolean;
+  manualPlayers?: number;
+  manualMaxPlayers?: number;
 };
+
+function toManualStatus({
+  manualOnline,
+  manualPlayers,
+  manualMaxPlayers,
+}: Pick<LiveStatusBadgeProps, "manualOnline" | "manualPlayers" | "manualMaxPlayers">): ServerStatus {
+  return {
+    online: manualOnline ?? false,
+    players: manualPlayers ?? 0,
+    maxPlayers: manualMaxPlayers ?? 0,
+  };
+}
 
 /**
  * Client wrapper around the presentational `StatusBadge`: polls the global
@@ -27,11 +43,23 @@ export type LiveStatusBadgeProps = {
  * through the shared multi-server endpoint. Any fetch failure (network
  * error, non-OK response, bad JSON) renders "offline" rather than throwing.
  */
-export function LiveStatusBadge({ label, host, port, useGlobalStatus }: LiveStatusBadgeProps = {}) {
-  const [status, setStatus] = useState<ServerStatus>(OFFLINE_STATUS);
-  const useCustomTarget = !useGlobalStatus && Boolean(host && port);
+export function LiveStatusBadge({
+  label,
+  host,
+  port,
+  useGlobalStatus,
+  protocol,
+  manualOnline,
+  manualPlayers,
+  manualMaxPlayers,
+}: LiveStatusBadgeProps = {}) {
+  const manualStatus = toManualStatus({ manualOnline, manualPlayers, manualMaxPlayers });
+  const [status, setStatus] = useState<ServerStatus>(() => (protocol === "manual" ? manualStatus : OFFLINE_STATUS));
+  const useCustomTarget = protocol !== "manual" && !useGlobalStatus && Boolean(host && port);
 
   useEffect(() => {
+    if (protocol === "manual") return;
+
     let cancelled = false;
 
     async function fetchStatus() {
@@ -66,7 +94,7 @@ export function LiveStatusBadge({ label, host, port, useGlobalStatus }: LiveStat
       cancelled = true;
       clearInterval(interval);
     };
-  }, [host, port, useCustomTarget]);
+  }, [host, port, protocol, useCustomTarget]);
 
-  return <StatusBadge status={status} label={label} />;
+  return <StatusBadge status={protocol === "manual" ? manualStatus : status} label={label} />;
 }

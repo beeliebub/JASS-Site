@@ -87,6 +87,10 @@ export function SiteHeader({
               host={headerContent.host}
               port={headerContent.port}
               useGlobalStatus={headerContent.useGlobalStatus}
+              protocol={headerContent.protocol}
+              manualOnline={headerContent.manualOnline}
+              manualPlayers={headerContent.manualPlayers}
+              manualMaxPlayers={headerContent.manualMaxPlayers}
             />
           </div>
         )}

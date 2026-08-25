@@ -1,0 +1,7 @@
+interface:
+  display_name: "TypeScript Coding Standards"
+  short_description: "TypeScript conventions for the JASS codebase: type design, Zod style, error handling, async discipline, and module boundaries."
+  brand_color: "#3178C6"
+  default_prompt: "Use $typescript-coding-standards when writing or reviewing TypeScript in this repo."
+policy:
+  allow_implicit_invocation: true

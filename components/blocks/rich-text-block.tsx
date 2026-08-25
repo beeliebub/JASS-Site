@@ -1,11 +1,11 @@
 "use client";
 
-import ReactMarkdown from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
 import { useState } from "react";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { Container } from "@/components/container";
+import { WikiMarkdown } from "@/components/blocks/wiki-markdown";
+import type { WikiPageReference } from "@/lib/wiki-links";
 
 export type RichTextData = { markdown: string };
 
@@ -14,9 +14,11 @@ export type RichTextData = { markdown: string };
  * before react-markdown renders the result. */
 export function RichTextBlock({
   data,
+  wikiPages = [],
   onSaveData,
 }: {
   data: RichTextData;
+  wikiPages?: readonly WikiPageReference[];
   onSaveData: (next: RichTextData) => Promise<void>;
 }) {
   const { editMode, isAdmin } = useEditMode();
@@ -32,7 +34,7 @@ export function RichTextBlock({
     return (
       <Container className="py-6 sm:py-8">
         <div className="markdown-content max-w-2xl">
-          <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{markdown}</ReactMarkdown>
+          <WikiMarkdown markdown={markdown} pages={wikiPages} />
         </div>
       </Container>
     );
@@ -89,7 +91,7 @@ export function RichTextBlock({
             className="markdown-content cursor-text rounded-sm border border-transparent px-2 py-1 outline-dashed outline-1 outline-offset-2 outline-border-strong transition-colors hover:outline-primary"
           >
             {markdown ? (
-              <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{markdown}</ReactMarkdown>
+              <WikiMarkdown markdown={markdown} pages={wikiPages} showMissingLinks={isAdmin && editMode} />
             ) : (
               <span className="text-muted italic">Click to add text (markdown supported)</span>
             )}

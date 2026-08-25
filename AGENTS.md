@@ -33,8 +33,9 @@ in `prisma.config.ts`, and the client needs an explicit driver adapter (see
 Retry with these flags before assuming something is actually broken.
 
 ### Production-safety (every change touching prisma/, seed, env, or deploy files)
-The live site is deployed by pulling this repo to a VPS and running
-`prisma migrate deploy` + `npm run db:seed` against a **different** SQLite database.
+This checkout is the development/source repository, not the live site. The live
+site is deployed later by pulling this repo to a VPS and running
+`prisma migrate deploy` + `npm run db:seed -- --pages-only` against a **different** SQLite database.
 There is no staging environment — this is a careful read of the diff.
 - **No hardcoded ids/rows from this dev DB in a migration.** Backfills must key on
   stable identifiers (slugs, type strings, FKs), never a literal cuid/id/count read off
@@ -45,6 +46,30 @@ There is no staging environment — this is a careful read of the diff.
   `docs/DEPLOYMENT.md`.
 - **No dev-only artifacts** (temp admin accounts, scratch pages, debug logging) left behind.
 
+Custom Page slugs may contain one to three lowercase kebab-case segments joined
+by `/`. Exact static slugs remain reserved; nested slugs cannot begin with
+`admin`, `api`, `login`, `account`, `news`, or `resource`. Pages may redirect to
+absolute HTTP(S) URLs or root-relative paths, but protected pages cannot redirect.
+
+### Verification (there is no test runner)
+Typecheck → lint → build only when routing or the server/client boundary changed → manual walkthrough
+against `npm run dev`. Do not write test files or invoke `npm test`; nothing is installed to run them.
+
+### `PLAN.md` is an ephemeral work queue, not documentation
+Never treat it as a source of truth about how the site behaves, and never migrate its contents into
+`README.md`, `AGENTS.md`, `docs/DEPLOYMENT.md`, or a code comment. Valid edits: add scoped work, delete
+items that have landed, clear it back to its reusable skeleton when empty. Do not delete the file.
+
+### Git
+Read-only git is expected (the production-safety pass is a careful read of the diff). **Never commit,
+push, branch, stage, reset, revert, stash, or rewrite history** — the user owns git history.
+
+### No AI-attribution in shipped artifacts
+No code comment, JSDoc, schema comment, doc line, or commit message may reference AI agents, reviews,
+or the planning process — no "found in review", no agent names, no `PLAN.md` phase labels or decision
+numbers. State the reasoning directly; a comment must stand on its own to someone reading the file
+cold.
+
 ## Skills
 
 Reusable, task-specific playbooks. Load a skill's `SKILL.md` when the task matches.
@@ -53,8 +78,14 @@ Reusable, task-specific playbooks. Load a skill's `SKILL.md` when the task match
 - **Codex / other tools** read them under `.agents/skills/<name>/` (each also has an
   `agents/openai.yaml` interface file). The two trees hold the same skills.
 
-Installed: `prisma-patterns`, `database-migrations`, `backend-patterns`, `api-design`,
-`error-handling`, `nextjs-turbopack`, `react-patterns`, `react-testing`,
+**Project-specific (written for this codebase, prefer these over the generic ones):**
+`jass-stack-pro` — this stack (Next 16 / Prisma 7 / Auth.js v5) and this app's architecture: the
+block system, the route contract, theming, uploads, and the deploy reality.
+`typescript-coding-standards` — TypeScript conventions here: type design, Zod style, error handling,
+async discipline, module boundaries, and the no-test-runner verification loop.
+
+Generic (cross-project baselines): `prisma-patterns`, `database-migrations`, `backend-patterns`,
+`api-design`, `error-handling`, `nextjs-turbopack`, `react-patterns`, `react-testing`,
 `react-performance`, `frontend-patterns`, `frontend-a11y`, `design-system`,
 `frontend-design-direction`, `make-interfaces-feel-better`, `motion-ui`,
 `coding-standards`, `verification-loop`, `tdd-workflow`, `security-review`,
@@ -68,7 +99,15 @@ Installed: `prisma-patterns`, `database-migrations`, `backend-patterns`, `api-de
   `silent-failure-hunter`, `build-error-resolver`, `react-build-resolver`,
   `refactor-cleaner`, `performance-optimizer`, `a11y-architect`, `tdd-guide`,
   `e2e-runner`, `planner`, `architect`, `spec-miner`, `doc-updater`, `docs-lookup`,
-  and more.
+  and more. `hardening-analyst` is the adversarial pass: it reviews a plan *before* code is written
+  and the implementation again afterwards, against a numbered Pattern Library of defect shapes that
+  have actually occurred in this codebase.
+- **Orchestrated workflow** — `/orchestrator` (`.claude/commands/orchestrator.md`) drives the full
+  sequence: scope → explore → design → harden the design → implement → verify → production-safety
+  pass → review → sync docs → append newly discovered hardening patterns → keep the agent/skill files
+  current → summarize. The pattern library is append-only and grows every run.
+- **Codex CLI** — role agents live in `.codex/agents/*.toml` (see below). There is no orchestrator
+  equivalent; drive the same sequence manually and follow the same rules.
 - **Codex CLI** — role agents live in `.codex/agents/*.toml`, registered in
   `.codex/config.toml` (`explorer`, `reviewer`, `docs_researcher`). Steer them with
   `/agent`. See `.codex/AGENTS.md` for Codex specifics.

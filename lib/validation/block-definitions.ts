@@ -4,7 +4,6 @@ import {
   validateCustomHtmlTemplateSyntax,
   type CustomHtmlTemplateField,
 } from "@/lib/custom-html-template";
-import { slugSchema } from "@/lib/validation/pages";
 
 /**
  * Validation for admin-authored block *types* (`BlockDefinition` +
@@ -53,13 +52,13 @@ export const nonRepeaterFieldTypeSchema = z.enum([
 ]);
 export type NonRepeaterFieldType = z.infer<typeof nonRepeaterFieldTypeSchema>;
 
-/** Same kebab-case shape as `Page`/`BlockDefinition` slugs -- reused (not
- * redefined) for every stable machine identifier in this file: a
- * `BlockDefinition.key` and a `BlockFieldDefinition.key` (top-level or
- * nested inside a repeater's own item fields) are all "one stable,
- * URL/JSON-key-safe identifier", the same shape `slugSchema` already
- * enforces. */
-const fieldKeySchema = slugSchema;
+/** Stable machine identifiers remain single kebab-case segments even though
+ * Page slugs can contain nested path segments. */
+const fieldKeySchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "must be lowercase kebab-case");
 
 // ---------------------------------------------------------------------------
 // Per-field-type `config` shapes
@@ -309,7 +308,7 @@ function refineHtmlTemplateRequired(
 
 export const blockDefinitionCreateSchema = z
   .object({
-    key: slugSchema,
+    key: fieldKeySchema,
     name: z.string().min(1).max(200),
     description: z.string().max(1000).nullable().optional(),
     layout: z.string().min(1).max(80),

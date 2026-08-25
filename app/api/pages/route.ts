@@ -5,6 +5,7 @@ import { apiSuccess, badRequest, conflict, editingDisabled, internalError, unaut
 import { pageCreateSchema, RESERVED_SLUGS, serializeHeaderContent } from "@/lib/validation/pages";
 import { pagePath } from "@/lib/content";
 import { pageSnapshot, recordAuditLog } from "@/lib/audit-log";
+import { findRedirectCycle, RedirectCycleError } from "@/lib/page-redirects";
 
 function slugify(input: string) {
   return input
@@ -77,18 +78,27 @@ export async function POST(req: Request) {
     if (existing) return conflict(`A page with slug "${slug}" already exists.`);
 
     const page = await prisma.$transaction(async (tx) => {
+      const { headerContent, ...pageFields } = parsed.data;
       const created = await tx.page.create({
         data: {
-          title: parsed.data.title,
+          ...pageFields,
           slug,
-          metaDescription: parsed.data.metaDescription ?? null,
-          published: parsed.data.published ?? false,
-          theme: parsed.data.theme ?? null,
-          headerContent: serializeHeaderContent(parsed.data.headerContent) ?? null,
+          metaDescription: pageFields.metaDescription ?? null,
+          published: pageFields.published ?? false,
+          theme: pageFields.theme ?? null,
+          customThemeId: pageFields.customThemeId ?? null,
+          redirectUrl: pageFields.redirectUrl ?? null,
+          headerContent: serializeHeaderContent(headerContent) ?? null,
           protected: false,
           updatedBy: user?.email,
         },
       });
+      const cycleError = await findRedirectCycle(tx, {
+        pageId: created.id,
+        pageSlug: created.slug,
+        redirectUrl: created.redirectUrl,
+      });
+      if (cycleError) throw new RedirectCycleError(cycleError);
       await recordAuditLog(tx, {
         entityType: "Page",
         entityId: created.id,
@@ -103,6 +113,7 @@ export async function POST(req: Request) {
     revalidatePath("/admin/pages");
     return apiSuccess(page, { status: 201 });
   } catch (error) {
+    if (error instanceof RedirectCycleError) return conflict(error.message);
     return internalError(error);
   }
 }

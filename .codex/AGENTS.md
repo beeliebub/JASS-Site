@@ -13,6 +13,9 @@ Skills live in `.agents/skills/<name>/`. Each contains:
 
 Load a skill's `SKILL.md` when a task matches it. Installed skills:
 
+- **Project-specific (prefer these)** — `jass-stack-pro` (this stack and this app's architecture:
+  the block system, the route contract, theming, uploads, deploy reality),
+  `typescript-coding-standards` (TypeScript conventions here, and the no-test-runner verification loop)
 - **Data / Prisma** — `prisma-patterns`, `database-migrations`, `backend-patterns`
 - **Next.js / React** — `nextjs-turbopack`, `react-patterns`, `react-testing`,
   `react-performance`, `frontend-patterns`, `frontend-a11y`

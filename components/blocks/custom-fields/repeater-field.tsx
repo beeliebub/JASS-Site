@@ -55,7 +55,7 @@ function defaultRow(itemFields: CustomFieldDef[]): Record<string, unknown> {
 }
 
 /** Add/remove/reorder rows (MoveUpButton/MoveDownButton/DeleteButton/AddButton,
- * same components the Phase 3 admin field-list editor uses) plus recursive
+ * the same field components used by the admin field-list editor) plus recursive
  * per-item-field rendering. Edit mode always lays rows out as a vertical
  * list -- move-up/down controls are inherently linear -- regardless of
  * `layoutHint`; only the read-only (visitor) rendering respects

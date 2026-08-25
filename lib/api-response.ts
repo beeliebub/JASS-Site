@@ -50,6 +50,10 @@ export function badRequest(message: string) {
   return apiError(400, "bad_request", message);
 }
 
+export function rateLimited(message = "Too many requests. Please try again later.") {
+  return apiError(429, "rate_limited", message);
+}
+
 export function conflict(message: string) {
   return apiError(409, "conflict", message);
 }

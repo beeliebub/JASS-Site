@@ -7,10 +7,12 @@ import type { CustomTheme, Page } from "@/app/generated/prisma/client";
 import { useToast } from "@/components/admin/toast";
 import { DeleteButton } from "@/components/admin/list-controls";
 import { EditableText } from "@/components/admin/editable-text";
+import { ServerStatusTest } from "@/components/admin/server-status-test";
 import { pagePath } from "@/lib/routes";
 import { THEME_IDS, THEMES, type ThemeId } from "@/lib/themes";
 import {
   parseHeaderContent,
+  pageUpdateSchema,
   serializeHeaderContent,
   slugSchema,
   type HeaderContent,
@@ -46,7 +48,86 @@ function slugify(input: string) {
 
 type StatusHeaderContent = Extract<HeaderContent, { kind: "status" }>;
 
+function RedirectEditor({
+  page,
+  onSave,
+}: {
+  page: Page;
+  onSave: (redirectUrl: string | null) => Promise<void>;
+}) {
+  const { showError } = useToast();
+  const [enabled, setEnabled] = useState(Boolean(page.redirectUrl));
+  const [target, setTarget] = useState(page.redirectUrl ?? "");
+
+  async function persist(next: string | null) {
+    const previousEnabled = enabled;
+    const previousTarget = target;
+    setEnabled(Boolean(next));
+    setTarget(next ?? "");
+    try {
+      await onSave(next);
+    } catch (error) {
+      setEnabled(previousEnabled);
+      setTarget(previousTarget);
+      showError(error instanceof Error ? error.message : "Failed to update redirect.");
+    }
+  }
+
+  return (
+    <div className="mt-2 flex min-w-0 flex-col gap-1.5 font-sans">
+      <label
+        className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted"
+        title={page.protected ? "Protected pages cannot be redirect pages." : undefined}
+      >
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={page.protected}
+          onChange={(event) => {
+            if (event.target.checked) {
+              setEnabled(true);
+              return;
+            }
+            void persist(null);
+          }}
+        />
+        Redirect page
+        {page.redirectUrl && (
+          <span className="rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-accent">
+            Redirect
+          </span>
+        )}
+      </label>
+      {enabled && (
+        <input
+          type="text"
+          value={target}
+          maxLength={2000}
+          placeholder="/destination or https://…"
+          disabled={page.protected}
+          aria-label={`Redirect target for ${page.title}`}
+          onChange={(event) => setTarget(event.target.value)}
+          onBlur={() => {
+            const next = target.trim();
+            if (!next) return;
+            if (!pageUpdateSchema.safeParse({ redirectUrl: next }).success) {
+              showError("Redirect must be an absolute http(s) URL or a root-relative path.");
+              return;
+            }
+            void persist(next);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+          className="h-8 w-full min-w-0 rounded-md border border-border-strong bg-surface-2 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus-visible:border-primary disabled:opacity-60"
+        />
+      )}
+    </div>
+  );
+}
+
 function usesGlobalStatus(content: StatusHeaderContent): boolean {
+  if (content.protocol === "manual") return false;
   return content.useGlobalStatus ?? !(content.host && content.port);
 }
 
@@ -81,13 +162,13 @@ function HeaderContentEditor({
   }
 
   return (
-    <div className="flex min-w-64 flex-col gap-2">
+    <div className="flex w-full min-w-0 flex-col gap-2">
       <select
         value={draft.kind}
         onChange={(event) => {
           const kind = event.target.value as HeaderContent["kind"];
           if (kind === "none") void persist({ kind: "none" });
-          if (kind === "status") void persist({ kind: "status", useGlobalStatus: true });
+          if (kind === "status") void persist({ kind: "status", protocol: "minecraft-java", useGlobalStatus: true });
           if (kind === "text") setDraft({ kind: "text", text: "" });
         }}
         disabled={saving}
@@ -121,21 +202,38 @@ function HeaderContentEditor({
 
       {draft.kind === "status" && (
         <div className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-2">
-          <label className="flex items-center gap-2 text-xs text-muted">
-            <input
-              type="checkbox"
-              checked={usesGlobalStatus(draft)}
+          <label className="flex flex-col gap-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+            Protocol
+            <select
+              value={draft.protocol ?? "minecraft-java"}
               disabled={saving}
+              aria-label={`Status protocol for ${page.title}`}
               onChange={(event) => {
-                const next: StatusHeaderContent = {
-                  ...draft,
-                  useGlobalStatus: event.target.checked,
-                  port: event.target.checked ? draft.port : (draft.port ?? 25565),
-                };
-                void persist(next);
+                const protocol = event.target.value as NonNullable<StatusHeaderContent["protocol"]>;
+                if (protocol === "manual") {
+                  void persist({
+                    ...draft,
+                    protocol,
+                    useGlobalStatus: false,
+                    host: undefined,
+                    port: undefined,
+                  });
+                } else {
+                  void persist({
+                    ...draft,
+                    protocol,
+                    useGlobalStatus: true,
+                    manualOnline: undefined,
+                    manualPlayers: undefined,
+                    manualMaxPlayers: undefined,
+                  });
+                }
               }}
-            />
-            Use global server
+              className="h-8 rounded-md border border-border-strong bg-surface px-2 text-xs text-foreground outline-none focus-visible:border-primary disabled:opacity-60"
+            >
+              <option value="minecraft-java">Minecraft (Java)</option>
+              <option value="manual">Manual</option>
+            </select>
           </label>
           <input
             type="text"
@@ -154,8 +252,78 @@ function HeaderContentEditor({
             }}
             className="h-8 rounded-md border border-border-strong bg-surface px-2 text-xs text-foreground outline-none placeholder:text-muted focus-visible:border-primary disabled:opacity-60"
           />
-          {!usesGlobalStatus(draft) && (
-            <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
+          {draft.protocol === "manual" ? (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex items-center gap-2 pb-1 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={draft.manualOnline ?? false}
+                  disabled={saving}
+                  onChange={(event) => void persist({ ...draft, manualOnline: event.target.checked })}
+                />
+                Online
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+                Players
+                <input
+                  type="number"
+                  min={0}
+                  max={100000}
+                  value={draft.manualPlayers ?? 0}
+                  disabled={saving}
+                  aria-label={`Manual player count for ${page.title}`}
+                  onChange={(event) => updateStatus({ manualPlayers: event.target.value ? Number(event.target.value) : undefined })}
+                  onBlur={() => {
+                    const manualPlayers = draft.manualPlayers ?? 0;
+                    void persist({ ...draft, manualPlayers });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                  className="h-8 w-20 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary disabled:opacity-60"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+                Max players
+                <input
+                  type="number"
+                  min={0}
+                  max={100000}
+                  value={draft.manualMaxPlayers ?? 0}
+                  disabled={saving}
+                  aria-label={`Manual max players for ${page.title}`}
+                  onChange={(event) => updateStatus({ manualMaxPlayers: event.target.value ? Number(event.target.value) : undefined })}
+                  onBlur={() => {
+                    const manualMaxPlayers = draft.manualMaxPlayers ?? 0;
+                    void persist({ ...draft, manualMaxPlayers });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                  }}
+                  className="h-8 w-20 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary disabled:opacity-60"
+                />
+              </label>
+            </div>
+          ) : (
+            <>
+              <label className="flex items-center gap-2 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={usesGlobalStatus(draft)}
+                  disabled={saving}
+                  onChange={(event) => {
+                    const next: StatusHeaderContent = {
+                      ...draft,
+                      useGlobalStatus: event.target.checked,
+                      port: event.target.checked ? draft.port : (draft.port ?? 25565),
+                    };
+                    void persist(next);
+                  }}
+                />
+                Use global server
+              </label>
+              {!usesGlobalStatus(draft) && (
+                <div className="flex flex-wrap items-end gap-2">
               <input
                 type="text"
                 value={draft.host ?? ""}
@@ -171,7 +339,7 @@ function HeaderContentEditor({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
-                className="h-8 min-w-0 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus-visible:border-primary disabled:opacity-60"
+                className="h-8 min-w-0 flex-1 basis-40 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus-visible:border-primary disabled:opacity-60"
               />
               <input
                 type="number"
@@ -188,9 +356,12 @@ function HeaderContentEditor({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
-                className="h-8 min-w-0 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary disabled:opacity-60"
+                className="h-8 w-20 min-w-0 rounded-md border border-border-strong bg-surface px-2 font-mono text-xs text-foreground outline-none focus-visible:border-primary disabled:opacity-60"
               />
-            </div>
+                  <ServerStatusTest host={draft.host} port={draft.port} disabled={saving} />
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -267,10 +438,11 @@ export function PagesAdmin({
     setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, title: next } : p)));
   }
 
-  async function saveSlug(page: Page, next: string) {
+  async function saveSlug(page: Page, nextSegment: string, parentSlug = "") {
+    const next = parentSlug ? `${parentSlug}/${nextSegment}` : nextSegment;
     const parsed = slugSchema.safeParse(next);
     if (!parsed.success) {
-      throw new Error('Slug must be lowercase letters, numbers, and hyphens only (e.g. "about-us").');
+      throw new Error("Slug must use lowercase kebab-case segments separated by /, with no more than 3 segments.");
     }
     const res = await fetch(`/api/pages/${page.id}`, {
       method: "PUT",
@@ -329,24 +501,45 @@ export function PagesAdmin({
     }
   }
 
+  async function saveRedirect(page: Page, redirectUrl: string | null) {
+    const res = await fetch(`/api/pages/${page.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ redirectUrl }),
+    });
+    if (!res.ok) throw new Error(await parseError(res, "Failed to update redirect."));
+    setPages((prev) => prev.map((candidate) => (candidate.id === page.id ? { ...candidate, redirectUrl } : candidate)));
+  }
+
+  const pagesForDisplay = [...pages].sort((a, b) => a.slug.localeCompare(b.slug));
+
   return (
     <div className="flex flex-col gap-4">
       <div className="overflow-x-auto rounded-md border border-border">
-        <table className="w-full min-w-[1100px] text-left text-sm">
+        <table className="w-full text-left text-sm">
           <thead className="bg-surface-2 text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-4 py-2.5 font-medium">Title</th>
               <th className="px-4 py-2.5 font-medium">Slug</th>
               <th className="px-4 py-2.5 font-medium">Status</th>
-              <th className="px-4 py-2.5 font-medium">Theme</th>
-              <th className="px-4 py-2.5 font-medium">Header</th>
+              <th className="px-3 py-2.5 font-medium">Theme</th>
+              <th className="px-3 py-2.5 font-medium">Header</th>
               <th className="px-4 py-2.5 font-medium">&nbsp;</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {pages.map((page) => (
+            {pagesForDisplay.map((page) => {
+              const slugParts = page.slug.split("/");
+              const parentSlug = slugParts.slice(0, -1).join("/");
+              const leafSlug = slugParts[slugParts.length - 1];
+              const depth = slugParts.length - 1;
+
+              return (
               <tr key={page.id} className="bg-surface">
-                <td className="px-4 py-3 font-medium text-foreground">
+                <td
+                  className="px-4 py-3 font-medium text-foreground"
+                  style={{ paddingLeft: `${16 + depth * 16}px` }}
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <EditableText
                       value={page.title}
@@ -366,14 +559,16 @@ export function PagesAdmin({
                   ) : (
                     <span className="inline-flex items-center">
                       /
+                      {parentSlug && <span className="text-muted/60">{parentSlug}/</span>}
                       <EditableText
-                        value={page.slug}
-                        onSave={(next) => saveSlug(page, next)}
+                        value={leafSlug}
+                        onSave={(next) => saveSlug(page, next, parentSlug)}
                         label={`slug for ${page.title}`}
                         className="font-mono text-xs"
                       />
                     </span>
                   )}
+                  <RedirectEditor page={page} onSave={(redirectUrl) => saveRedirect(page, redirectUrl)} />
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -397,12 +592,12 @@ export function PagesAdmin({
                     </button>
                   </div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-3">
                   <select
                     value={page.customThemeId ? `custom:${page.customThemeId}` : (page.theme ?? "")}
                     onChange={(e) => changeThemeSelection(page, e.target.value)}
                     aria-label={`Theme for ${page.title}`}
-                    className="h-8 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary"
+                    className="h-8 w-full min-w-0 max-w-40 rounded-md border border-border-strong bg-surface-2 px-2 text-xs text-foreground outline-none focus-visible:border-primary"
                   >
                     <option value="">Default</option>
                     {THEME_IDS.map((id) => (
@@ -421,7 +616,7 @@ export function PagesAdmin({
                     )}
                   </select>
                 </td>
-                <td className="px-4 py-3 align-top">
+                <td className="px-3 py-3 align-top">
                   <HeaderContentEditor page={page} onSave={(content) => saveHeaderContent(page, content)} />
                 </td>
                 <td className="px-4 py-3">
@@ -436,7 +631,8 @@ export function PagesAdmin({
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

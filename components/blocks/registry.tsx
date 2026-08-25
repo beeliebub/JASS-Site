@@ -18,9 +18,13 @@ import { AccordionBlock, type AccordionData } from "@/components/blocks/accordio
 import { TableBlock, type TableData } from "@/components/blocks/table-block";
 import { TocBlock, type TocData } from "@/components/blocks/toc-block";
 import { ServerStatusBlock, type ServerStatusData } from "@/components/blocks/server-status-block";
+import { WikiIndexBlock, type WikiIndexData } from "@/components/blocks/wiki-index-block";
+import { InfoboxBlock, type InfoboxData } from "@/components/blocks/infobox-block";
+import { WikiArticleBlock, type WikiArticleData } from "@/components/blocks/wiki-article-block";
 import { CustomBlockRenderer, MissingBlockDefinitionNotice } from "@/components/blocks/custom-block-renderer";
 import type { BlockDefinitionWithFields } from "@/components/blocks/custom-fields/types";
 import { BLOCK_TYPES, blockTypeLabels, type BlockType } from "@/lib/validation/pages";
+import type { WikiPageReference } from "@/lib/wiki-links";
 
 export type { BlockDefinitionWithFields } from "@/components/blocks/custom-fields/types";
 
@@ -82,6 +86,9 @@ export type ReferenceData = {
    * in `blockComponents` below looks a block's own definition up here by
    * `block.blockDefinitionId`. */
   blockDefinitionsById?: Record<string, BlockDefinitionWithFields>;
+  wikiIndexPagesByBlockId?: Record<string, WikiPageReference[]>;
+  wikiLinkPages?: WikiPageReference[];
+  currentPageSlug?: string;
 };
 
 export type ClientBlock = {
@@ -182,8 +189,12 @@ export const blockComponents: Record<BlockType | "custom", ComponentType<BlockCo
   linkGrid: ({ block, onSaveData }) => (
     <LinkGridBlock data={block.data as LinkGridData} onSaveData={onSaveData as (next: LinkGridData) => Promise<void>} />
   ),
-  richText: ({ block, onSaveData }) => (
-    <RichTextBlock data={block.data as RichTextData} onSaveData={onSaveData as (next: RichTextData) => Promise<void>} />
+  richText: ({ block, referenceData, onSaveData }) => (
+    <RichTextBlock
+      data={block.data as RichTextData}
+      wikiPages={referenceData.wikiLinkPages ?? []}
+      onSaveData={onSaveData as (next: RichTextData) => Promise<void>}
+    />
   ),
   image: ({ block, onSaveData }) => (
     <ImageBlock data={block.data as ImageData} onSaveData={onSaveData as (next: ImageData) => Promise<void>} />
@@ -210,6 +221,28 @@ export const blockComponents: Record<BlockType | "custom", ComponentType<BlockCo
     <ServerStatusBlock
       data={block.data as ServerStatusData}
       onSaveData={onSaveData as (next: ServerStatusData) => Promise<void>}
+    />
+  ),
+  wikiIndex: ({ block, referenceData, onSaveData }) => (
+    <WikiIndexBlock
+      data={block.data as WikiIndexData}
+      pages={referenceData.wikiIndexPagesByBlockId?.[block.id] ?? []}
+      currentSlug={referenceData.currentPageSlug ?? ""}
+      onSaveData={onSaveData as (next: WikiIndexData) => Promise<void>}
+    />
+  ),
+  infobox: ({ block, onSaveData }) => (
+    <InfoboxBlock
+      blockId={block.id}
+      data={block.data as InfoboxData}
+      onSaveData={onSaveData as (next: InfoboxData) => Promise<void>}
+    />
+  ),
+  wikiArticle: ({ block, referenceData, onSaveData }) => (
+    <WikiArticleBlock
+      data={block.data as WikiArticleData}
+      wikiPages={referenceData.wikiLinkPages ?? []}
+      onSaveData={onSaveData as (next: WikiArticleData) => Promise<void>}
     />
   ),
   // Admin-defined block type -- looks its own BlockDefinition up in
@@ -265,6 +298,9 @@ export const defaultBlockData: Record<BlockType, unknown> = {
   table: { caption: "", headers: ["Column 1", "Column 2"], rows: [["", ""]] },
   toc: { heading: "", items: [] },
   serverStatus: { servers: [] },
+  wikiIndex: { heading: "", prefix: null },
+  infobox: { title: "Infobox", rows: [] },
+  wikiArticle: { markdown: "", showToc: false },
 };
 
 /** Block types offered in the "Add block" picker. All `BLOCK_TYPES` are

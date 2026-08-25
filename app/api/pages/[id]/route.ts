@@ -11,9 +11,10 @@ import {
   unauthorized,
   validationError,
 } from "@/lib/api-response";
-import { pageUpdateSchema, protectedSlugChangeError, serializeHeaderContent } from "@/lib/validation/pages";
+import { pageUpdateSchema, protectedRedirectChangeError, protectedSlugChangeError, serializeHeaderContent } from "@/lib/validation/pages";
 import { pagePath } from "@/lib/content";
 import { pageSnapshot, recordAuditLog } from "@/lib/audit-log";
+import { findRedirectCycle, RedirectCycleError } from "@/lib/page-redirects";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
@@ -57,6 +58,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const slugError = protectedSlugChangeError(existing, parsed.data.slug);
     if (slugError) return conflict(slugError);
 
+    const redirectError = protectedRedirectChangeError(existing, parsed.data.redirectUrl);
+    if (redirectError) return conflict(redirectError);
+
     if (parsed.data.slug && parsed.data.slug !== existing.slug) {
       const slugTaken = await prisma.page.findUnique({ where: { slug: parsed.data.slug } });
       if (slugTaken) return conflict(`A page with slug "${parsed.data.slug}" already exists.`);
@@ -64,6 +68,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const page = await prisma.$transaction(async (tx) => {
       const { headerContent, ...pageFields } = parsed.data;
+      const nextRedirectUrl = pageFields.redirectUrl === undefined ? existing.redirectUrl : pageFields.redirectUrl;
+      const nextSlug = pageFields.slug ?? existing.slug;
+      const cycleError = await findRedirectCycle(tx, {
+        pageId: existing.id,
+        pageSlug: nextSlug,
+        redirectUrl: nextRedirectUrl,
+      });
+      if (cycleError) throw new RedirectCycleError(cycleError);
       const serializedHeaderContent = serializeHeaderContent(headerContent);
       const updated = await tx.page.update({
         where: { id },
@@ -92,6 +104,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     revalidatePath("/", "layout");
     return apiSuccess(page);
   } catch (error) {
+    if (error instanceof RedirectCycleError) return conflict(error.message);
     return internalError(error);
   }
 }

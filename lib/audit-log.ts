@@ -19,6 +19,7 @@ import {
   pageUpdateSchema,
   parseHeaderContent,
   parseBlockData,
+  protectedRedirectChangeError,
   protectedSlugChangeError,
   serializeHeaderContent,
   userUpdateSchema,
@@ -35,6 +36,11 @@ import {
 } from "@/lib/validation/block-definitions";
 import { CUSTOM_THEME_TOKEN_FIELDS, type CustomThemeTokenField } from "@/lib/themes";
 import { imagePath, packPath } from "@/lib/uploads";
+import { type AuditEntityType } from "@/lib/audit-entity-types";
+import { findRedirectCycle } from "@/lib/page-redirects";
+
+export { AUDIT_ENTITY_TYPES } from "@/lib/audit-entity-types";
+export type { AuditEntityType } from "@/lib/audit-entity-types";
 
 /**
  * Audit trail + single-step undo. `recordAuditLog` is called by
@@ -44,19 +50,6 @@ import { imagePath, packPath } from "@/lib/uploads";
  * actually implemented, so route instrumentation never has to re-derive it.
  */
 
-export const AUDIT_ENTITY_TYPES = [
-  "Page",
-  "Block",
-  "NavItem",
-  "CustomTheme",
-  "User",
-  "ResourcePack",
-  "SiteSettings",
-  "UploadedImage",
-  "Tag",
-  "BlockDefinition",
-] as const;
-export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 export type AuditAction = "create" | "update" | "delete";
 
 export type TxClient = Prisma.TransactionClient;
@@ -125,6 +118,7 @@ export function pageSnapshot(row: Page) {
     theme: row.theme,
     customThemeId: row.customThemeId,
     headerContent: parseHeaderContent(row.headerContent),
+    redirectUrl: row.redirectUrl,
   };
 }
 
@@ -307,9 +301,19 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
       const slugError = protectedSlugChangeError(existing, snapshot.slug);
       if (slugError) return { ok: false, message: slugError };
 
-      const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId, headerContent: snapshot.headerContent };
+      const redirectError = protectedRedirectChangeError(existing, snapshot.redirectUrl);
+      if (redirectError) return { ok: false, message: redirectError };
+
+      const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId, headerContent: snapshot.headerContent, redirectUrl: snapshot.redirectUrl };
       const parsed = pageUpdateSchema.safeParse(stripNullish(fields));
       if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current page schema." };
+
+      const cycleError = await findRedirectCycle(tx, {
+        pageId: entry.entityId,
+        pageSlug: snapshot.slug,
+        redirectUrl: snapshot.redirectUrl,
+      });
+      if (cycleError) return { ok: false, message: cycleError };
 
       const { headerContent, ...pageFields } = fields;
       const serializedHeaderContent = serializeHeaderContent(headerContent);
@@ -317,14 +321,33 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     }
 
     // delete -> recreate
-    const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId, headerContent: snapshot.headerContent };
+    const fields = { slug: snapshot.slug, title: snapshot.title, metaDescription: snapshot.metaDescription, published: snapshot.published, theme: snapshot.theme, customThemeId: snapshot.customThemeId, headerContent: snapshot.headerContent, redirectUrl: snapshot.redirectUrl };
     const parsed = pageCreateSchema.safeParse(stripNullish(fields));
     if (!parsed.success) return { ok: false, message: "Stored snapshot no longer matches the current page schema." };
 
+    if (snapshot.protected && snapshot.redirectUrl) {
+      return { ok: false, message: "Protected pages can't change redirect settings." };
+    }
+
     const { headerContent, ...pageFields } = fields;
     const serializedHeaderContent = serializeHeaderContent(headerContent);
+    const cycleError = await findRedirectCycle(tx, {
+      pageId: entry.entityId,
+      pageSlug: snapshot.slug,
+      redirectUrl: snapshot.redirectUrl,
+    });
+    if (cycleError) return { ok: false, message: cycleError };
+
     return safeWrite(() =>
-      tx.page.create({ data: { id: entry.entityId, ...pageFields, ...(serializedHeaderContent === undefined ? {} : { headerContent: serializedHeaderContent }), protected: snapshot.protected, updatedBy: ctx.actorEmail } }),
+      tx.page.create({
+        data: {
+          id: entry.entityId,
+          ...pageFields,
+          ...(serializedHeaderContent === undefined ? {} : { headerContent: serializedHeaderContent }),
+          protected: snapshot.protected,
+          updatedBy: ctx.actorEmail,
+        },
+      }),
     );
   },
 

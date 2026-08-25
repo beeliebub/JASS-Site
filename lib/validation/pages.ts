@@ -23,24 +23,45 @@ import { THEME_IDS, TONES } from "@/lib/themes";
 // as long as protected-page slug changes are already rejected earlier -- see
 // `assertProtectedSlugUnchanged` below).
 export const RESERVED_SLUGS = ["admin", "login", "account", "api", "home", "rules", "features", "news", "resource"] as const;
+export const RESERVED_FIRST_SEGMENTS = ["admin", "api", "login", "account", "news", "resource"] as const;
 
 export const slugSchema = z
   .string()
   .min(1)
   .max(80)
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "slug must be lowercase kebab-case");
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*){0,2}$/,
+    "slug must be lowercase kebab-case segments separated by / (up to 3 segments)",
+  );
 
 /** One of `lib/themes.ts`' `THEME_IDS`, or `null`/absent meaning "follow
  * visitor theme" -- see `Page.theme` in prisma/schema.prisma. */
 export const themeSchema = z.enum(THEME_IDS);
 
-const statusHeaderContentSchema = z.object({
-  kind: z.literal("status"),
-  label: z.string().trim().min(1).max(80).optional(),
-  host: z.string().trim().min(1).max(300).optional(),
-  port: z.number().int().min(1).max(65535).optional(),
-  useGlobalStatus: z.boolean().optional(),
-});
+const statusHeaderContentSchema = z
+  .object({
+    kind: z.literal("status"),
+    label: z.string().trim().min(1).max(80).optional(),
+    host: z.string().trim().min(1).max(300).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    useGlobalStatus: z.boolean().optional(),
+    // Absent means the existing Minecraft-Java behavior. Keeping this
+    // optional lets header JSON written before manual status support continue
+    // to validate without being rewritten on read.
+    protocol: z.enum(["minecraft-java", "manual"]).optional(),
+    manualOnline: z.boolean().optional(),
+    manualPlayers: z.number().int().min(0).max(100000).optional(),
+    manualMaxPlayers: z.number().int().min(0).max(100000).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.protocol === "manual" && data.useGlobalStatus === true) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["useGlobalStatus"],
+        message: "Manual status cannot use the global server.",
+      });
+    }
+  });
 
 const textHeaderContentSchema = z.object({
   kind: z.literal("text"),
@@ -72,8 +93,21 @@ export function serializeHeaderContent(content: HeaderContent | null | undefined
 }
 
 function refineNotReserved<T extends { slug?: string }>(data: T, ctx: z.RefinementCtx) {
-  if (data.slug && (RESERVED_SLUGS as readonly string[]).includes(data.slug)) {
+  if (!data.slug) return;
+
+  if ((RESERVED_SLUGS as readonly string[]).includes(data.slug)) {
     ctx.addIssue({ code: "custom", path: ["slug"], message: `"${data.slug}" is a reserved slug.` });
+  }
+
+  if (data.slug.includes("/")) {
+    const firstSegment = data.slug.split("/", 1)[0];
+    if ((RESERVED_FIRST_SEGMENTS as readonly string[]).includes(firstSegment)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["slug"],
+        message: `"${firstSegment}" is reserved for the ${firstSegment} route and cannot start a nested slug.`,
+      });
+    }
   }
 }
 
@@ -95,6 +129,24 @@ function refineExclusiveTheme<T extends { theme?: string | null; customThemeId?:
   }
 }
 
+const isRootRelativePath = (s: string) => {
+  if (!/^\/(?!\/)\S*$/.test(s) || s.includes("\\")) return false;
+  try {
+    const parsed = new URL(s, "https://redirect.invalid");
+    return parsed.origin === "https://redirect.invalid";
+  } catch {
+    return false;
+  }
+};
+const isHttpUrl = (s: string) => {
+  const parsed = z.string().url().safeParse(s);
+  return parsed.success && (s.startsWith("http://") || s.startsWith("https://"));
+};
+
+const redirectUrlSchema = z.string().max(2000).refine((value) => isHttpUrl(value) || isRootRelativePath(value), {
+  message: "redirectUrl must be an absolute http(s) URL or a root-relative path.",
+});
+
 export const pageCreateSchema = z
   .object({
     title: z.string().min(1).max(200),
@@ -104,6 +156,7 @@ export const pageCreateSchema = z
     theme: themeSchema.nullable().optional(),
     customThemeId: z.string().min(1).nullable().optional(),
     headerContent: headerContentSchema.nullable().optional(),
+    redirectUrl: redirectUrlSchema.nullable().optional(),
   })
   .superRefine(refineNotReserved)
   .superRefine(refineExclusiveTheme);
@@ -117,6 +170,7 @@ export const pageUpdateSchema = z
     theme: themeSchema.nullable().optional(),
     customThemeId: z.string().min(1).nullable().optional(),
     headerContent: headerContentSchema.nullable().optional(),
+    redirectUrl: redirectUrlSchema.nullable().optional(),
   })
   .superRefine(refineNotReserved)
   .superRefine(refineExclusiveTheme);
@@ -132,6 +186,16 @@ export function protectedSlugChangeError(
 ): string | null {
   if (existing.protected && nextSlug !== undefined && nextSlug !== existing.slug) {
     return "Protected pages can't change slug.";
+  }
+  return null;
+}
+
+export function protectedRedirectChangeError(
+  existing: { protected: boolean; redirectUrl: string | null },
+  nextRedirectUrl: string | null | undefined,
+): string | null {
+  if (existing.protected && nextRedirectUrl !== undefined && nextRedirectUrl !== existing.redirectUrl) {
+    return "Protected pages can't change redirect settings.";
   }
   return null;
 }
@@ -157,6 +221,9 @@ export const BLOCK_TYPES = [
   "table",
   "toc",
   "serverStatus",
+  "wikiIndex",
+  "infobox",
+  "wikiArticle",
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
@@ -182,6 +249,9 @@ export const blockTypeLabels: Record<BlockType, string> = {
   table: "Table",
   toc: "Table of contents",
   serverStatus: "Server status",
+  wikiIndex: "Wiki index",
+  infobox: "Infobox",
+  wikiArticle: "Wiki article",
 };
 
 /** Shared block-tone enum -- see `lib/themes.ts`. Widens
@@ -206,6 +276,35 @@ const richTextDataSchema = z.object({
   markdown: z.string().max(20000),
 });
 
+const wikiIndexDataSchema = z.object({
+  heading: z.string().max(80).optional(),
+  prefix: slugSchema.nullable().optional(),
+});
+
+const infoboxDataSchema = z.object({
+  title: z.string().min(1).max(120),
+  image: z
+    .string()
+    .max(2000)
+    .optional()
+    .refine((value) => value === undefined || isHttpUrl(value) || isRootRelativePath(value), {
+      message: "image must be an absolute http(s) URL or a root-relative path.",
+    }),
+  rows: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(80),
+        value: z.string().min(1).max(300),
+      }),
+    )
+    .max(20),
+});
+
+const wikiArticleDataSchema = z.object({
+  markdown: z.string().max(20000),
+  showToc: z.boolean().optional(),
+});
+
 /** `src`/`alt` may both be "" -- ImageBlock renders a "No image URL set"
  * placeholder in that state (see components/blocks/image-block.tsx), and a
  * freshly-added block starts out that way. Once `src` is non-empty it must
@@ -215,12 +314,6 @@ const richTextDataSchema = z.object({
  * required for accessibility. Deliberately excludes `javascript:`, `data:`,
  * and protocol-relative (`//host/...`) strings, none of which are safe to
  * hand straight to an `<img src>`. */
-const isRootRelativePath = (s: string) => /^\/(?!\/)\S*$/.test(s);
-const isHttpUrl = (s: string) => {
-  const parsed = z.string().url().safeParse(s);
-  return parsed.success && (s.startsWith("http://") || s.startsWith("https://"));
-};
-
 /** Optional display-size override, unset/null = today's exact
  * behavior (full-width, natural aspect ratio). `scale` only applies under
  * `"scale"` mode, `width`/`height` only under `"custom"` -- both bounded so a
@@ -485,6 +578,9 @@ export const blockDataSchemas = {
   table: tableDataSchema,
   toc: tocDataSchema,
   serverStatus: serverStatusDataSchema,
+  wikiIndex: wikiIndexDataSchema,
+  infobox: infoboxDataSchema,
+  wikiArticle: wikiArticleDataSchema,
 } as const satisfies Record<BlockType, z.ZodTypeAny>;
 
 export const blockTypeSchema = z.enum(BLOCK_TYPES);
@@ -561,6 +657,24 @@ export const blockCreateSchema = z.discriminatedUnion("type", [
     pageId: z.string().min(1),
     order: z.number().int(),
     data: blockDataSchemas.serverStatus,
+  }),
+  z.object({
+    type: z.literal("wikiIndex"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    data: blockDataSchemas.wikiIndex,
+  }),
+  z.object({
+    type: z.literal("infobox"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    data: blockDataSchemas.infobox,
+  }),
+  z.object({
+    type: z.literal("wikiArticle"),
+    pageId: z.string().min(1),
+    order: z.number().int(),
+    data: blockDataSchemas.wikiArticle,
   }),
   /** Admin-defined block type (`BlockDefinition`), not one of the fixed
    * `BLOCK_TYPES` above. `data`'s real shape depends on the referenced

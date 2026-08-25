@@ -1,0 +1,7 @@
+interface:
+  display_name: "JASS Stack Pro"
+  short_description: "Deep working knowledge of the JASS stack: Next.js 16, Prisma 7, Auth.js v5, the block system, and the manual VPS deploy."
+  brand_color: "#22C55E"
+  default_prompt: "Use $jass-stack-pro for any task touching this site's Next.js/Prisma/Auth.js stack, the block-based page builder, theming, uploads, or the deploy path."
+policy:
+  allow_implicit_invocation: true

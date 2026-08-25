@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { siteConfig } from "@/lib/site-config";
+import type { WikiPageReference } from "@/lib/wiki-links";
 
 /**
  * Server-only data layer for editable content. Reads go straight through
@@ -93,6 +94,47 @@ export async function getPageBySlug(slug: string) {
 
 export async function getPages() {
   return prisma.page.findMany({ orderBy: { title: "asc" } });
+}
+
+export async function getPagesBySlugPrefix(prefix: string): Promise<WikiPageReference[]> {
+  return prisma.page.findMany({
+    where: { published: true, slug: { startsWith: `${prefix}/` } },
+    select: { slug: true, title: true },
+    orderBy: { slug: "asc" },
+    take: 200,
+  });
+}
+
+export async function getPagesBySlugPrefixes(prefixes: readonly string[]): Promise<Record<string, WikiPageReference[]>> {
+  const uniquePrefixes = [...new Set(prefixes)].filter(Boolean);
+  const grouped = Object.fromEntries(uniquePrefixes.map((prefix) => [prefix, [] as WikiPageReference[]]));
+  if (uniquePrefixes.length === 0) return grouped;
+
+  const rows = await prisma.page.findMany({
+    where: {
+      published: true,
+      OR: uniquePrefixes.map((prefix) => ({ slug: { startsWith: `${prefix}/` } })),
+    },
+    select: { slug: true, title: true },
+    orderBy: { slug: "asc" },
+    take: uniquePrefixes.length * 200,
+  });
+
+  for (const row of rows) {
+    for (const prefix of uniquePrefixes) {
+      if (row.slug.startsWith(`${prefix}/`) && grouped[prefix].length < 200) grouped[prefix].push(row);
+    }
+  }
+  return grouped;
+}
+
+export async function getPublishedPageReferences(): Promise<WikiPageReference[]> {
+  return prisma.page.findMany({
+    where: { published: true },
+    select: { slug: true, title: true },
+    orderBy: { slug: "asc" },
+    take: 200,
+  });
 }
 
 // pagePath/navItemHref moved to lib/routes.ts (pure, no Prisma import) so

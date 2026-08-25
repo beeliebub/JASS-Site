@@ -6,6 +6,8 @@ import {
   getPostsByBlockIds,
   getPostsByTagIds,
   getRuleSectionsByBlockIds,
+  getPagesBySlugPrefixes,
+  getPublishedPageReferences,
   getSiteContent,
 } from "@/lib/content";
 import { BLOCK_TYPES, parseBlockData, type BlockType } from "@/lib/validation/pages";
@@ -23,6 +25,7 @@ import {
 import type { PostDisplayData } from "@/components/blocks/post-display-block";
 import { PageBlocks } from "@/components/pages/page-blocks";
 import { renderCustomHtml } from "@/lib/render-custom-html";
+import type { WikiPageReference } from "@/lib/wiki-links";
 
 export type PageWithBlocks = Page & { blocks: Block[] };
 
@@ -87,6 +90,17 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
     ),
   );
 
+  const pageParentPrefix = page.slug.split("/").slice(0, -1).join("/");
+  const wikiIndexRequests = page.blocks
+    .filter((block) => block.type === "wikiIndex")
+    .map((block) => {
+      const result = parseBlockData("wikiIndex", safeJsonParse(block.data));
+      const data = (result.success ? result.data : defaultBlockData.wikiIndex) as { prefix?: string | null };
+      return { blockId: block.id, prefix: data.prefix ?? pageParentPrefix };
+    });
+  const wikiPrefixes = wikiIndexRequests.flatMap((request) => (request.prefix ? [request.prefix] : []));
+  const hasWikiLinks = page.blocks.some((block) => block.type === "richText" || block.type === "wikiArticle");
+
   // `postDisplay` blocks don't own posts -- they select other blocks' posts
   // by tag -- so we need each instance's own `data.tagIds` *before* the
   // Promise.all below can even know what to query for. This is the same
@@ -112,7 +126,7 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
   // are no postDisplay blocks, or every one of them has zero tags selected.
   const tagIdUnion = Array.from(new Set(postDisplayBlocks.flatMap((b) => b.tagIds)));
 
-  const [ruleSections, features, posts, matchedPosts, siteContent, blockDefinitions] = await Promise.all([
+  const [ruleSections, features, posts, matchedPosts, siteContent, blockDefinitions, wikiPagesByPrefix, wikiLinkPages] = await Promise.all([
     ruleListBlockIds.length ? getRuleSectionsByBlockIds(ruleListBlockIds) : Promise.resolve([]),
     featureGridBlockIds.length ? getFeaturesByBlockIds(featureGridBlockIds) : Promise.resolve([]),
     postListBlockIds.length ? getPostsByBlockIds(postListBlockIds) : Promise.resolve([]),
@@ -124,6 +138,8 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
           include: { fields: { orderBy: { order: "asc" } } },
         })
       : Promise.resolve([]),
+    wikiPrefixes.length ? getPagesBySlugPrefixes(wikiPrefixes) : Promise.resolve({} as Record<string, WikiPageReference[]>),
+    hasWikiLinks ? getPublishedPageReferences() : Promise.resolve([]),
   ]);
 
   // Keyed by id for the flatMap below's dynamic-schema validation, which
@@ -181,11 +197,19 @@ export async function PageRenderer({ page }: { page: PageWithBlocks }) {
     postsByBlockId[id] = serializedMatchedPosts.filter((post) => post.tags.some((tag) => tagIdSet.has(tag.id)));
   }
 
+  const wikiIndexPagesByBlockId: Record<string, WikiPageReference[]> = {};
+  for (const request of wikiIndexRequests) {
+    wikiIndexPagesByBlockId[request.blockId] = request.prefix ? wikiPagesByPrefix[request.prefix] ?? [] : [];
+  }
+
   const referenceData: ReferenceData = {
     ruleSectionsByBlockId: groupBy(ruleSections, (s) => s.blockId),
     featuresByBlockId: groupBy(features, (f) => f.blockId),
     postsByBlockId,
     blockDefinitionsById,
+    wikiIndexPagesByBlockId,
+    wikiLinkPages,
+    currentPageSlug: page.slug,
   };
 
   const clientBlocks: ClientBlock[] = page.blocks.flatMap((block): ClientBlock[] => {

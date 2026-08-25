@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { EditableText } from "@/components/admin/editable-text";
+import { ServerStatusTest } from "@/components/admin/server-status-test";
 import { Container } from "@/components/container";
 import { AddButton, DeleteButton, MoveDownButton, MoveUpButton } from "@/components/admin/list-controls";
 import { StatusBadge, type ServerStatus } from "@/components/home/status-badge";
@@ -313,6 +314,7 @@ function ServerEntryEditor({
                 ariaLabel={`Server ${index + 1} port`}
                 onCommit={(next) => onPatch({ port: next })}
               />
+              <ServerStatusTest host={entry.host} port={entry.port} disabled={disabled} />
             </>
           ) : (
             <>
