@@ -65,7 +65,7 @@ and a proposal that undoes one of these is a regression:
 | Query inside a loop/map | Never | Hoist to a single batched query |
 | Outbound network in a render path | Never without a timeout and a failure path | Move behind a route handler the client calls, or cache it |
 | In-memory map (`lib/rate-limit.ts` style) | Bounded, or evicting | Confirm entries expire; flag any new unbounded one |
-| Stored uploads | Pruned or explicitly retained | `prunePacks()` keeps the newest N plus the active row; a new upload kind needs its own answer |
+| Stored uploads | Explicitly retained or deliberately deleted | Resource packs remain hosted until an admin deletes the row; content-addressed bytes are not automatically pruned |
 | Client component | Renders interactivity | Move to a server component if it does not |
 
 ## Analysis Approach

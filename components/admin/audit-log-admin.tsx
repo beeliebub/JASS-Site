@@ -321,7 +321,9 @@ export function AuditLogAdmin({ isOwner }: { isOwner: boolean }) {
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${ACTION_STYLES[entry.action]}`}
+                          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+                            ACTION_STYLES[entry.action] ?? "border-border-strong bg-surface-2 text-muted"
+                          }`}
                         >
                           {entry.action}
                         </span>

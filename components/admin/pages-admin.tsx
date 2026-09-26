@@ -438,9 +438,8 @@ export function PagesAdmin({
     setPages((prev) => prev.map((p) => (p.id === page.id ? { ...p, title: next } : p)));
   }
 
-  async function saveSlug(page: Page, nextSegment: string, parentSlug = "") {
-    const next = parentSlug ? `${parentSlug}/${nextSegment}` : nextSegment;
-    const parsed = slugSchema.safeParse(next);
+  async function saveSlug(page: Page, nextSlug: string) {
+    const parsed = slugSchema.safeParse(nextSlug);
     if (!parsed.success) {
       throw new Error("Slug must use lowercase kebab-case segments separated by /, with no more than 3 segments.");
     }
@@ -529,10 +528,7 @@ export function PagesAdmin({
           </thead>
           <tbody className="divide-y divide-border">
             {pagesForDisplay.map((page) => {
-              const slugParts = page.slug.split("/");
-              const parentSlug = slugParts.slice(0, -1).join("/");
-              const leafSlug = slugParts[slugParts.length - 1];
-              const depth = slugParts.length - 1;
+              const depth = page.slug.split("/").length - 1;
 
               return (
               <tr key={page.id} className="bg-surface">
@@ -559,10 +555,9 @@ export function PagesAdmin({
                   ) : (
                     <span className="inline-flex items-center">
                       /
-                      {parentSlug && <span className="text-muted/60">{parentSlug}/</span>}
                       <EditableText
-                        value={leafSlug}
-                        onSave={(next) => saveSlug(page, next, parentSlug)}
+                        value={page.slug}
+                        onSave={(next) => saveSlug(page, next)}
                         label={`slug for ${page.title}`}
                         className="font-mono text-xs"
                       />

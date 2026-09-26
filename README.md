@@ -1,7 +1,7 @@
 # JASS — Just A Simple Server
 
 The website for **JASS** ("Just A Simple Server"), a Minecraft survival server at
-`justasimpleserver.net`. Public pages (Home, Rules, Features, News, plus any custom
+`justasimpleserver.net`. Public pages (Home, Rules, Wiki at `/features`, News, plus any custom
 nested pages an admin creates) are built from an admin-editable, block-based page
 builder — content lives in the database, and logged-in admins edit it in place, in
 real time. Pages can be redirects, and the builder includes wiki indexes, infoboxes,
@@ -100,7 +100,12 @@ after a reboot) or ship new code:
 Deploy mode never runs `db:seed` (re-seeding can overwrite live admin-edited content —
 see the [`db:seed` note](#available-scripts) below), so it's safe to run after every
 deploy, and it finishes by offering a walkthrough for pointing the Minecraft server's
-`server.properties` at the hosted resource pack.
+`server.properties` at one or more hosted resource packs.
+
+The `/resource` page can host multiple independent resource packs. Each upload gets its
+own download URL at `/api/resource-pack/<id>`, SHA-1, and UUID for the
+`resource-pack-id` server property; duplicate ZIP bytes are rejected, and packs remain
+until an admin deletes them.
 
 > `scripts/vps-setup.sh` and `scripts/vps-start.sh` still work as thin back-compat
 > wrappers over the same code (provision and deploy respectively), with their original
@@ -197,7 +202,7 @@ npm run db:seed
 ```
 
 This creates `prisma/dev.db`, applies all migrations, and loads placeholder content
-(Home/Rules/Features/News pages, sample rules/features/posts) so the site isn't blank.
+(Home/Rules/Wiki/News pages, sample rules/features/posts) so the site isn't blank.
 
 > If `npx prisma ...` hits the same V8 crash as step 1, use the Prisma-specific
 > workaround instead — `--jitless` breaks the WASM Prisma's CLI needs, so it can't be

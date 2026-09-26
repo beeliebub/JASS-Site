@@ -16,7 +16,13 @@ const navItemBaseSchema = z.object({
   order: z.number().int(),
 });
 
-async function refineNavItemTarget(data: z.infer<typeof navItemBaseSchema>, ctx: z.RefinementCtx) {
+type NavItemTarget = {
+  href?: string | null;
+  pageId?: string | null;
+  parentId?: string | null;
+};
+
+async function refineNavItemTarget(data: NavItemTarget, ctx: z.RefinementCtx) {
   const hasHref = Boolean(data.href);
   const hasPageId = Boolean(data.pageId);
   if (hasHref === hasPageId) {
@@ -43,13 +49,20 @@ async function refineNavItemTarget(data: z.infer<typeof navItemBaseSchema>, ctx:
 
 export const navItemCreateSchema = navItemBaseSchema.superRefine(refineNavItemTarget);
 
-export const navItemUpdateSchema = navItemBaseSchema.partial().superRefine(async (data, ctx) => {
+export const navItemUpdateSchema = navItemBaseSchema
+  .extend({
+    href: z.string().min(1).nullable().optional(),
+    pageId: z.string().min(1).nullable().optional(),
+    parentId: z.string().min(1).nullable().optional(),
+  })
+  .partial()
+  .superRefine(async (data, ctx) => {
   // Only re-check the href/pageId XOR when at least one of them is present
   // in this partial update -- a reorder-only PUT shouldn't be forced to
   // resupply both.
   if (data.href !== undefined || data.pageId !== undefined) {
-    await refineNavItemTarget(data as z.infer<typeof navItemBaseSchema>, ctx);
+    await refineNavItemTarget(data, ctx);
   } else if (data.parentId !== undefined) {
-    await refineNavItemTarget({ ...data, href: "x" } as z.infer<typeof navItemBaseSchema>, ctx);
+    await refineNavItemTarget({ ...data, href: "x" }, ctx);
   }
-});
+  });

@@ -1,9 +1,16 @@
-The rest of this file is the reusable execution skeleton for the next scoped batch.
+# Active work queue
 
-`PLAN.md` is an **ephemeral work queue, not documentation**. Nothing here is a description of how the
-site behaves — that lives in `README.md`, `CLAUDE.md`, `AGENTS.md`, `docs/DEPLOYMENT.md`, and the
-comment blocks in `prisma/schema.prisma` and `lib/**`. Never migrate content from this file into
-those, and never treat a line here as authoritative about current behavior.
+No active work items.
+
+---
+
+# Reusable execution skeleton
+
+Everything below this line is the reusable skeleton for the *next* batch of work once the items above
+are completed and retired. It is not itself a description of current site behavior — that lives in
+`README.md`, `CLAUDE.md`, `AGENTS.md`, `docs/DEPLOYMENT.md`, and the comment blocks in
+`prisma/schema.prisma` and `lib/**`. Never migrate content from this file into those, and never treat
+a line here as authoritative about current behavior.
 
 **Hard rule: this file's own nomenclature — `Phase N`, `PLAN.md`, decision numbers — must never
 appear in source code, comments, commit messages, or documentation.** A comment has to stand on its

@@ -129,35 +129,49 @@ walkthrough_resource_pack() {
       "Must be a valid hostname like example.com (letters, digits, hyphens and dots only)")"
   fi
 
-  step "Walkthrough: point server.properties at the hosted resource pack"
+  step "Walkthrough: point server.properties at hosted resource packs"
 
   local meta_url="https://$domain/api/resource-pack/meta"
-  info "Checking for an active resource pack: curl -fsS $meta_url"
+  info "Checking for hosted resource packs: curl -fsS $meta_url"
   local meta_json=""
   meta_json="$(curl -fsS --max-time 10 "$meta_url" 2>/dev/null || true)"
 
-  # Extract the sha1 without requiring jq (use it only if present). The API
-  # envelope is {"data":{"filename":...,"size":...,"sha1":"<40 hex>",...}} or
-  # {"data":null} when no pack is active.
-  local sha1=""
+  # Extract every row without requiring jq (use it only if present). The API
+  # envelope is {"data":[{"filename":...,"id":...,"sha1":"<40 hex>","uuid":...}]}.
+  local pack_count=0
   if [[ -n "$meta_json" ]]; then
     if command -v jq >/dev/null 2>&1; then
-      sha1="$(printf '%s' "$meta_json" | jq -r '.data.sha1 // empty' 2>/dev/null || true)"
+      while IFS=$'\t' read -r filename id sha1 uuid; do
+        [[ -n "$id" && -n "$filename" && -n "$uuid" && "$sha1" =~ ^[0-9a-fA-F]{40}$ ]] || continue
+        pack_count=$((pack_count + 1))
+        printf '\nPack: %s\n\n' "$filename"
+        printf '  resource-pack=https://%s/api/resource-pack/%s\n' "$domain" "$id"
+        printf '  resource-pack-sha1=%s\n' "$sha1"
+        printf '  resource-pack-id=%s\n' "$uuid"
+      done < <(printf '%s' "$meta_json" | jq -r '.data[]? | [.filename, .id, .sha1, .uuid] | @tsv' 2>/dev/null || true)
     else
-      sha1="$(printf '%s' "$meta_json" \
-        | grep -o '"sha1"[[:space:]]*:[[:space:]]*"[0-9a-fA-F]\{40\}"' \
-        | head -n1 \
-        | sed -E 's/.*"([0-9a-fA-F]{40})".*/\1/' || true)"
+      while IFS= read -r pack_json; do
+        [[ -n "$pack_json" ]] || continue
+        local filename id sha1 uuid
+        filename="$(printf '%s' "$pack_json" | sed -nE 's/.*"filename"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')"
+        id="$(printf '%s' "$pack_json" | sed -nE 's/.*"id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')"
+        sha1="$(printf '%s' "$pack_json" | sed -nE 's/.*"sha1"[[:space:]]*:[[:space:]]*"([0-9a-fA-F]{40})".*/\1/p')"
+        uuid="$(printf '%s' "$pack_json" | sed -nE 's/.*"uuid"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')"
+        [[ -n "$id" && -n "$filename" && -n "$uuid" && "$sha1" =~ ^[0-9a-fA-F]{40}$ ]] || continue
+        pack_count=$((pack_count + 1))
+        printf '\nPack: %s\n\n' "$filename"
+        printf '  resource-pack=https://%s/api/resource-pack/%s\n' "$domain" "$id"
+        printf '  resource-pack-sha1=%s\n' "$sha1"
+        printf '  resource-pack-id=%s\n' "$uuid"
+      done < <(printf '%s' "$meta_json" | grep -o '{[^{}]*}' || true)
     fi
-    # Defensive: only accept a value that actually looks like a sha1.
-    [[ "$sha1" =~ ^[0-9a-fA-F]{40}$ ]] || sha1=""
   fi
 
-  if [[ -z "$sha1" ]]; then
+  if (( pack_count == 0 )); then
     if [[ -z "$meta_json" ]]; then
       warn "Could not fetch $meta_url — the site may be unreachable from here, or HTTPS may not be up yet."
     else
-      warn "No active resource pack is published yet (the meta endpoint returned no pack)."
+      warn "No resource packs are published yet (the meta endpoint returned an empty list)."
     fi
     cat <<EOF
 
@@ -166,7 +180,7 @@ To publish a pack first:
   1. Log in at https://$domain/login and turn on Edit mode (header toggle).
   2. Go to https://$domain/resource — the resource-pack page shows an
      upload/manage panel in edit mode.
-  3. Upload your resource-pack .zip and activate it.
+  3. Upload one or more resource-pack .zip files.
   4. Re-run this walkthrough (it is offered again after every
      './setup.sh --mode deploy').
 
@@ -174,28 +188,26 @@ EOF
     return 0
   fi
 
-  info "Active pack found (sha1: $sha1)."
   cat <<EOF
 
 On the Minecraft server host:
 
   1. Stop the Minecraft server (or plan a restart at the end).
-  2. Open server.properties and set these two lines exactly:
-
-       resource-pack=https://$domain/api/resource-pack
-       resource-pack-sha1=$sha1
+  2. Choose one or more pack entries printed above. For each chosen pack,
+     add its three lines to server.properties exactly as shown. If you set
+     more than one pack, use the matching lines together for each entry.
 
   3. Optional: also set 'require-resource-pack=true' to force players to
      accept the pack (clients that decline are disconnected).
   4. Start the Minecraft server again.
   5. Join with a vanilla client — you should be prompted to download the pack.
 
-Note: the sha1 line must be updated every time a new pack is activated on the
-site (re-run this walkthrough to get the current value).
+Note: re-run this walkthrough after uploading another pack if you want its
+ready-to-paste download URL, SHA-1, and resource-pack-id.
 
 EOF
   _walkthrough_pause
-  info "If clients fail to download the pack, re-check the two lines above and confirm 'curl -I https://$domain/api/resource-pack' returns HTTP 200."
+  info "If clients fail to download a pack, re-check its three lines above and confirm 'curl -I https://$domain/api/resource-pack/<id>' returns HTTP 200."
   return 0
 }
 

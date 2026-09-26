@@ -189,7 +189,7 @@ export function userSnapshot(row: Pick<User, "id" | "email" | "name" | "role">) 
 }
 
 export function resourcePackSnapshot(row: ResourcePack) {
-  return { id: row.id, filename: row.filename, size: row.size, sha1: row.sha1, active: row.active, uploadedBy: row.uploadedBy };
+  return { id: row.id, filename: row.filename, size: row.size, sha1: row.sha1, uuid: row.uuid, uploadedBy: row.uploadedBy };
 }
 
 export function uploadedImageSnapshot(row: UploadedImage) {
@@ -644,7 +644,6 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
     if (entry.action === "create") {
       const existing = await tx.resourcePack.findUnique({ where: { id: entry.entityId } });
       if (!existing) return { ok: true }; // already gone
-      if (existing.active) return { ok: false, message: "Cannot undo -- this is the active resource pack. Activate a different pack first." };
       try {
         fs.unlinkSync(packPath(existing.sha1));
       } catch (error) {
@@ -663,19 +662,28 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
         return { ok: false, message: "Stored sha1 is no longer a valid reference." };
       }
       if (!fileExists) return { ok: false, message: "The pack's file no longer exists on disk -- it can't be restored via undo." };
-      return safeWrite(() => tx.resourcePack.create({ data: { ...snapshot, id: entry.entityId } }));
+      const legacyUuid = (snapshot as { uuid?: unknown }).uuid;
+      if (typeof legacyUuid !== "string") {
+        return { ok: false, message: "This historical resource-pack snapshot predates UUID support and can't be restored." };
+      }
+      return safeWrite(() =>
+        tx.resourcePack.create({
+          data: {
+            id: entry.entityId,
+            filename: snapshot.filename,
+            size: snapshot.size,
+            sha1: snapshot.sha1,
+            uuid: legacyUuid,
+            uploadedBy: snapshot.uploadedBy,
+          },
+        }),
+      );
     }
 
-    // update: currently only the `active` flag changes post-creation (see
-    // POST .../activate). Restoring it here is a single-row operation --
-    // it does NOT re-enforce "exactly one active pack" across other rows,
-    // matching this phase's documented staleness-is-allowed stance (decision
-    // 4) rather than trying to re-derive a multi-row invariant during undo.
-    const snapshot = parseSnapshot<ReturnType<typeof resourcePackSnapshot>>(entry.before);
-    if (!snapshot) return { ok: false, message: "No prior state recorded for this entry." };
-    const existing = await tx.resourcePack.findUnique({ where: { id: entry.entityId } });
-    if (!existing) return { ok: false, message: "This resource pack no longer exists." };
-    return safeWrite(() => tx.resourcePack.update({ where: { id: entry.entityId }, data: { active: snapshot.active } }));
+    // Historical activation entries were recorded as generic updates. They
+    // remain visible through the audit log's generic fallback, but there is
+    // no longer an active state that can be restored.
+    return { ok: false, message: "Resource-pack activation history is no longer reversible." };
   },
 
   // -------------------------------------------------------------------

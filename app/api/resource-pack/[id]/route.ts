@@ -1,10 +1,52 @@
 import { revalidatePath } from "next/cache";
 import fs from "node:fs";
+import { Readable } from "node:stream";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
-import { apiSuccess, conflict, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
+import { apiSuccess, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
 import { packPath } from "@/lib/uploads";
 import { recordAuditLog, resourcePackSnapshot } from "@/lib/audit-log";
+
+/**
+ * Not wrapped in the `lib/api-response.ts` envelope -- this is the one
+ * binary route in the project, streaming the zip straight to disk/socket.
+ */
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const pack = await prisma.resourcePack.findUnique({ where: { id } });
+  if (!pack) return notFound("Resource pack");
+
+  let filePath: string;
+  try {
+    filePath = packPath(pack.sha1);
+  } catch (error) {
+    console.error(`Data-integrity drift: resource pack ${pack.id} has an invalid sha1 "${pack.sha1}".`, error);
+    return notFound("Resource pack");
+  }
+
+  if (!fs.existsSync(filePath)) {
+    console.error(`Data-integrity drift: resource pack ${pack.id} (sha1 ${pack.sha1}) has no file on disk at ${filePath}.`);
+    return notFound("Resource pack");
+  }
+
+  const etag = `"${pack.sha1}"`;
+  if (req.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304 });
+  }
+
+  const body = Readable.toWeb(fs.createReadStream(filePath)) as ReadableStream<Uint8Array>;
+
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Length": String(pack.size),
+      "Content-Disposition": `attachment; filename="${escapeHeaderValue(pack.filename)}"`,
+      ETag: etag,
+      "Cache-Control": "public, no-cache",
+    },
+  });
+}
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return unauthorized();
@@ -16,7 +58,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   try {
     const existing = await prisma.resourcePack.findUnique({ where: { id } });
     if (!existing) return notFound("Resource pack");
-    if (existing.active) return conflict("Cannot delete the active pack.");
 
     // Unlink before deleting the row: if the unlink fails for a reason
     // other than "already gone" (e.g. a permissions/IO error), the row
@@ -45,4 +86,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   } catch (error) {
     return internalError(error);
   }
+}
+
+function escapeHeaderValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

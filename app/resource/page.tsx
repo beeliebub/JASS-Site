@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const settings = await getSiteSettings();
   return {
     title: page ? formatPageTitle(page.title, settings.pageTitleSuffix ?? siteConfig.name) : "Resource",
-    description: "Download the official JASS resource pack and get the server.properties snippet to auto-apply it.",
+    description: "Download JASS resource packs and get server.properties snippets to auto-apply them.",
   };
 }
 
@@ -22,16 +22,21 @@ export async function generateMetadata(): Promise<Metadata> {
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://justasimpleserver.net";
 
 export default async function ResourcePackPage() {
-  const pack = await prisma.resourcePack.findFirst({ where: { active: true } });
-  const downloadUrl = `${siteUrl}/api/resource-pack`;
-  const packSummary = pack
-    ? { filename: pack.filename, sha1: pack.sha1, uploadedAt: pack.uploadedAt.toISOString() }
-    : null;
+  const packs = await prisma.resourcePack.findMany({ orderBy: { uploadedAt: "desc" } });
+  const packSummaries = packs.map((pack) => ({
+    id: pack.id,
+    filename: pack.filename,
+    size: pack.size,
+    sha1: pack.sha1,
+    uuid: pack.uuid,
+    uploadedAt: pack.uploadedAt.toISOString(),
+    downloadUrl: `${siteUrl}/api/resource-pack/${pack.id}`,
+  }));
 
   return (
     <SiteChrome theme={null} customThemeTokens={null}>
-      <ResourcePackView pack={packSummary} downloadUrl={downloadUrl} />
-      <ResourcePackAdmin />
+      <ResourcePackView packs={packSummaries} />
+      <ResourcePackAdmin siteUrl={siteUrl} />
     </SiteChrome>
   );
 }

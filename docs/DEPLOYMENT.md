@@ -77,6 +77,34 @@ edge network or team-based preview deployments — it doesn't today.
   if you want Caddy itself to reject oversized requests before they reach
   the app.
 
+### Resource-pack hosting
+
+The `/resource` page supports multiple independently hosted resource packs. Each
+upload is stored under `UPLOADS_DIR/resource-packs/<sha1>.zip` and receives its
+own public download URL:
+
+```text
+https://<site>/api/resource-pack/<id>
+```
+
+The page and `/api/resource-pack/meta` expose every pack newest-first. For each
+one, copy the three matching lines into `server.properties`:
+
+```text
+resource-pack=https://<site>/api/resource-pack/<id>
+resource-pack-sha1=<sha1>
+resource-pack-id=<uuid>
+```
+
+Uploads with the same SHA-1 are rejected with `409 Conflict`; they do not create
+a second row or replace the existing file. Packs are not pruned automatically,
+and an admin can delete any individual pack from `/resource`. Deleting a pack
+removes its row and stored file, so its ID URL then returns `404`.
+
+The old parameterless `/api/resource-pack` download URL is no longer served.
+Update any existing Minecraft `server.properties` entry to a specific pack ID
+before deploying this change.
+
 None of these have been built/run/deployed — verify the better-sqlite3
 prebuild works for the actual host's OS/arch before relying on the Dockerfile
 as-is (see comments in the file), and swap in the real domain once one is

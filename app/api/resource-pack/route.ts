@@ -6,8 +6,8 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
-import { apiError, apiSuccess, badRequest, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
-import { packPath, prunePacks, tempPackPath } from "@/lib/uploads";
+import { apiError, apiSuccess, badRequest, conflict, editingDisabled, internalError, unauthorized } from "@/lib/api-response";
+import { packPath, tempPackPath } from "@/lib/uploads";
 import { recordAuditLog, resourcePackSnapshot } from "@/lib/audit-log";
 
 const MAX_PACK_BYTES = 268435456; // 256 MiB
@@ -15,48 +15,6 @@ const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
 class PayloadTooLargeError extends Error {}
 class InvalidZipError extends Error {}
-
-/**
- * Not wrapped in the `lib/api-response.ts` envelope -- this is the one
- * binary route in the project, streaming the zip straight to disk/socket.
- */
-export async function GET(req: Request) {
-  const pack = await prisma.resourcePack.findFirst({ where: { active: true } });
-  if (!pack) return notFound("Resource pack");
-
-  let filePath: string;
-  try {
-    filePath = packPath(pack.sha1);
-  } catch (error) {
-    console.error(`Data-integrity drift: active resource pack ${pack.id} has an invalid sha1 "${pack.sha1}".`, error);
-    return notFound("Resource pack");
-  }
-
-  if (!fs.existsSync(filePath)) {
-    console.error(
-      `Data-integrity drift: active resource pack ${pack.id} (sha1 ${pack.sha1}) has no file on disk at ${filePath}.`,
-    );
-    return notFound("Resource pack");
-  }
-
-  const etag = `"${pack.sha1}"`;
-  if (req.headers.get("if-none-match") === etag) {
-    return new Response(null, { status: 304 });
-  }
-
-  const body = Readable.toWeb(fs.createReadStream(filePath)) as ReadableStream<Uint8Array>;
-
-  return new Response(body, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Length": String(pack.size),
-      "Content-Disposition": `attachment; filename="${escapeHeaderValue(pack.filename)}"`,
-      ETag: etag,
-      "Cache-Control": "public, no-cache",
-    },
-  });
-}
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
@@ -87,6 +45,7 @@ export async function POST(req: Request) {
   writeStream.on("error", () => {});
   let renamed = false;
   let finalPath: string | null = null;
+  let uploadedSha1: string | null = null;
   let committed = false;
 
   try {
@@ -94,33 +53,35 @@ export async function POST(req: Request) {
     const bytesWritten = await streamToFile(req.body, writeStream, hash);
 
     const sha1 = hash.digest("hex");
-    finalPath = packPath(sha1);
-    await fs.promises.rename(tempPath, finalPath);
-    renamed = true;
+    uploadedSha1 = sha1;
+    const existing = await prisma.resourcePack.findUnique({ where: { sha1 } });
+    if (existing) {
+      return conflict(`A resource pack named "${existing.filename}" with this SHA-1 already exists.`);
+    }
+
+    const targetPath = packPath(sha1);
+    finalPath = targetPath;
 
     const sessionUser = await getSessionUser();
 
     const pack = await prisma.$transaction(async (tx) => {
-      const existingBefore = await tx.resourcePack.findUnique({ where: { sha1 } });
-      await tx.resourcePack.updateMany({ where: { active: true }, data: { active: false } });
-      const upserted = await tx.resourcePack.upsert({
-        where: { sha1 },
-        create: { filename, size: bytesWritten, sha1, active: true, uploadedBy: sessionUser?.email },
-        update: { active: true },
+      const created = await tx.resourcePack.create({
+        data: { filename, size: bytesWritten, sha1, uuid: crypto.randomUUID(), uploadedBy: sessionUser?.email },
       });
+      await fs.promises.rename(tempPath, targetPath);
+      renamed = true;
       await recordAuditLog(tx, {
         entityType: "ResourcePack",
-        entityId: upserted.id,
-        action: existingBefore ? "update" : "create",
-        before: existingBefore ? resourcePackSnapshot(existingBefore) : null,
-        after: resourcePackSnapshot(upserted),
+        entityId: created.id,
+        action: "create",
+        before: null,
+        after: resourcePackSnapshot(created),
         actorEmail: sessionUser?.email,
       });
-      return upserted;
+      return created;
     });
     committed = true;
 
-    await prunePacks(3);
     revalidatePath("/resource");
     return apiSuccess(pack, { status: 201 });
   } catch (error) {
@@ -129,6 +90,12 @@ export async function POST(req: Request) {
     }
     if (error instanceof InvalidZipError) {
       return apiError(400, "invalid_zip", "File is not a valid zip archive.");
+    }
+    if ((error as { code?: unknown }).code === "P2002") {
+      const existing = uploadedSha1
+        ? await prisma.resourcePack.findUnique({ where: { sha1: uploadedSha1 } }).catch(() => null)
+        : null;
+      return conflict(existing ? `A resource pack named "${existing.filename}" with this SHA-1 already exists.` : "A resource pack with these bytes already exists.");
     }
     return internalError(error);
   } finally {
@@ -142,8 +109,7 @@ export async function POST(req: Request) {
     } else if (finalPath && !committed) {
       // Renamed to its content-addressed path but the DB write never
       // landed (e.g. transaction failure) -- unlink so it doesn't become a
-      // permanent orphan on disk that prunePacks() can never see (it only
-      // ever walks DB rows).
+      // permanent orphan on disk with no metadata row pointing at it.
       await fs.promises.unlink(finalPath).catch((error) => {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           console.error("Failed to clean up orphaned resource-pack file after a failed DB write:", error);
@@ -245,8 +211,4 @@ function sanitizeFilename(raw: string | null): string {
   const capped = stripped.slice(0, 200);
   if (!capped || !/\.zip$/i.test(capped)) return fallback;
   return capped;
-}
-
-function escapeHeaderValue(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

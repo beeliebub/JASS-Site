@@ -328,7 +328,7 @@ async function seedPagesAndNav() {
   const featuresPage = await prisma.page.create({
     data: {
       slug: "features",
-      title: "Features",
+      title: "Wiki",
       published: true,
       protected: true,
       blocks: {
@@ -374,7 +374,7 @@ async function seedPagesAndNav() {
   const navEntries = [
     { label: "Home", pageId: homePage.id, order: 0 },
     { label: "Rules", pageId: rulesPage.id, order: 1 },
-    { label: "Features", pageId: featuresPage.id, order: 2 },
+    { label: "Wiki", pageId: featuresPage.id, order: 2 },
     { label: "News", pageId: newsPage.id, order: 3 },
   ];
   for (const entry of navEntries) {

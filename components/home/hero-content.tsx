@@ -34,7 +34,7 @@ export type HeroButton = { label: string; href: string; tone: Tone };
  * comment in lib/validation/pages.ts. Keeps existing pages rendering
  * identically until an admin actually edits the buttons for that instance. */
 const DEFAULT_HERO_BUTTONS: HeroButton[] = [
-  { label: "Explore Features", href: "/features", tone: "primary" },
+  { label: "Explore Wiki", href: "/features", tone: "primary" },
   { label: "Read the Rules", href: "/rules", tone: "neutral" },
 ];
 

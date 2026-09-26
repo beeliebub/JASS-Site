@@ -6,6 +6,7 @@ import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { DeleteButton } from "@/components/admin/list-controls";
 import { Container } from "@/components/container";
+import { CopyButton } from "@/components/resource/copy-button";
 import { formatBytes } from "@/lib/format";
 
 // Mirrors the server-side cap in lib/uploads.ts / the POST route
@@ -17,7 +18,7 @@ type HistoryPack = {
   filename: string;
   size: number;
   sha1: string;
-  active: boolean;
+  uuid: string;
   uploadedAt: string;
   uploadedBy: string | null;
 };
@@ -35,7 +36,7 @@ function formatDate(iso: string) {
  * only ever renders (and only ever fetches admin-only history) once
  * `useEditMode().editMode` is true, matching the pattern of other admin
  * components in this repo (e.g. components/admin/pages-admin.tsx). */
-export function ResourcePackAdmin() {
+export function ResourcePackAdmin({ siteUrl }: { siteUrl: string }) {
   const { editMode } = useEditMode();
   const router = useRouter();
   const { showError, showSuccess } = useToast();
@@ -44,7 +45,7 @@ export function ResourcePackAdmin() {
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   // `history === null` doubles as the "still loading" flag -- every
-  // subsequent reload (after upload/activate/delete) leaves it non-null, so
+  // subsequent reload (after upload/delete) leaves it non-null, so
   // the "Loading…" row only ever appears on first mount.
   //
   // Used by the mutation handlers below (plain event handlers, not effects,
@@ -119,21 +120,6 @@ export function ResourcePackAdmin() {
     }
   }
 
-  async function activatePack(pack: HistoryPack) {
-    setPendingId(pack.id);
-    try {
-      const res = await fetch(`/api/resource-pack/${pack.id}/activate`, { method: "POST" });
-      if (!res.ok) throw new Error(await parseError(res, "Failed to activate resource pack."));
-      showSuccess(`"${pack.filename}" activated.`);
-      router.refresh();
-      await loadHistory();
-    } catch (error) {
-      showError(error instanceof Error ? error.message : "Failed to activate resource pack.");
-    } finally {
-      setPendingId(null);
-    }
-  }
-
   async function deletePack(pack: HistoryPack) {
     if (typeof window !== "undefined" && !window.confirm(`Delete "${pack.filename}"? This can't be undone.`)) return;
     setPendingId(pack.id);
@@ -179,27 +165,29 @@ export function ResourcePackAdmin() {
                 <th className="px-4 py-2.5 font-medium">Filename</th>
                 <th className="px-4 py-2.5 font-medium">Size</th>
                 <th className="px-4 py-2.5 font-medium">Uploaded</th>
+                <th className="px-4 py-2.5 font-medium">UUID</th>
                 <th className="px-4 py-2.5 font-medium">SHA-1</th>
+                <th className="px-4 py-2.5 font-medium">server.properties</th>
                 <th className="px-4 py-2.5 font-medium">&nbsp;</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {!history && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={7} className="px-4 py-6 text-center text-muted">
                     Loading…
                   </td>
                 </tr>
               )}
               {history && history.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-muted">
+                  <td colSpan={7} className="px-4 py-6 text-center text-muted">
                     No uploads yet.
                   </td>
                 </tr>
               )}
               {history?.map((pack) => (
-                <tr key={pack.id} className="bg-surface">
+                <tr key={pack.id} className="bg-surface align-top">
                   <td className="max-w-48 truncate px-4 py-3 font-medium text-foreground">{pack.filename}</td>
                   <td className="px-4 py-3 text-muted">{formatBytes(pack.size)}</td>
                   <td className="px-4 py-3">
@@ -207,27 +195,30 @@ export function ResourcePackAdmin() {
                       {formatDate(pack.uploadedAt)}
                     </time>
                   </td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted" title={pack.uuid}>
+                    <span className="block max-w-32 truncate">{pack.uuid}</span>
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-muted">{pack.sha1.slice(0, 10)}…</td>
                   <td className="px-4 py-3">
+                    {(() => {
+                      const downloadUrl = `${siteUrl}/api/resource-pack/${pack.id}`;
+                      const snippet = `resource-pack=${downloadUrl}\nresource-pack-sha1=${pack.sha1}\nresource-pack-id=${pack.uuid}`;
+                      return (
+                        <div className="flex min-w-80 items-start gap-2">
+                          <pre className="min-w-0 flex-1 overflow-x-auto rounded-md bg-surface-2 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-muted">
+                            <code>{snippet}</code>
+                          </pre>
+                          <CopyButton value={snippet} label={`Copy server.properties snippet for ${pack.filename}`} />
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
-                      {pack.active ? (
-                        <span className="rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                          Active
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => activatePack(pack)}
-                          disabled={pendingId === pack.id}
-                          className="rounded-full border border-border-strong px-2.5 py-1 text-xs font-medium text-muted transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Activate
-                        </button>
-                      )}
                       <DeleteButton
                         label={`Delete ${pack.filename}`}
                         onClick={() => deletePack(pack)}
-                        disabled={pack.active || pendingId === pack.id}
+                        disabled={pendingId === pack.id}
                       />
                     </div>
                   </td>

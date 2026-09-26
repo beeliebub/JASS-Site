@@ -66,7 +66,7 @@ Request
 | `lib/validation/**` | every request schema, `parseBlockData`, `buildDataSchemaFromDefinition` | inline schemas in a route |
 | `lib/audit-log.ts` | `*Snapshot` helpers, `recordAuditLog`, every undo handler | spread a raw row into a snapshot |
 | `lib/content.ts`, `lib/site-settings.ts` | server-only reads with safe fallbacks | query Prisma from a component |
-| `lib/uploads.ts` | content-addressed paths, pruning, usage detection | build an upload path by hand |
+| `lib/uploads.ts` | content-addressed paths and usage detection | build an upload path by hand |
 | `lib/routes.ts` | pure URL mapping, **no Prisma import** | import `lib/content.ts` in a client component |
 | `lib/themes.ts`, `lib/color.ts`, `lib/custom-themes.ts` | theme tokens and color math | hardcode a hex in a component |
 
@@ -179,14 +179,19 @@ per-component theme detection.
 ## Uploads
 
 Content-addressed: bytes live at `<UPLOADS_DIR>/{images,resource-packs}/<sha1>.<ext>`; the DB row is
-metadata only. Rules that are load-bearing:
+metadata only. Resource-pack rows are independently public by database `id`, while their Minecraft
+`resource-pack-id` UUID is stored in the row and has no filesystem footprint. Rules that are load-bearing:
 
 - `packPath()` / `imagePath()` **re-validate the sha1 against `/^[a-f0-9]{40}$/` and throw otherwise**,
   so no call site can ever turn unvalidated input into a filesystem path.
 - The extension comes from validated magic bytes, never from the client's filename.
-- Re-uploading identical bytes resolves to the existing row (idempotent by construction).
-- Deletion unlinks the **file before** the row, so an unlink failure never orphans a file nothing
-  points at; Prisma `P2025` is tolerated so a concurrent-prune race does not 500 a good upload.
+- Re-uploading identical resource-pack bytes is rejected with a conflict naming the existing row;
+  it must not reactivate, replace, or silently reuse that row.
+- Resource packs are retained until an admin explicitly deletes the row. There is no automatic
+  pruning, because a previously copied server.properties snippet may still reference an older pack.
+- Resource-pack deletion unlinks the **file before** the row, so a filesystem failure cannot leave a
+  database row pointing at an absent file. The public item route looks up by row `id` and then uses
+  the stored SHA-1 to locate the bytes.
 - "Is this image used?" is derived by substring-matching the sha1 across every block's raw `data`,
   plus explicit checks for the two `SiteSettings` foreign keys — because those reference an image by
   id, which the substring scan cannot see.

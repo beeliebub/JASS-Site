@@ -123,7 +123,7 @@ export function HeroOverrideControls({
         />
 
         <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">
-          CTA buttons for this instance only — leave empty to use the default &quot;Explore Features&quot; / &quot;Read
+          CTA buttons for this instance only — leave empty to use the default &quot;Explore Wiki&quot; / &quot;Read
           the Rules&quot; buttons
         </p>
         <div className="flex flex-col gap-2">

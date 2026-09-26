@@ -241,24 +241,23 @@ model Tag {
 
 // Resource pack hosting. Content-addressed on disk at
 // <UPLOADS_DIR>/resource-packs/<sha1>.zip (see lib/uploads.ts) -- this row
-// is metadata only, never the file bytes. Exactly one row is `active` at a
-// time; re-uploading a known sha1 re-activates its existing row instead of
-// duplicating (see POST /api/resource-pack).
+// is metadata only, never the file bytes. Every row is independently
+// downloadable by id; `uuid` is the published Minecraft resource-pack-id.
 model ResourcePack {
   id         String   @id @default(cuid())
   filename   String // sanitized original name, display only -- never used as a storage path
   size       Int // bytes; 256 MiB max fits Int comfortably
   sha1       String   @unique // lowercase hex, 40 chars
-  active     Boolean  @default(false)
+  uuid       String   @unique // UUID published as server.properties resource-pack-id
   uploadedAt DateTime @default(now())
   uploadedBy String? // uploader email, display only
 }
 
 // Direct image uploads for the Image block. Content-addressed on
 // disk at <UPLOADS_DIR>/images/<sha1>.<ext> (see lib/uploads.ts) -- this row
-// is metadata only. Unlike ResourcePack there's no single "active" row: many
-// uploaded images are referenced at once, one per Image block. Re-uploading
-// identical bytes resolves to the existing row (upsert by sha1).
+// is metadata only. Many uploaded images can be referenced at once, one per
+// Image block. Re-uploading identical bytes resolves to the existing row
+// (upsert by sha1), just as resource-pack bytes are deduplicated by sha1.
 model UploadedImage {
   id                 String         @id @default(cuid())
   sha1               String         @unique // lowercase hex, 40 chars
