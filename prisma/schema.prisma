@@ -26,7 +26,7 @@ model User {
   createdAt    DateTime @default(now())
 }
 
-// Block-based page builder. Home/Rules/Features/News are migrated
+// Block-based page builder. Home/Rules/Wiki/News are migrated
 // into this system as `protected` rows (blocks delete + slug change); admins
 // can additionally create fully custom pages rendered via app/[...slug].
 // A non-null redirectUrl turns a page into a redirect page; protected pages
@@ -248,7 +248,8 @@ model ResourcePack {
   filename   String // sanitized original name, display only -- never used as a storage path
   size       Int // bytes; 256 MiB max fits Int comfortably
   sha1       String   @unique // lowercase hex, 40 chars
-  uuid       String   @unique // UUID published as server.properties resource-pack-id
+  uuid       String // UUID published as server.properties resource-pack-id; intentionally nonunique so replacements can reuse it
+  active     Boolean  @default(true) // Admin-only bookkeeping label; does not affect what the public /resource page renders
   uploadedAt DateTime @default(now())
   uploadedBy String? // uploader email, display only
 }

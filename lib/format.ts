@@ -11,3 +11,14 @@ export function formatBytes(bytes: number) {
   }
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
+
+/**
+ * Java's Properties parser treats a literal ':' as a key/value separator
+ * even mid-value, so every colon in the download URL (the "https://" scheme
+ * separator, and a port if the site URL has one) must be escaped or a
+ * server.properties parser mangles the resource-pack line.
+ */
+export function buildResourcePackSnippet(pack: { downloadUrl: string; sha1: string; uuid: string }): string {
+  const escapedUrl = pack.downloadUrl.replace(/:/g, "\\:");
+  return `resource-pack=${escapedUrl}\nresource-pack-sha1=${pack.sha1}\nresource-pack-id=${pack.uuid}`;
+}

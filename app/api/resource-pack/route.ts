@@ -15,6 +15,7 @@ const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
 class PayloadTooLargeError extends Error {}
 class InvalidZipError extends Error {}
+class ShareSourceGoneError extends Error {}
 
 export async function POST(req: Request) {
   if (!(await requireAdmin())) return unauthorized();
@@ -35,6 +36,17 @@ export async function POST(req: Request) {
   if (!req.body) return badRequest("Request body is required.");
 
   const filename = sanitizeFilename(req.headers.get("x-filename"));
+  const shareFromId = req.headers.get("x-share-uuid-from")?.trim() || null;
+  if (shareFromId) {
+    let sourceExists: { id: string } | null;
+    try {
+      sourceExists = await prisma.resourcePack.findUnique({ where: { id: shareFromId }, select: { id: true } });
+    } catch (error) {
+      return internalError(error);
+    }
+    if (!sourceExists) return badRequest("The selected file to share a UUID from no longer exists.");
+  }
+
   const tempPath = tempPackPath();
   const writeStream = fs.createWriteStream(tempPath);
   // A Writable's 'error' event with zero listeners is an uncaught exception
@@ -65,8 +77,16 @@ export async function POST(req: Request) {
     const sessionUser = await getSessionUser();
 
     const pack = await prisma.$transaction(async (tx) => {
+      let uuid: string;
+      if (shareFromId) {
+        const sourcePack = await tx.resourcePack.findUnique({ where: { id: shareFromId } });
+        if (!sourcePack) throw new ShareSourceGoneError();
+        uuid = sourcePack.uuid;
+      } else {
+        uuid = crypto.randomUUID();
+      }
       const created = await tx.resourcePack.create({
-        data: { filename, size: bytesWritten, sha1, uuid: crypto.randomUUID(), uploadedBy: sessionUser?.email },
+        data: { filename, size: bytesWritten, sha1, uuid, uploadedBy: sessionUser?.email },
       });
       await fs.promises.rename(tempPath, targetPath);
       renamed = true;
@@ -90,6 +110,9 @@ export async function POST(req: Request) {
     }
     if (error instanceof InvalidZipError) {
       return apiError(400, "invalid_zip", "File is not a valid zip archive.");
+    }
+    if (error instanceof ShareSourceGoneError) {
+      return conflict("The selected file to share a UUID from was deleted during upload. Re-upload without sharing, or pick a different file.");
     }
     if ((error as { code?: unknown }).code === "P2002") {
       const existing = uploadedSha1

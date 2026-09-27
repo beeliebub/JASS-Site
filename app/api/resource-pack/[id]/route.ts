@@ -3,9 +3,10 @@ import fs from "node:fs";
 import { Readable } from "node:stream";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser, requireAdmin, requireEditingEnabled } from "@/lib/auth-guard";
-import { apiSuccess, editingDisabled, internalError, notFound, unauthorized } from "@/lib/api-response";
+import { apiSuccess, badRequest, editingDisabled, internalError, notFound, unauthorized, validationError } from "@/lib/api-response";
 import { packPath } from "@/lib/uploads";
 import { recordAuditLog, resourcePackSnapshot } from "@/lib/audit-log";
+import { resourcePackUpdateSchema } from "@/lib/validation/resource-pack";
 
 /**
  * Not wrapped in the `lib/api-response.ts` envelope -- this is the one
@@ -46,6 +47,50 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       "Cache-Control": "public, no-cache",
     },
   });
+}
+
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await requireAdmin())) return unauthorized();
+  if (!(await requireEditingEnabled())) return editingDisabled();
+
+  const { id } = await params;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return badRequest("Request body must be valid JSON.");
+  }
+
+  const parsed = resourcePackUpdateSchema.safeParse(body);
+  if (!parsed.success) return validationError(parsed.error);
+
+  const user = await getSessionUser();
+
+  try {
+    const existing = await prisma.resourcePack.findUnique({ where: { id } });
+    if (!existing) return notFound("Resource pack");
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const updated = await tx.resourcePack.update({ where: { id }, data: { active: parsed.data.active } });
+      await recordAuditLog(tx, {
+        entityType: "ResourcePack",
+        entityId: id,
+        action: "update",
+        before: resourcePackSnapshot(existing),
+        after: resourcePackSnapshot(updated),
+        actorEmail: user?.email,
+      });
+      return updated;
+    });
+
+    // `active` is an admin-only label (see prisma/schema.prisma) and never
+    // changes what the public /resource page renders, so there is nothing
+    // to revalidate here.
+    return apiSuccess(updated);
+  } catch (error) {
+    return internalError(error);
+  }
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {

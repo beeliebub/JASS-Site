@@ -189,7 +189,15 @@ export function userSnapshot(row: Pick<User, "id" | "email" | "name" | "role">) 
 }
 
 export function resourcePackSnapshot(row: ResourcePack) {
-  return { id: row.id, filename: row.filename, size: row.size, sha1: row.sha1, uuid: row.uuid, uploadedBy: row.uploadedBy };
+  return {
+    id: row.id,
+    filename: row.filename,
+    size: row.size,
+    sha1: row.sha1,
+    uuid: row.uuid,
+    active: row.active,
+    uploadedBy: row.uploadedBy,
+  };
 }
 
 export function uploadedImageSnapshot(row: UploadedImage) {
@@ -652,38 +660,46 @@ const undoHandlers: Record<AuditEntityType, UndoHandler> = {
       return safeWrite(() => tx.resourcePack.delete({ where: { id: entry.entityId } }));
     }
 
-    if (entry.action === "delete") {
-      const snapshot = parseSnapshot<ReturnType<typeof resourcePackSnapshot>>(entry.before);
-      if (!snapshot) return { ok: false, message: "No prior state recorded for this entry." };
-      let fileExists: boolean;
-      try {
-        fileExists = fs.existsSync(packPath(snapshot.sha1));
-      } catch {
-        return { ok: false, message: "Stored sha1 is no longer a valid reference." };
+    const snapshot = parseSnapshot<ReturnType<typeof resourcePackSnapshot>>(entry.before);
+    if (!snapshot) return { ok: false, message: "No prior state recorded for this entry." };
+
+    if (entry.action === "update") {
+      const legacyActive = (snapshot as { active?: unknown }).active;
+      if (typeof legacyActive !== "boolean") {
+        return { ok: false, message: "This historical resource-pack update predates the active-status feature and can't be restored." };
       }
-      if (!fileExists) return { ok: false, message: "The pack's file no longer exists on disk -- it can't be restored via undo." };
-      const legacyUuid = (snapshot as { uuid?: unknown }).uuid;
-      if (typeof legacyUuid !== "string") {
-        return { ok: false, message: "This historical resource-pack snapshot predates UUID support and can't be restored." };
-      }
-      return safeWrite(() =>
-        tx.resourcePack.create({
-          data: {
-            id: entry.entityId,
-            filename: snapshot.filename,
-            size: snapshot.size,
-            sha1: snapshot.sha1,
-            uuid: legacyUuid,
-            uploadedBy: snapshot.uploadedBy,
-          },
-        }),
-      );
+      const existing = await tx.resourcePack.findUnique({ where: { id: entry.entityId } });
+      if (!existing) return { ok: false, message: "This resource pack no longer exists." };
+      return safeWrite(() => tx.resourcePack.update({ where: { id: entry.entityId }, data: { active: legacyActive } }));
     }
 
-    // Historical activation entries were recorded as generic updates. They
-    // remain visible through the audit log's generic fallback, but there is
-    // no longer an active state that can be restored.
-    return { ok: false, message: "Resource-pack activation history is no longer reversible." };
+    // delete -> recreate
+    let fileExists: boolean;
+    try {
+      fileExists = fs.existsSync(packPath(snapshot.sha1));
+    } catch {
+      return { ok: false, message: "Stored sha1 is no longer a valid reference." };
+    }
+    if (!fileExists) return { ok: false, message: "The pack's file no longer exists on disk -- it can't be restored via undo." };
+    const legacyUuid = (snapshot as { uuid?: unknown }).uuid;
+    if (typeof legacyUuid !== "string") {
+      return { ok: false, message: "This historical resource-pack snapshot predates UUID support and can't be restored." };
+    }
+    const legacyActive = (snapshot as { active?: unknown }).active;
+    const active = typeof legacyActive === "boolean" ? legacyActive : true;
+    return safeWrite(() =>
+      tx.resourcePack.create({
+        data: {
+          id: entry.entityId,
+          filename: snapshot.filename,
+          size: snapshot.size,
+          sha1: snapshot.sha1,
+          uuid: legacyUuid,
+          active,
+          uploadedBy: snapshot.uploadedBy,
+        },
+      }),
+    );
   },
 
   // -------------------------------------------------------------------

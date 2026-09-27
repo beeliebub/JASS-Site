@@ -25,7 +25,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (!existing) return notFound("Feature");
 
     const feature = await prisma.feature.update({ where: { id }, data: parsed.data });
-    revalidatePath("/features");
+    revalidatePath("/wiki");
     return apiSuccess(feature);
   } catch (error) {
     return internalError(error);
@@ -43,7 +43,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (!existing) return notFound("Feature");
 
     await prisma.feature.delete({ where: { id } });
-    revalidatePath("/features");
+    revalidatePath("/wiki");
     return apiSuccess({ id });
   } catch (error) {
     return internalError(error);

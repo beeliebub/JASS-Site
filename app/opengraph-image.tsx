@@ -5,7 +5,7 @@ import { getEmbedImageAsset } from "@/lib/site-settings";
 
 // Site-wide branded OG card. Applies to every route that doesn't define its
 // own opengraph-image -- none currently do, so this is the shared card for
-// Home, Rules, Features, and News alike.
+// Home, Rules, Wiki, and News alike.
 //
 // File-based metadata conventions like this one take
 // priority over the `openGraph.images`/`twitter.images` fields set via

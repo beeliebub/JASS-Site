@@ -1,9 +1,3 @@
-# Active work queue
-
-No active work items.
-
----
-
 # Reusable execution skeleton
 
 Everything below this line is the reusable skeleton for the *next* batch of work once the items above

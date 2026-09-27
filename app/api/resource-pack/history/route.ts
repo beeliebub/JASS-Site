@@ -6,7 +6,7 @@ export async function GET() {
   if (!(await requireAdmin())) return unauthorized();
 
   const packs = await prisma.resourcePack.findMany({
-    select: { id: true, filename: true, size: true, sha1: true, uuid: true, uploadedAt: true, uploadedBy: true },
+    select: { id: true, filename: true, size: true, sha1: true, uuid: true, active: true, uploadedAt: true, uploadedBy: true },
     orderBy: { uploadedAt: "desc" },
   });
   return apiSuccess(packs);

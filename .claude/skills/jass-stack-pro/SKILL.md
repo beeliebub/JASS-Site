@@ -187,6 +187,9 @@ metadata only. Resource-pack rows are independently public by database `id`, whi
 - The extension comes from validated magic bytes, never from the client's filename.
 - Re-uploading identical resource-pack bytes is rejected with a conflict naming the existing row;
   it must not reactivate, replace, or silently reuse that row.
+- Resource-pack UUIDs are intentionally nonunique: an admin may reuse a UUID for a replacement row.
+  The `active` field is an admin-only bookkeeping label with no effect on public visibility; the
+  previous active field was dropped because it was unused, so never treat it as a public gate.
 - Resource packs are retained until an admin explicitly deletes the row. There is no automatic
   pruning, because a previously copied server.properties snippet may still reference an older pack.
 - Resource-pack deletion unlinks the **file before** the row, so a filesystem failure cannot leave a

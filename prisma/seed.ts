@@ -221,8 +221,8 @@ const HOME_LINKS = [
     description: "What keeps the server fair and the community worth sticking around for.",
   },
   {
-    href: "/features",
-    title: "Features",
+    href: "/wiki",
+    title: "Wiki",
     description: "Custom enchants, land claims, and minigames layered on top of vanilla survival.",
   },
   {
@@ -271,7 +271,7 @@ const FEATURES_INTRO = `${siteConfig.name} runs on Tweaks, our custom plugin —
 const NEWS_INTRO = `What's new on ${siteConfig.name} — plugin updates, world changes, maintenance windows, and events, newest first.`;
 
 /**
- * Creates the 4 protected Page rows (home/rules/features/news) with their
+ * Creates the 4 protected Page rows (home/rules/wiki/news) with their
  * Blocks, plus default top-level NavItems matching the current
  * siteConfig.nav. Guarded to skip entirely if any Page row already exists,
  * so re-running this never clobbers an admin's custom pages, reordering, or
@@ -325,9 +325,9 @@ async function seedPagesAndNav() {
     },
   });
 
-  const featuresPage = await prisma.page.create({
+  const wikiPage = await prisma.page.create({
     data: {
-      slug: "features",
+      slug: "wiki",
       title: "Wiki",
       published: true,
       protected: true,
@@ -374,7 +374,7 @@ async function seedPagesAndNav() {
   const navEntries = [
     { label: "Home", pageId: homePage.id, order: 0 },
     { label: "Rules", pageId: rulesPage.id, order: 1 },
-    { label: "Wiki", pageId: featuresPage.id, order: 2 },
+    { label: "Wiki", pageId: wikiPage.id, order: 2 },
     { label: "News", pageId: newsPage.id, order: 3 },
   ];
   for (const entry of navEntries) {
@@ -387,7 +387,7 @@ async function seedPagesAndNav() {
 /**
  * RuleSection/Feature/Post each require an owning
  * `blockId` now, so the content-seeding functions below need the real ids of
- * the ruleList/featureGrid/postList blocks on the rules/features/news pages
+ * the ruleList/featureGrid/postList blocks on the rules/wiki/news pages
  * -- looked up fresh by (page slug, block type) rather than threaded through
  * return values, so this works identically whether seedPagesAndNav() just
  * created those pages or they already existed (it's guarded to skip on a
@@ -397,12 +397,12 @@ async function getCanonicalBlockIds() {
   const [homeRuleListBlock, ruleListBlock, featureGridBlock, postListBlock] = await Promise.all([
     prisma.block.findFirst({ where: { type: "ruleList", page: { slug: "home" } } }),
     prisma.block.findFirst({ where: { type: "ruleList", page: { slug: "rules" } } }),
-    prisma.block.findFirst({ where: { type: "featureGrid", page: { slug: "features" } } }),
+    prisma.block.findFirst({ where: { type: "featureGrid", page: { slug: "wiki" } } }),
     prisma.block.findFirst({ where: { type: "postList", page: { slug: "news" } } }),
   ]);
   if (!homeRuleListBlock || !ruleListBlock || !featureGridBlock || !postListBlock) {
     throw new Error(
-      "Expected a ruleList block on /home, a ruleList block on /rules, a featureGrid block on /features, " +
+      "Expected a ruleList block on /home, a ruleList block on /rules, a featureGrid block on /wiki, " +
         "and a postList block on /news to exist before seeding rule sections/features/posts -- run without " +
         "--pages-only first, or check that those blocks weren't deleted from an existing page.",
     );

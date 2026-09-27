@@ -15,7 +15,7 @@ export type PageHeaderData = {
 
 /**
  * The eyebrow + h1 + intro-paragraph pattern that used to be hardcoded at
- * the top of app/rules/page.tsx, app/features/page.tsx, and app/news/page.tsx
+ * the top of app/rules/page.tsx, app/wiki/page.tsx, and app/news/page.tsx
  * -- now a data-carrying block so any page (including new custom ones) can
  * have the same header treatment.
  */

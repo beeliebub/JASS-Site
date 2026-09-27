@@ -50,6 +50,7 @@ Custom Page slugs may contain one to three lowercase kebab-case segments joined
 by `/`. Exact static slugs remain reserved; nested slugs cannot begin with
 `admin`, `api`, `login`, `account`, `news`, or `resource`. Pages may redirect to
 absolute HTTP(S) URLs or root-relative paths, but protected pages cannot redirect.
+Nested paths under `rules`, `wiki`, and `home` remain valid.
 
 ### Verification (there is no test runner)
 Typecheck → lint → build only when routing or the server/client boundary changed → manual walkthrough

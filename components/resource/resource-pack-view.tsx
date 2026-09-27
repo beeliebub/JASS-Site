@@ -1,6 +1,6 @@
 import { Container } from "@/components/container";
 import { CopyButton } from "@/components/resource/copy-button";
-import { formatBytes } from "@/lib/format";
+import { buildResourcePackSnippet, formatBytes } from "@/lib/format";
 
 export type ResourcePackSummary = {
   id: string;
@@ -42,7 +42,11 @@ export function ResourcePackView({
         {packs.length > 0 ? (
           <div className="mt-8 flex max-w-3xl flex-col gap-6">
             {packs.map((pack) => {
-              const snippet = `resource-pack=${pack.downloadUrl}\nresource-pack-sha1=${pack.sha1}\nresource-pack-id=${pack.uuid}`;
+              const snippet = buildResourcePackSnippet({
+                downloadUrl: pack.downloadUrl,
+                sha1: pack.sha1,
+                uuid: pack.uuid,
+              });
               return (
                 <article key={pack.id} className="flex flex-col gap-6 rounded-lg border border-border-strong bg-surface p-6">
                   <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">

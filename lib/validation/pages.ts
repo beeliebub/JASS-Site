@@ -14,15 +14,23 @@ import { THEME_IDS, TONES } from "@/lib/themes";
 // Pages
 // ---------------------------------------------------------------------------
 
-// Slugs that must never be claimed by a new/renamed custom Page: the 3 fixed
-// static routes that would otherwise collide with app/[slug]/page.tsx's
-// catch-all, plus the 4 protected pages' own slugs (a *new* page can't steal
-// "rules" out from under the real Rules page -- and since the real Rules
-// page is `protected: true`, it can never rename itself away from "rules"
-// either, so this list is safe to check unconditionally against slug changes
-// as long as protected-page slug changes are already rejected earlier -- see
-// `assertProtectedSlugUnchanged` below).
-export const RESERVED_SLUGS = ["admin", "login", "account", "api", "home", "rules", "features", "news", "resource"] as const;
+// Slugs that must never be claimed by a new/renamed custom Page: fixed static
+// routes, protected page slugs, and the legacy `/features` compatibility route.
+// Protected-page slug changes are rejected separately by
+// `protectedSlugChangeError`, but keeping their exact slugs reserved also
+// prevents a new page from colliding with their route files.
+export const RESERVED_SLUGS = [
+  "admin",
+  "login",
+  "account",
+  "api",
+  "home",
+  "rules",
+  "wiki",
+  "features",
+  "news",
+  "resource",
+] as const;
 export const RESERVED_FIRST_SEGMENTS = ["admin", "api", "login", "account", "news", "resource"] as const;
 
 export const slugSchema = z
@@ -177,7 +185,7 @@ export const pageUpdateSchema = z
 
 /**
  * Server-side (not just UI) enforcement that protected pages (home, rules,
- * features, news) never change slug. Call after fetching the existing Page
+ * wiki, news) never change slug. Call after fetching the existing Page
  * row and before applying a PUT. Returns an error message, or null if OK.
  */
 export function protectedSlugChangeError(

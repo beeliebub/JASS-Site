@@ -29,7 +29,7 @@ export function featureCardToneClass(tone: Tone) {
  * plain color chip (background tint only, no border) so it reads as a small
  * glyph, not a card-within-a-card.
  *
- * Heading is h2: the Features page has no intervening section heading
+ * Heading is h2: the Wiki page has no intervening section heading
  * between its h1 and this grid (same flat pattern as NewsPostItem's h2),
  * so cards sit one level below the page title, not two.
  */

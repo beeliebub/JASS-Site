@@ -91,10 +91,16 @@ The page and `/api/resource-pack/meta` expose every pack newest-first. For each
 one, copy the three matching lines into `server.properties`:
 
 ```text
-resource-pack=https://<site>/api/resource-pack/<id>
+resource-pack=https\://<site>/api/resource-pack/<id>
 resource-pack-sha1=<sha1>
 resource-pack-id=<uuid>
 ```
+
+The backslash before `://` is required by Java's `server.properties` parser. In
+the admin upload panel, a replacement can optionally reuse an existing pack's
+UUID; UUIDs are therefore intentionally not unique across rows. The admin-only
+Active/Inactive label is bookkeeping for operators and has no effect on the
+packs shown by `/resource` or `/api/resource-pack/meta`.
 
 Uploads with the same SHA-1 are rejected with `409 Conflict`; they do not create
 a second row or replace the existing file. Packs are not pruned automatically,
@@ -187,6 +193,11 @@ prompting or generating new ones; it's the correct command for production.
 `--role` accepts `OWNER` or `ADMIN`, case-insensitive, and defaults to `ADMIN`
 if omitted — so every subsequent invite after the first OWNER should
 normally omit it unless that invitee also needs account-management rights.)
+
+Run the migration before the pages-only seed. The seed intentionally skips an
+already-populated page tree; it cannot rename an existing `/features` row by
+itself. The migration moves that row to the canonical `/wiki` slug while
+preserving its page ID, blocks, feature rows, and page-linked navigation.
 
 **Run `npm run db:seed -- --pages-only` after every deploy, not just the
 first.** This is a permanent part of the redeploy process from here on, not

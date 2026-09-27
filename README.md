@@ -1,7 +1,7 @@
 # JASS — Just A Simple Server
 
 The website for **JASS** ("Just A Simple Server"), a Minecraft survival server at
-`justasimpleserver.net`. Public pages (Home, Rules, Wiki at `/features`, News, plus any custom
+`justasimpleserver.net`. Public pages (Home, Rules, Wiki at `/wiki`, News, plus any custom
 nested pages an admin creates) are built from an admin-editable, block-based page
 builder — content lives in the database, and logged-in admins edit it in place, in
 real time. Pages can be redirects, and the builder includes wiki indexes, infoboxes,

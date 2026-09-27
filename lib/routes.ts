@@ -10,7 +10,8 @@
  * slug renders at "/" (see app/page.tsx); every other slug (including the
  * other 3 protected pages, whose slugs equal their static route segment)
  * renders at "/{slug}" via either its own static route file or the
- * app/[slug] catch-all. */
+ * app/[...slug] catch-all. The Wiki page has its own static route, while the
+ * legacy /features route redirects to it. */
 export function pagePath(slug: string): string {
   return slug === "home" ? "/" : `/${slug}`;
 }

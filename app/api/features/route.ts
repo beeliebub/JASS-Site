@@ -33,7 +33,7 @@ export async function POST(req: Request) {
 
   try {
     const feature = await prisma.feature.create({ data: parsed.data });
-    revalidatePath("/features");
+    revalidatePath("/wiki");
     return apiSuccess(feature, { status: 201 });
   } catch (error) {
     return internalError(error);

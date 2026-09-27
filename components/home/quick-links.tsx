@@ -14,8 +14,8 @@ const links: QuickLink[] = [
     description: "What keeps the server fair and the community worth sticking around for.",
   },
   {
-    href: "/features",
-    title: "Features",
+    href: "/wiki",
+    title: "Wiki",
     description: "Custom enchants, land claims, and minigames layered on top of vanilla survival.",
   },
   {
