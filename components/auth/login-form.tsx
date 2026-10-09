@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { safeNextPath } from "@/lib/safe-redirect";
 
-export function LoginForm() {
+export function LoginForm({ nextPath }: { nextPath: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -31,7 +32,13 @@ export function LoginForm() {
       return;
     }
 
-    router.push("/admin");
+    const destination = safeNextPath(nextPath);
+    if (destination === "/panel" || destination.startsWith("/panel/")) {
+      window.location.assign(destination);
+      return;
+    }
+
+    router.push(destination);
     router.refresh();
   }
 

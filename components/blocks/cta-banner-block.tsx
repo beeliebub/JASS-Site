@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { EditableText } from "@/components/admin/editable-text";
 import { Container } from "@/components/container";
@@ -94,12 +94,12 @@ export function CtaBannerBlock({
             </label>
           </div>
         ) : isInternal ? (
-          <Link
+          <PanelAwareLink
             href={data.buttonHref}
             className={`flex h-11 shrink-0 items-center justify-center rounded-md px-5 text-sm font-medium transition motion-safe:active:scale-[0.97] ${buttonClass}`}
           >
             {data.buttonLabel}
-          </Link>
+          </PanelAwareLink>
         ) : (
           <a
             href={data.buttonHref}

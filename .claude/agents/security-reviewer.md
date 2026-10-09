@@ -78,7 +78,9 @@ and worth stating, because it decides what counts as a finding:
 5. **Credential and session weaknesses.** bcrypt comparison replaced or short-circuited, rate limiting
    removed from the login path, `trustHost`/`AUTH_URL` handling changed, JWT/session callbacks
    widened to carry data the client should not see, or `proxy.ts`'s matcher narrowed so an admin route
-   loses its redirect.
+   loses its redirect. Auth.js JWT sessions reload role, email, and name from the live user row; a
+   missing row ends the session, while a lookup failure logs and retains the token to avoid clearing
+   every session on a transient database error.
 6. **Secrets in source or in the client bundle.** `AUTH_SECRET`, database paths, or webhook URLs
    hardcoded; any secret named `NEXT_PUBLIC_*`; any secret written to a log line.
 7. **Sensitive data in a snapshot or response.** `passwordHash` must never appear in an audit
@@ -114,6 +116,9 @@ and worth stating, because it decides what counts as a finding:
   re-checks the session server-side.
 - `'unsafe-inline'` in `script-src`. Deliberate and documented in `next.config.ts` — the App Router
   emits unnonced inline scripts, and a strict policy left every page non-interactive.
+- The site and the separate server panel share an origin. An ADMIN who can author raw-HTML blocks can
+  run script in an OWNER's browser session and reach the panel as that OWNER. This is an accepted,
+  documented risk; revisit it only if the raw-HTML trust model or panel origin boundary changes.
 - `img-src ... https:` allowing any HTTPS host. Deliberate: the image block takes an admin-supplied
   absolute URL.
 - Test/example credentials in `.env.example`, which is committed on purpose.

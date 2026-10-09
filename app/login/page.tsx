@@ -5,6 +5,7 @@ import { SiteChrome } from "@/components/pages/site-chrome";
 import { getPageBySlug } from "@/lib/content";
 import { formatPageTitle, siteConfig } from "@/lib/site-config";
 import { getSiteSettings } from "@/lib/site-settings";
+import { safeNextPath } from "@/lib/safe-redirect";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("login");
@@ -14,7 +15,15 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function LoginPage() {
+type LoginPageProps = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+  const nextPath = safeNextPath(params.next);
+  const reauthRequired = params.reauth === "1";
+
   return (
     <SiteChrome theme={null} customThemeTokens={null}>
       <Container className="flex flex-1 items-center justify-center py-16">
@@ -27,7 +36,12 @@ export default function LoginPage() {
               Restricted to site administrators.
             </p>
           </div>
-          <LoginForm />
+          {reauthRequired && (
+            <p role="status" className="mb-5 text-sm text-muted">
+              Your session was not accepted by the panel. Sign in again to continue.
+            </p>
+          )}
+          <LoginForm nextPath={nextPath} />
         </div>
       </Container>
     </SiteChrome>

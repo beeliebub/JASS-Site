@@ -16,6 +16,50 @@ export function pagePath(slug: string): string {
   return slug === "home" ? "/" : `/${slug}`;
 }
 
+function normalizePathname(pathname: string): string {
+  const segments: string[] = [];
+
+  for (const segment of pathname.replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  return `/${segments.join("/")}`.toLowerCase();
+}
+
+function isPanelPathname(pathname: string): boolean {
+  let path = pathname;
+
+  for (let i = 0; i < 6; i += 1) {
+    const normalized = normalizePathname(path);
+    if (normalized === "/panel" || normalized.startsWith("/panel/")) return true;
+
+    try {
+      const decoded = decodeURIComponent(path);
+      if (decoded === path) return false;
+      path = decoded;
+    } catch {
+      return false;
+    }
+  }
+
+  const normalized = normalizePathname(path);
+  return normalized === "/panel" || normalized.startsWith("/panel/");
+}
+
+/** Panel URLs are served by the separate daemon in production. */
+export function isPanelPath(href: string): boolean {
+  try {
+    return isPanelPathname(new URL(href, "http://jass.invalid").pathname);
+  } catch {
+    return isPanelPathname(href.split(/[?#]/, 1)[0]);
+  }
+}
+
 /** Resolves a NavItem's target URL: an external `href`, or the page it
  * points at via `pageId` (mutually exclusive, enforced at the API layer). */
 export function navItemHref(item: { href: string | null; page: { slug: string } | null }): string {

@@ -1,3 +1,15 @@
+# Open work requiring the JASS Panel daemon or the VPS
+
+The website-side implementation is complete. These integration requirements remain to be implemented or verified outside this checkout:
+
+- **Panel capability grants**: In the JASS Panel daemon, an OWNER must be able to grant and revoke for an ADMIN every panel capability an OWNER can use, including capabilities added later. Keep grants OWNER-managed and keyed by the user's stable `id`. This site already returns `id` and `role`; it does not own panel grant storage or UI.
+- **Caddy behavior on the target VPS**: Validate the imported glob with an empty and populated `/etc/caddy/conf.d`, verify imported `/panel` handlers precede the default proxy handler, and exercise `/API/PANEL/session`, `/api/%70anel/session`, `/api//panel/session`, `/api/x/../panel/session`, `/PANEL`, `/panel`, and `/panel/` through real Caddy.
+- **Production session integration**: With `AUTH_URL` set, verify the daemon's loopback request forwards the browser cookie unchanged and a valid `200` response has no `Set-Cookie`; verify invalid sessions, deleted users, and database errors fail closed as documented.
+- **Live-account walkthrough**: Using designated test accounts, confirm role and email changes apply on the next request, deleted accounts lose access, and concurrent OWNER removal or demotion cannot remove the final OWNER.
+- **Production SQLite behavior**: Confirm the production proxy and route-handler connections do not prevent the live-user lookup from recovering cleanly from a locked database and that the `unknown` path logs and preserves the site token.
+
+---
+
 # Reusable execution skeleton
 
 Everything below this line is the reusable skeleton for the *next* batch of work once the items above

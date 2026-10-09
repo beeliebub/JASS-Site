@@ -85,8 +85,9 @@ caddy_diff_check() {
       <(printf '%s\n' "$desired" | _caddy_normalize) \
       <(_caddy_normalize < "$host_file") >/dev/null 2>&1; then
     warn "/etc/caddy/Caddyfile differs from the repo's Caddyfile (beyond the domain substitution)."
-    warn "If you intentionally changed the Caddyfile, re-run scripts/vps-setup.sh's Caddy step, or"
-    warn "manually copy it: sudo cp $repo_file /etc/caddy/Caddyfile"
+    warn "Re-run full provisioning with ./setup.sh --mode provision --domain $host_domain, or"
+    warn "manually install the updated routes after preserving the live domain ($host_domain); do not copy the template verbatim."
+    warn "Create /etc/caddy/conf.d before writing /etc/caddy/Caddyfile, then reload Caddy."
   fi
 }
 

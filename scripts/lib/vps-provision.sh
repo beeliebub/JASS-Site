@@ -198,6 +198,8 @@ else
   run_apt install -y caddy
 fi
 
+sudo mkdir -p /etc/caddy/conf.d || die "Failed to create /etc/caddy/conf.d."
+
 # Substitute the deploy domain into the repo's Caddyfile. Done with bash
 # parameter expansion (a literal string replace) rather than sed, so the
 # domain value needs no escaping and can never break out of / corrupt the

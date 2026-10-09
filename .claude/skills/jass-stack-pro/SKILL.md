@@ -47,7 +47,7 @@ Never use `--jitless` for Prisma; it needs WebAssembly.
 
 ```
 Request
-  ├─ proxy.ts .................. redirects /admin/** when logged out, /login when logged in
+  ├─ proxy.ts .................. redirects /admin/** when logged out, /login when logged in (except reauth=1)
   ├─ app/**/page.tsx ........... server components; fetch via lib/, resolve the page theme
   │    └─ components/pages/site-chrome.tsx ...... applies page/custom theme around header+footer
   │         └─ components/pages/page-renderer.tsx  server: prefetch, parse, build ClientBlock[]
@@ -56,6 +56,16 @@ Request
   └─ app/api/**/route.ts ....... guard -> parse -> transaction+audit -> revalidate -> envelope
        └─ lib/ .................. the rules live here, one concern per module
 ```
+
+Auth.js uses JWT sessions. On each authenticated JWT callback after sign-in,
+`auth.ts` reloads the user by id and refreshes `role`, `email`, and `name` from
+the live row. A deleted user returns `null` and ends the session. A database
+lookup error is logged and retains the token: throwing from the callback would
+make Auth.js clear otherwise-valid session cookies during a transient SQLite
+failure. Next.js 16 `proxy.ts` runs on Node.js by default (verified in the
+bundled Proxy docs); do not configure a Proxy runtime option. Server
+components and route handlers get a live token through `auth()`, but they do
+not forward its cookie-clearing headers; the Proxy and `/api/auth/*` do.
 
 ### The `lib/` contract map
 
@@ -138,7 +148,7 @@ Page (slug, title, theme?, customThemeId?, headerContent?, redirectUrl?, publish
 - **`type: "custom"` blocks** resolve their `BlockDefinition` through `referenceData.blockDefinitionsById`
   (deduped per page). A block whose definition was deleted is skipped rather than crashing.
 - Custom page slugs are lowercase kebab-case paths with one to three segments. The first segment cannot
-  be `admin`, `api`, `login`, `account`, `news`, or `resource`; the catch-all route joins the segments
+  be `admin`, `api`, `login`, `account`, `news`, `resource`, or `panel`; the catch-all route joins the segments
   before loading the page.
 - `Page.redirectUrl` is an optional root-relative or HTTP redirect. Protected pages cannot redirect,
   and create, rename, update, and audit-undo paths reject redirect cycles before committing.

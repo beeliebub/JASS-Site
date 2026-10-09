@@ -1,7 +1,6 @@
-# Illustrative compose file for the VPS hosting route — see docs/DEPLOYMENT.md.
-# Not deployed as part of this change. Assumes a host-level Caddy (see
-# Caddyfile) reverse-proxying to this container on localhost:3000, so the
-# app port is only bound to loopback, not exposed publicly.
+# Compose file used by the VPS provisioning and deploy scripts — see
+# docs/DEPLOYMENT.md. Host-level Caddy (see Caddyfile) reverse-proxies to
+# this container on localhost:3000, so the app port is bound to loopback.
 
 services:
   web:

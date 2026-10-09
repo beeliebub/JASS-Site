@@ -6,6 +6,7 @@ import { Container } from "@/components/container";
 import { getPageBySlug } from "@/lib/content";
 import { formatPageTitle, siteConfig } from "@/lib/site-config";
 import { getSiteSettings } from "@/lib/site-settings";
+import { isAdminRole } from "@/lib/auth-guard";
 
 export async function generateMetadata(): Promise<Metadata> {
   const page = await getPageBySlug("admin");
@@ -66,6 +67,19 @@ export default async function AdminPage() {
               <span className="text-sm text-pretty text-muted">{link.description}</span>
             </Link>
           ))}
+          {isAdminRole(session.user.role) && (
+            // Caddy serves this path from the separate daemon in production.
+            // eslint-disable-next-line @next/next/no-html-link-for-pages
+            <a
+              href="/panel"
+              className="flex flex-col gap-1 rounded-lg border border-border bg-surface p-4 transition motion-safe:hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg hover:shadow-black/20"
+            >
+              <span className="text-sm font-semibold text-foreground">Server panel</span>
+              <span className="text-sm text-pretty text-muted">
+                Open the Minecraft server panel. Access is controlled by OWNER.
+              </span>
+            </a>
+          )}
           {session.user.role === "OWNER" && (
             <Link
               href="/admin/users"

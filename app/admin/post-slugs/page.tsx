@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Container } from "@/components/container";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import { TagPill } from "@/components/news/tag-pill";
 import { getPostListDirectory, pagePath, type PostListBlockGroup } from "@/lib/content";
 
@@ -72,9 +73,9 @@ export default async function PostSlugsPage() {
           {pages.map((page) => (
             <div key={page.pageId} className="flex flex-col gap-3">
               <h2 className="text-base font-semibold text-foreground">
-                <Link href={pagePath(page.pageSlug)} className="hover:underline">
+                <PanelAwareLink href={pagePath(page.pageSlug)} className="hover:underline">
                   {page.pageTitle}
-                </Link>
+                </PanelAwareLink>
                 <span className="ml-2 font-mono text-xs font-normal text-muted">{page.pageSlug}</span>
               </h2>
               {page.blocks.length > 1 ? (

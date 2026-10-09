@@ -64,14 +64,16 @@ and it never touches an existing `.env`. It runs, in order:
 `http://localhost:3000/login` to sign in; once logged in, an "Edit mode" toggle appears
 in the header — turn it on to edit any page's content in place, manage pages/nav under
 `/admin/pages` and `/admin/nav`, and (as `OWNER`) manage accounts under `/admin/users`.
+In production, Caddy routes `/panel` to the separate JASS Panel daemon; the site's
+`/panel` page is only a fallback when a request reaches Next.js.
 
 ### Deploying to an OVH VPS
 
 The app persists all content in a single SQLite file, so it runs as a normal
 long-running Node process on a VPS — not a serverless platform. See `docs/DEPLOYMENT.md`
 for the reasoning and the `Dockerfile`, `docker-compose.yml`, and `Caddyfile` at the
-repo root for the reference setup (Docker + a host-level Caddy reverse proxy). A simpler
-PM2-based alternative (no Docker) is in the manual section.
+repo root used by the provisioning scripts (Docker + host-level Caddy reverse proxy).
+A simpler PM2-based alternative (no Docker) is in the manual section.
 
 Two prerequisites can't be scripted — creating the non-root `deploy` user and pointing
 DNS at the VPS (`setup.sh` offers guided walkthroughs for the DNS records and OVH's
@@ -319,13 +321,23 @@ sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
 sudo apt update && sudo apt install -y caddy
-sudo cp /opt/jass/Caddyfile /etc/caddy/Caddyfile
+DOMAIN="justasimpleserver.net" # change this if the live site uses another domain
+CADDY_TEMPLATE="$(< /opt/jass/Caddyfile)"
+DESIRED_CADDYFILE="${CADDY_TEMPLATE//justasimpleserver.net/$DOMAIN}"
+sudo mkdir -p /etc/caddy/conf.d
+printf '%s\n' "$DESIRED_CADDYFILE" | sudo tee /etc/caddy/Caddyfile >/dev/null
 sudo systemctl reload caddy
 ```
 
 The repo's `Caddyfile` already targets `justasimpleserver.net`/`www.justasimpleserver.net`
-and reverse-proxies to `127.0.0.1:3000` with HSTS — no edits needed unless the domain
-changes.
+and reverse-proxies to `127.0.0.1:3000` with HSTS. It refuses public
+`/api/panel` requests and imports route snippets from `/etc/caddy/conf.d/`.
+For an existing host, rerunning `./setup.sh --mode provision --domain <current-domain>`
+runs the full provisioning sequence. To update Caddy alone, create the
+directory, substitute the current domain using the commands above, write the
+updated file, and reload Caddy before installing the separate panel daemon.
+Until the daemon installs its snippet, `/panel` reaches the Next.js fallback
+page.
 
 #### 8. Build and start the app
 
@@ -348,6 +360,11 @@ docker compose exec web npm run db:seed -- --pages-only
 (`migrate deploy`, not `migrate dev` — it applies existing migrations without
 prompting or generating new ones, which is what production needs.)
 
+Before seeding an existing database, check for `panel` or `panel/...` pages and
+navigation targets that would be shadowed. See the panel deployment checks in
+`docs/DEPLOYMENT.md`. Do not install the daemon if the seed reports `FAILED` or
+exits nonzero.
+
 #### 10. Create the first OWNER account
 
 ```bash
@@ -361,6 +378,9 @@ docker compose exec web npm run create-admin -- you@example.com "a-strong-passwo
   `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`,
   `Strict-Transport-Security`, and `X-Frame-Options` headers (see `next.config.ts`).
 - `/login` works with the account created in step 10, and edit mode appears.
+- After the separate panel daemon is installed, `curl -I https://justasimpleserver.net/panel/`
+  shows its `Content-Security-Policy`, `X-Frame-Options`, `Referrer-Policy`,
+  `X-Content-Type-Options`, and `X-Robots-Tag: noindex` headers.
 - Run through the rest of `docs/DEPLOYMENT.md`'s **Pre-deploy security checklist**
   (rotating `AUTH_SECRET`, re-checking `npm audit`) before treating this as a real
   public launch rather than a first deploy.

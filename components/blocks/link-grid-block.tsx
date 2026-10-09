@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import Link from "next/link";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { useToast } from "@/components/admin/toast";
 import { EditableText } from "@/components/admin/editable-text";
@@ -408,7 +408,7 @@ export function LinkGridBlock({
                 </>
               );
               return (
-                <Link
+                <PanelAwareLink
                   key={index}
                   href={link.href}
                   className={`group bg-surface p-6 transition-colors hover:bg-surface-2 ${
@@ -439,7 +439,7 @@ export function LinkGridBlock({
                   ) : (
                     textContent
                   )}
-                </Link>
+                </PanelAwareLink>
               );
             })}
           </div>

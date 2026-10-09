@@ -30,8 +30,9 @@ export const RESERVED_SLUGS = [
   "features",
   "news",
   "resource",
+  "panel",
 ] as const;
-export const RESERVED_FIRST_SEGMENTS = ["admin", "api", "login", "account", "news", "resource"] as const;
+export const RESERVED_FIRST_SEGMENTS = ["admin", "api", "login", "account", "news", "resource", "panel"] as const;
 
 export const slugSchema = z
   .string()

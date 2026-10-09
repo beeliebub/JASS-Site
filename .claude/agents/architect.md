@@ -40,9 +40,10 @@ per-model comments in `prisma/schema.prisma`) before proposing anything:
 - **Prisma 7 on SQLite**, with an explicit driver adapter (`@prisma/adapter-better-sqlite3`) wired in
   `lib/prisma.ts`, and config in `prisma.config.ts`. The generated client lives in
   `app/generated/prisma` and is gitignored.
-- **Auth.js v5** (`auth.ts`), JWT sessions, a single Credentials provider with bcrypt and an
-  in-memory rate limiter (`lib/rate-limit.ts`). Two roles, `OWNER` and `ADMIN`; `OWNER` is a strict
-  superset.
+- **Auth.js v5** (`auth.ts`), JWT sessions refreshed from the live user row for role, email, and
+  name on each authenticated callback, plus a single Credentials provider with bcrypt and an
+  in-memory rate limiter (`lib/rate-limit.ts`). A missing row ends the session; a lookup failure
+  logs and retains the token. Two roles, `OWNER` and `ADMIN`; `OWNER` is a strict superset.
 - **`lib/` is the data and policy layer.** Each module owns one cross-cutting concern and is the only
   place its rule is expressed:
   | Module | Owns |

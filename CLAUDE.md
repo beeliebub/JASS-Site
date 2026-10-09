@@ -123,10 +123,12 @@ changes especially — not a live rehearsal against a second database.
 Custom page slugs may contain one to three lowercase kebab-case segments joined
 by `/` (for example, `games/minecraft`). Exact static slugs remain reserved,
 and nested slugs cannot begin with `admin`, `api`, `login`, `account`, `news`,
-or `resource`; nested paths under `rules`, `wiki`, and `home` remain valid.
+`resource`, or `panel`; nested paths under `rules`, `wiki`, and `home` remain valid.
 Pages may optionally redirect to an absolute HTTP(S) URL or a root-relative
 path. Protected pages cannot redirect, and root-relative redirect chains are
 cycle-checked before they are written.
+
+Auth.js JWT sessions refresh role, email, and name from the live user row on each authenticated request.
 
 ## Project structure
 

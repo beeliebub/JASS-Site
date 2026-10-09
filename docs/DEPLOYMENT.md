@@ -1,10 +1,10 @@
 # Deployment: hosting decision, production build, and backups
 
-This doc covers hosting decision, production build, and backups; SEO/meta is
-handled separately (see `app/layout.tsx`, `app/page.tsx`, `app/opengraph-image.tsx`).
-Nothing in this doc has been executed — the Dockerfile, `docker-compose.yml`,
-and `Caddyfile` at the repo root are illustrative artifacts to review, not
-things that have been run against real infrastructure.
+This doc covers hosting, production builds, and backups; SEO/meta is handled
+separately (see `app/layout.tsx`, `app/page.tsx`, `app/opengraph-image.tsx`).
+The VPS provisioning and deploy scripts use the repository's Docker Compose
+and Caddy configuration. Validate the commands and routing on the actual host
+before installing the separate server-panel daemon.
 
 ## Hosting decision: VPS (Docker + Caddy), not Vercel
 
@@ -70,12 +70,126 @@ edge network or team-based preview deployments — it doesn't today.
   content-addressed under `resource-packs/<sha1>.zip`) also survive rebuilds
   instead of living only inside the container layer.
 - `Caddyfile` — host-level Caddy (outside Docker) terminating TLS for
-  `justasimpleserver.net` and reverse-proxying to the container. Caddy has no
+  `justasimpleserver.net` and reverse-proxying to the container. It refuses
+  public `/api/panel` requests and imports service-owned routes from
+  `/etc/caddy/conf.d/*.caddy`; the separate panel daemon installs its `/panel`
+  route there. Caddy has no
   default request body size limit, so the large resource-pack uploads
   (up to 256 MiB, enforced app-side) pass through untouched; add an
   explicit `request_body { max_size 300MB }` directive inside the site block
   if you want Caddy itself to reject oversized requests before they reach
   the app.
+
+## JASS Panel daemon
+
+The Minecraft server control panel is a separate process and repository on
+the VPS. In production, Caddy sends `/panel` and `/panel/*` to that daemon
+using a snippet under `/etc/caddy/conf.d/`; these paths do not render through
+Next.js. The Next `/panel` page is a signed-in fallback for local development
+or a missing Caddy route. The daemon depends on this app to check sessions, so
+the panel cannot authenticate users while the site app is unavailable.
+
+The site is the source of the shared visual tokens in `app/globals.css`:
+dark neutral surfaces, emerald primary actions, amber accents, Geist
+typography, and compact radii. The daemon UI should use those tokens while
+keeping its own denser server dashboard and navigation so it remains clearly
+an operator tool. Site-owned panel links and fallback pages continue to use
+the website's components and tokens.
+
+The daemon must verify the browser session by making a loopback request to
+`http://127.0.0.1:3000/api/panel/session` and forwarding the browser's `Cookie`
+header verbatim. It must not forward or trust identity headers. A successful
+response uses the standard `{ data: { user } }` envelope and returns only
+`id`, `email`, `name`, and `role`; both `ADMIN` and `OWNER` pass this app's
+gate. The daemon can cache positive results for a few seconds, but must not
+cache a denial or server error.
+
+The daemon owns panel capabilities. An OWNER must be able to grant or revoke
+for an ADMIN every panel capability that an OWNER can use, including
+capabilities added later. Keep the grant interface OWNER-only and associate
+grants with the user's stable `id`; this site returns `role` so the daemon can
+distinguish an OWNER from an ADMIN, but it does not store or enforce panel
+capability grants.
+
+- `401` means there is no valid live session. Send the browser to
+  `/login?next=/panel&reauth=1` so a session accepted by the site but rejected
+  by the daemon does not enter a redirect loop.
+- `403` means the user is signed in but does not have an allowed role. Show a
+  terminal no-access page; do not redirect to sign-in. The current user-role
+  enum contains only `ADMIN` and `OWNER`, which both pass this gate.
+- A `5xx`, timeout, or network error means authentication is temporarily
+  unavailable. Fail closed and show a temporary-unavailable page.
+
+The endpoint rejects non-loopback `Host` values, and the public Caddy site
+returns `404` for `/api/panel` and `/api/panel/*`. The Host check is defense in
+depth, not a network boundary: Docker Compose binds the app to
+`127.0.0.1:3000`, while the PM2 setup can bind on `0.0.0.0:3000`. When using
+PM2, the host firewall must block public access to port 3000.
+
+Set `AUTH_URL` to the public HTTPS origin. Its protocol determines whether
+Auth.js expects the secure cookie name; the daemon must forward the cookie it
+received from the browser unchanged. A missing or incorrect value can make
+the loopback check reject every browser session.
+
+The daemon owns its Content-Security-Policy, framing, referrer, and robots
+headers because Caddy routing bypasses Next.js response headers. After the
+daemon is installed, `curl -I https://<host>/panel/` should include
+`Content-Security-Policy`, `X-Frame-Options`, `Referrer-Policy`,
+`X-Content-Type-Options`, and `X-Robots-Tag: noindex`. A request to the site
+root only verifies the Next.js upstream.
+
+The site and panel share an origin. An ADMIN who can author raw-HTML blocks
+can run script in an OWNER's browser session on that origin and reach the
+panel as that OWNER. This risk is accepted; the site's CSP permits inline
+scripts for the App Router. Two-factor authentication or moving the panel to
+a separate subdomain would change this boundary.
+
+### Panel deployment checks
+
+Before running the pages-only seed on an existing database, inspect custom
+pages and navigation that could be shadowed by the new route. Run these
+queries against the live SQLite file and resolve any returned rows manually:
+
+```sql
+SELECT id, slug, title, protected FROM Page
+WHERE slug = 'panel' OR slug LIKE 'panel/%';
+
+SELECT id, label, href, pageId FROM NavItem
+WHERE href = '/panel' OR href LIKE '/panel/%'
+   OR pageId IN (SELECT id FROM Page WHERE slug = 'panel' OR slug LIKE 'panel/%');
+```
+
+The static-route seed creates the protected `panel` row and reports an
+unprotected static page or a nested `panel/...` page with a `FAILED` message.
+It still finishes its other seed work, but sets a nonzero exit code. Do not
+install or enable the daemon until a failed seed is resolved and the seed
+exits successfully.
+
+On an existing VPS, `./setup.sh --mode provision --domain <current-domain>`
+runs the full provisioning sequence, not only the Caddy step. To update Caddy
+alone before installing the daemon, create the import directory, substitute
+the host's domain into the template, write the file, and reload Caddy:
+
+```bash
+DOMAIN="your-live-domain.example" # replace with the domain on the Caddy site-address line
+CADDY_TEMPLATE="$(< /opt/jass/Caddyfile)"
+DESIRED_CADDYFILE="${CADDY_TEMPLATE//justasimpleserver.net/$DOMAIN}"
+sudo mkdir -p /etc/caddy/conf.d
+printf '%s\n' "$DESIRED_CADDYFILE" | sudo tee /etc/caddy/Caddyfile >/dev/null
+sudo systemctl reload caddy
+```
+
+The provisioning Caddy step performs this domain substitution automatically.
+
+The daemon installer must verify that the live Caddyfile imports
+`/etc/caddy/conf.d/*.caddy`; otherwise `/panel` silently reaches the Next
+fallback page. On the VPS, validate the Caddyfile with both an empty and a
+populated `conf.d` directory and confirm the imported `/panel` handler wins
+over the default app handler. The snippet must use mutually exclusive
+`handle` blocks; a loose `reverse_proxy` can sort after the default handler.
+Check the path matrix for public
+`/api/panel` variants against the installed Caddy version before enabling the
+daemon.
 
 ### Resource-pack hosting
 
@@ -111,12 +225,10 @@ The old parameterless `/api/resource-pack` download URL is no longer served.
 Update any existing Minecraft `server.properties` entry to a specific pack ID
 before deploying this change.
 
-None of these have been built/run/deployed — verify the better-sqlite3
-prebuild works for the actual host's OS/arch before relying on the Dockerfile
-as-is (see comments in the file), and swap in the real domain once one is
-decided (`justasimpleserver.net` is used as a placeholder throughout, since
-that's the only real domain currently referenced anywhere in this repo — see
-`MC_SERVER_HOST` in `.env`).
+Verify the better-sqlite3 prebuild works for the actual host's OS/arch before
+relying on the Dockerfile as-is (see comments in the file), and replace the
+placeholder domain if the production domain differs (`justasimpleserver.net`
+is also the current `MC_SERVER_HOST` value in `.env`).
 
 ### PM2 alternative (instead of Docker)
 
@@ -155,6 +267,22 @@ with real production values:
 | `NEXT_PUBLIC_SITE_URL` | Optional. Used by `app/layout.tsx` to set `metadataBase` for absolute OG/canonical URLs. Defaults to `https://justasimpleserver.net` if unset. |
 | `AUTH_URL` | **Must be set to the real public URL** (e.g. `https://justasimpleserver.net`) in production. The app sits behind Caddy's reverse proxy (see the Caddyfile), and `auth.ts` sets `trustHost: true` so Auth.js will trust the proxy's forwarded host — but that only covers request-time host detection; anywhere Auth.js needs a fully-qualified callback/redirect URL at boot, `AUTH_URL` is the authoritative source. Leaving it unset/wrong can cause broken redirects or cookie misbehavior behind the proxy. |
 
+### Live sessions and owner recovery
+
+The JWT callback re-reads the user's live row on each authenticated request
+and refreshes the session's role, email, and name. A session for a deleted
+user ends on the next request after this code is deployed. If the database
+lookup fails temporarily, the callback logs the error and retains the current
+token so one transient SQLite error does not clear every user's cookie; the
+panel session endpoint fails closed when its own live-user lookup fails.
+
+Do not demote or delete the last `OWNER`. If every owner is removed, restore
+one from the server with:
+
+```bash
+npm run create-admin -- <email> <strong-password> --role OWNER
+```
+
 ## Pre-deploy security checklist
 
 Run through this before every real production deploy, not just the first one:
@@ -164,6 +292,16 @@ Run through this before every real production deploy, not just the first one:
       `.env.example`: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
       Rotating invalidates all existing sessions, which is expected.
 - [ ] **Set `AUTH_URL`** to the real public URL (see the table above).
+- [ ] **Review live `/panel` collisions before seeding.** Query `Page` for
+      `panel` and `panel/%`, and `NavItem` for links or page references to
+      those routes (queries above). Resolve any collision manually.
+- [ ] **Run the pages-only seed and check its exit code.** If it reports
+      `FAILED` or exits nonzero, do not install or enable the panel daemon.
+- [ ] **Update Caddy on an existing host before installing the daemon.**
+      Use the manual Caddy update above or rerun full provisioning with the
+      same `--domain` value. Validate imports with an empty
+      and populated directory and confirm the panel handler precedes the
+      default app handler.
 - [ ] **Re-run `npm audit`** and re-verify any findings are still transitive
       dev-tooling only (as of the last check: Prisma's dev server via
       `@prisma/dev`/`@hono/node-server`, and Next's bundled PostCSS — not
@@ -176,6 +314,11 @@ Run through this before every real production deploy, not just the first one:
       `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`,
       `Strict-Transport-Security`, and `X-Frame-Options` are all set (see
       `next.config.ts`'s `headers()`).
+- [ ] **After installing the panel daemon**, request
+      `curl -I https://<host>/panel/` and confirm
+      `Content-Security-Policy`, `X-Frame-Options`, `Referrer-Policy`,
+      `X-Content-Type-Options`, and `X-Robots-Tag: noindex` come from the
+      daemon route.
 
 After the first deploy, seed the first admin the same way as in dev. **Use
 `--role OWNER` for this very first account** — `OWNER` is the only role that

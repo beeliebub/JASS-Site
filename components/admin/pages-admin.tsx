@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import { useRouter } from "next/navigation";
 import type { CustomTheme, Page } from "@/app/generated/prisma/client";
 import { useToast } from "@/components/admin/toast";
@@ -616,12 +616,12 @@ export function PagesAdmin({
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">
-                    <Link
+                    <PanelAwareLink
                       href={pagePath(page.slug)}
                       className="flex h-8 items-center justify-center rounded-md border border-border-strong px-2.5 text-xs font-medium text-muted transition hover:border-primary hover:text-primary"
                     >
                       Edit
-                    </Link>
+                    </PanelAwareLink>
                     {!page.protected && <DeleteButton label="Delete page" onClick={() => deletePage(page)} />}
                   </div>
                 </td>

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import { useEditMode } from "@/components/admin/edit-mode-context";
 import { EditableText } from "@/components/admin/editable-text";
 import type { CustomFieldInputProps } from "@/components/blocks/custom-fields/types";
@@ -32,9 +32,9 @@ export function LinkFieldInput({ field, value, onChange, showLabel = true }: Cus
     }
     if (href.startsWith("/")) {
       return (
-        <Link href={href} className={BUTTON_CLASS}>
+        <PanelAwareLink href={href} className={BUTTON_CLASS}>
           {field.label}
-        </Link>
+        </PanelAwareLink>
       );
     }
     return (

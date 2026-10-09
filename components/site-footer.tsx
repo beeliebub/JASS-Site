@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { Container } from "@/components/container";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import { ThemePicker } from "@/components/theme/theme-picker";
 import { siteConfig } from "@/lib/site-config";
 import { navItemHref } from "@/lib/routes";
@@ -20,9 +20,9 @@ export function SiteFooter({ navItems, customThemes }: { navItems: NavTop[]; cus
         <div className="flex flex-wrap items-center gap-4">
           <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2">
             {navItems.map((item) => (
-              <Link key={item.id} href={navItemHref(item)} className="transition-colors hover:text-foreground">
+              <PanelAwareLink key={item.id} href={navItemHref(item)} className="transition-colors hover:text-foreground">
                 {item.label}
-              </Link>
+              </PanelAwareLink>
             ))}
           </nav>
           <ThemePicker customThemes={customThemes} />

@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { getPageBySlug } from "@/lib/content";
 import { requireAdmin } from "@/lib/auth-guard";
 import { PageRenderer } from "@/components/pages/page-renderer";
+import { PanelDocumentRedirect } from "@/components/pages/panel-document-redirect";
 import { SiteChrome } from "@/components/pages/site-chrome";
+import { isPanelPath } from "@/lib/routes";
 import { resolvePageTheme } from "@/lib/custom-themes";
 import { formatPageTitle, siteConfig } from "@/lib/site-config";
 import { getSiteSettings } from "@/lib/site-settings";
@@ -41,7 +43,12 @@ export default async function CustomPage({ params }: { params: Promise<{ slug: s
   // Published redirect pages never render their blocks. `redirect()` throws
   // the framework response internally, so keep it outside application error
   // handling and do not bypass it for admins visiting the public URL.
-  if (page.redirectUrl && page.published) redirect(page.redirectUrl);
+  if (page.redirectUrl && page.published) {
+    if (isPanelPath(page.redirectUrl)) {
+      return <PanelDocumentRedirect href={page.redirectUrl} />;
+    }
+    redirect(page.redirectUrl);
+  }
 
   const { theme, customThemeTokens } = await resolvePageTheme(page);
 

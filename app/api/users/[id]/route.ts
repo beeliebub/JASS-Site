@@ -15,12 +15,6 @@ import { recordAuditLog, userSnapshot } from "@/lib/audit-log";
 
 const userSelect = { id: true, email: true, name: true, role: true, createdAt: true } as const;
 
-async function isLastOwner(userId: string) {
-  const ownerCount = await prisma.user.count({ where: { role: "OWNER" } });
-  const target = await prisma.user.findUnique({ where: { id: userId } });
-  return target?.role === "OWNER" && ownerCount <= 1;
-}
-
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireOwner())) return unauthorized();
 
@@ -42,16 +36,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const existing = await prisma.user.findUnique({ where: { id } });
     if (!existing) return notFound("User");
 
-    const changingRole = parsed.data.role !== undefined && parsed.data.role !== existing.role;
-
-    if (sessionUser?.id === id && changingRole) {
-      return conflict("You can't change your own role.");
-    }
-
-    if (changingRole && existing.role === "OWNER" && (await isLastOwner(id))) {
-      return conflict("Can't demote the last remaining OWNER account.");
-    }
-
     if (parsed.data.email) {
       const email = parsed.data.email.toLowerCase();
       if (email !== existing.email) {
@@ -62,7 +46,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
     const passwordHash = parsed.data.password ? await bcrypt.hash(parsed.data.password, 12) : undefined;
 
-    const user = await prisma.$transaction(async (tx) => {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const current = await tx.user.findUnique({ where: { id } });
+      if (!current) return { kind: "missing" } as const;
+
+      const changingRole = parsed.data.role !== undefined && parsed.data.role !== current.role;
+      if (sessionUser?.id === id && changingRole) {
+        return { kind: "self-role-change" } as const;
+      }
+
+      if (changingRole && current.role === "OWNER" && parsed.data.role !== "OWNER") {
+        const ownerCount = await tx.user.count({ where: { role: "OWNER" } });
+        if (ownerCount <= 1) return { kind: "last-owner" } as const;
+      }
+
       const updated = await tx.user.update({
         where: { id },
         data: {
@@ -77,13 +74,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         entityType: "User",
         entityId: id,
         action: "update",
-        before: userSnapshot(existing),
+        before: userSnapshot(current),
         after: userSnapshot(updated),
         actorEmail: sessionUser?.email,
       });
-      return updated;
+      return { kind: "updated", user: updated } as const;
     });
-    return apiSuccess(user);
+    if (outcome.kind === "missing") return notFound("User");
+    if (outcome.kind === "self-role-change") return conflict("You can't change your own role.");
+    if (outcome.kind === "last-owner") return conflict("Can't demote the last remaining OWNER account.");
+    return apiSuccess(outcome.user);
   } catch (error) {
     return internalError(error);
   }
@@ -100,24 +100,29 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   }
 
   try {
-    const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing) return notFound("User");
+    const outcome = await prisma.$transaction(async (tx) => {
+      const current = await tx.user.findUnique({ where: { id } });
+      if (!current) return { kind: "missing" } as const;
 
-    if (existing.role === "OWNER" && (await isLastOwner(id))) {
-      return conflict("Can't delete the last remaining OWNER account.");
-    }
+      if (current.role === "OWNER") {
+        const ownerCount = await tx.user.count({ where: { role: "OWNER" } });
+        if (ownerCount <= 1) return { kind: "last-owner" } as const;
+      }
 
-    await prisma.$transaction(async (tx) => {
       await tx.user.delete({ where: { id } });
       await recordAuditLog(tx, {
         entityType: "User",
         entityId: id,
         action: "delete",
-        before: userSnapshot(existing),
+        before: userSnapshot(current),
         after: null,
         actorEmail: sessionUser?.email,
       });
+      return { kind: "deleted" } as const;
     });
+
+    if (outcome.kind === "missing") return notFound("User");
+    if (outcome.kind === "last-owner") return conflict("Can't delete the last remaining OWNER account.");
     return apiSuccess({ id });
   } catch (error) {
     return internalError(error);

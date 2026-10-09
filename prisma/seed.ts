@@ -416,7 +416,7 @@ async function getCanonicalBlockIds() {
 }
 
 /**
- * Upserts the 4 metadata-only protected Page rows for routes that render
+ * Upserts the 5 metadata-only protected Page rows for routes that render
  * their own hand-built layout rather than PageRenderer/Block content --
  * title-only, no blocks. Each row exists solely so its browser-tab title is
  * editable from /admin/pages and so it's covered by the same
@@ -430,6 +430,7 @@ async function seedStaticRoutePages() {
     { slug: "login", title: "Login" },
     { slug: "account", title: "Account" },
     { slug: "admin", title: "Admin" },
+    { slug: "panel", title: "Panel" },
   ];
   for (const row of rows) {
     await prisma.page.upsert({
@@ -438,6 +439,30 @@ async function seedStaticRoutePages() {
       update: {},
     });
   }
+
+  const savedRows = await prisma.page.findMany({
+    where: { slug: { in: rows.map((row) => row.slug) } },
+    select: { slug: true, protected: true },
+  });
+  const savedBySlug = new Map(savedRows.map((row) => [row.slug, row]));
+  const unprotectedSlugs = rows
+    .filter((row) => savedBySlug.get(row.slug)?.protected !== true)
+    .map((row) => row.slug);
+  const nestedPanelPages = await prisma.page.findMany({
+    where: { slug: { startsWith: "panel/" } },
+    select: { slug: true },
+  });
+
+  if (unprotectedSlugs.length > 0 || nestedPanelPages.length > 0) {
+    if (unprotectedSlugs.length > 0) {
+      console.error(`FAILED: static-route pages are not protected: ${unprotectedSlugs.join(", ")}`);
+    }
+    if (nestedPanelPages.length > 0) {
+      console.error(`FAILED: custom pages conflict with the /panel route: ${nestedPanelPages.map((page) => page.slug).join(", ")}`);
+    }
+    process.exitCode = 1;
+  }
+
   console.log(`Seeded ${rows.length} static-route page rows.`);
 }
 

@@ -8,6 +8,7 @@ import { siteConfig } from "@/lib/site-config";
 import { EditModeToggle } from "@/components/admin/edit-mode-toggle";
 import { LiveStatusBadge } from "@/components/home/live-status-badge";
 import { navItemHref } from "@/lib/routes";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import type { HeaderContent } from "@/lib/validation/pages";
 
 type NavPage = { slug: string } | null;
@@ -112,9 +113,9 @@ export function SiteHeader({
 
             if (!hasChildren) {
               return (
-                <Link key={item.id} href={href} aria-current={active ? "page" : undefined} className={linkClass(active)}>
+                <PanelAwareLink key={item.id} href={href} aria-current={active ? "page" : undefined} className={linkClass(active)}>
                   {item.label}
-                </Link>
+                </PanelAwareLink>
               );
             }
 
@@ -133,7 +134,7 @@ export function SiteHeader({
               >
                 {hasOwnPage ? (
                   <span className={`flex items-center gap-1 ${linkClass(active)}`}>
-                    <Link
+                    <PanelAwareLink
                       href={href}
                       aria-haspopup="true"
                       aria-expanded={expanded}
@@ -141,7 +142,7 @@ export function SiteHeader({
                       onFocus={() => openDropdownNow(item.id)}
                     >
                       {item.label}
-                    </Link>
+                    </PanelAwareLink>
                     <button
                       type="button"
                       aria-label={`${expanded ? "Close" : "Open"} ${item.label} menu`}
@@ -186,7 +187,7 @@ export function SiteHeader({
                         const childHref = navItemHref(child);
                         const childActive = pathname === childHref;
                         return (
-                          <Link
+                          <PanelAwareLink
                             key={child.id}
                             href={childHref}
                             role="menuitem"
@@ -197,7 +198,7 @@ export function SiteHeader({
                             }`}
                           >
                             {child.label}
-                          </Link>
+                          </PanelAwareLink>
                         );
                       })}
                     </div>
@@ -270,7 +271,7 @@ export function SiteHeader({
 
               if (!hasChildren) {
                 return (
-                  <Link
+                  <PanelAwareLink
                     key={item.id}
                     href={href}
                     aria-current={active ? "page" : undefined}
@@ -280,7 +281,7 @@ export function SiteHeader({
                     }`}
                   >
                     {item.label}
-                  </Link>
+                  </PanelAwareLink>
                 );
               }
 
@@ -291,14 +292,14 @@ export function SiteHeader({
                 <div key={item.id}>
                   {hasOwnPage ? (
                     <div className="flex items-center justify-between rounded-md text-base font-medium text-muted transition-colors hover:text-foreground">
-                      <Link
+                      <PanelAwareLink
                         href={href}
                         aria-current={active ? "page" : undefined}
                         onClick={() => setOpen(false)}
                         className="flex-1 px-3 py-3"
                       >
                         {item.label}
-                      </Link>
+                      </PanelAwareLink>
                       <button
                         type="button"
                         aria-expanded={expanded}
@@ -329,7 +330,7 @@ export function SiteHeader({
                         const childHref = navItemHref(child);
                         const childActive = pathname === childHref;
                         return (
-                          <Link
+                          <PanelAwareLink
                             key={child.id}
                             href={childHref}
                             aria-current={childActive ? "page" : undefined}
@@ -339,7 +340,7 @@ export function SiteHeader({
                             }`}
                           >
                             {child.label}
-                          </Link>
+                          </PanelAwareLink>
                         );
                       })}
                     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PanelAwareLink } from "@/components/panel-aware-link";
 import { Container } from "@/components/container";
 import { CopyIpButton } from "@/components/home/copy-ip-button";
 import { EditableContent } from "@/components/admin/editable-content";
@@ -127,13 +127,13 @@ export function HeroContent({
 
         <div className="flex flex-col gap-3 sm:flex-row">
           {activeButtons.map((button, i) => (
-            <Link
+            <PanelAwareLink
               key={i}
               href={button.href}
               className={`flex h-11 items-center justify-center rounded-md px-5 text-sm font-medium transition motion-safe:active:scale-[0.97] ${heroButtonToneClasses(button.tone)}`}
             >
               {button.label}
-            </Link>
+            </PanelAwareLink>
           ))}
         </div>
       </Container>
