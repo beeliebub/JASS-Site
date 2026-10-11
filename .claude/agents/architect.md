@@ -65,8 +65,10 @@ per-model comments in `prisma/schema.prisma`) before proposing anything:
   enhancement.
 - **`RuleSection`/`Feature`/`Post` rows are owned by a specific block** via `blockId` and cascade with
   it. `postDisplay` is the deliberate exception: it selects other blocks' posts by tag, site-wide.
-- **There is no DI framework and no test runner.** Dependencies are plain module imports; verification
-  is typecheck, lint, `next build`, and a manual pass against `npm run dev`.
+- **There is no DI framework.** Dependencies are plain module imports. A test runner (vitest) exists
+  but is used narrowly -- direct contract tests for a handful of security-sensitive route handlers, not
+  a project-wide suite (see `app/api/panel/identity/route.test.ts`); most verification is still
+  typecheck, lint, `next build`, and a manual pass against `npm run dev`.
 
 ## Architecture Review Process
 

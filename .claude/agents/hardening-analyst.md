@@ -676,6 +676,35 @@ behavior at those boundaries.
 returns only session data in Server Components and route handlers. `proxy.ts` and `/api/auth/*` are
 the paths that forward Auth.js response headers.
 
+### P35 — Config file checked by substring assertion that the real parser never sees
+
+**Signature.** A test reads a server or proxy config file as text and asserts on directive substrings
+(`indexOf`, `toContain`) instead of parsing it with the tool that will load it in production.
+**Why it survives.** The suite is green and names the config as covered, but a syntactically invalid
+directive still contains the expected substring, so the assertion cannot fail on a config the tool
+rejects.
+**Detection.** Grep test files for `readFileSync` on proxy or server configs (`Caddyfile`, `*.conf`,
+`nginx`, `*.caddy`) followed by `indexOf`/`toContain`. For each such config, confirm a gate runs the
+tool's own validator (`caddy validate`/`caddy adapt`, `nginx -t`) against the same text, and fail the
+check when none does.
+**Confirmed instance.** `app/api/panel/identity/route.test.ts` ("public exposure" suite) asserted the
+text `handle /api/panel /api/panel/*` in the `Caddyfile`, a line Caddy 2.11.6 rejects at parse time.
+Fixed: the rule now uses a named `@panel_api path` matcher, and the test asserts that form.
+
+### P36 — Session helper collapses a database failure into "not signed in"
+
+**Signature.** A session or auth helper returns `null` both for invalid credentials and for an internal
+lookup failure, and the route maps every `null` to `401` without a separate failure branch.
+**Why it survives.** Mocked tests never throw inside the helper, and the deleted-user path is also
+`null`, so the suite only exercises the two cases that give the same answer.
+**Detection.** Route handlers that call a session helper and return `401` on a falsy result: force a
+database failure in that path (hold a lock on a database copy, or mock the lookup to throw) and check
+that the response is the documented failure status, not `401`. Inspect whether the helper ever
+distinguishes "lookup failed" from "no session" in its return type.
+**Confirmed instance.** `app/api/panel/session/route.ts`: under a held database lock, `auth()` returns a
+null session, and the route answers `401`, which the panel reads as "sign in". The route's own live
+read is never reached, so the `5xx` required for "unavailable" is not produced. Open in PLAN.md.
+
 ## Output Format
 
 **Section 1 — Findings**, ordered most severe first. For each:

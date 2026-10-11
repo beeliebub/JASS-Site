@@ -5,7 +5,9 @@
 # certificate issuance/renewal.
 
 justasimpleserver.net, www.justasimpleserver.net {
-    handle /api/panel /api/panel/* {
+    # `handle` takes a single matcher, so the paths go in a named path matcher.
+    @panel_api path /api/panel /api/panel/*
+    handle @panel_api {
         respond 404
     }
 

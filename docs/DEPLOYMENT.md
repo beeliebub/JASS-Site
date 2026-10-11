@@ -72,8 +72,9 @@ edge network or team-based preview deployments — it doesn't today.
 - `Caddyfile` — host-level Caddy (outside Docker) terminating TLS for
   `justasimpleserver.net` and reverse-proxying to the container. It refuses
   public `/api/panel` requests and imports service-owned routes from
-  `/etc/caddy/conf.d/*.caddy`; the separate panel daemon installs its `/panel`
-  route there. Caddy has no
+  `/etc/caddy/conf.d/*.caddy`. The panel's `/panel` route is one of those
+  snippets. The operator writes it from the block the panel installer prints,
+  because the installer never writes proxy files. Caddy has no
   default request body size limit, so the large resource-pack uploads
   (up to 256 MiB, enforced app-side) pass through untouched; add an
   explicit `request_body { max_size 300MB }` directive inside the site block
@@ -84,7 +85,8 @@ edge network or team-based preview deployments — it doesn't today.
 
 The Minecraft server control panel is a separate process and repository on
 the VPS. In production, Caddy sends `/panel` and `/panel/*` to that daemon
-using a snippet under `/etc/caddy/conf.d/`; these paths do not render through
+using a snippet under `/etc/caddy/conf.d/`, which the operator writes from the
+block the panel installer prints; these paths do not render through
 Next.js. The Next `/panel` page is a signed-in fallback for local development
 or a missing Caddy route. The daemon depends on this app to check sessions, so
 the panel cannot authenticate users while the site app is unavailable.
@@ -104,12 +106,33 @@ response uses the standard `{ data: { user } }` envelope and returns only
 gate. The daemon can cache positive results for a few seconds, but must not
 cache a denial or server error.
 
+For scheduled actions with no browser cookie (timed restarts), the daemon
+instead calls `POST http://127.0.0.1:3000/api/panel/identity` with
+`{ "userId": "<id>" }` (the website's own `User.id`, `^[A-Za-z0-9_-]{1,64}$`,
+one key, under 1 KiB) and no cookie or forwarded header at all. It re-checks
+the database on every call -- no caching anywhere in the response path -- so
+a demotion or deletion takes effect on the very next scheduled run. A match
+returns `{ data: { user: { id, role } } }` with only those two fields; a
+missing, deleted, or ineligible-role user returns `{ data: { user: null } }`,
+indistinguishable from each other on purpose. A `5xx` means the lookup itself
+failed and must never be read as "not eligible" -- the daemon should pause
+the scheduled action rather than cancel it. A non-`POST` method gets `405`
+with `Allow: POST`; a malformed body gets `400`.
+
 The daemon owns panel capabilities. An OWNER must be able to grant or revoke
 for an ADMIN every panel capability that an OWNER can use, including
 capabilities added later. Keep the grant interface OWNER-only and associate
 grants with the user's stable `id`; this site returns `role` so the daemon can
 distinguish an OWNER from an ADMIN, but it does not store or enforce panel
 capability grants.
+
+For the panel's Access screen, the daemon also calls `GET
+http://127.0.0.1:3000/api/panel/accounts` with the signed-in person's own
+`Cookie`, but only on behalf of an owner or a panel operator. It returns every
+OWNER and ADMIN account (`id`, `email`, `name`, `role`) to an admin-role session
+only, so existing accounts can be granted
+without their holders opening the panel first. Nothing else reads that list,
+and the daemon never uses it to decide access.
 
 - `401` means there is no valid live session. Send the browser to
   `/login?next=/panel&reauth=1` so a session accepted by the site but rejected
@@ -120,7 +143,7 @@ capability grants.
 - A `5xx`, timeout, or network error means authentication is temporarily
   unavailable. Fail closed and show a temporary-unavailable page.
 
-The endpoint rejects non-loopback `Host` values, and the public Caddy site
+Both endpoints reject non-loopback `Host` values, and the public Caddy site
 returns `404` for `/api/panel` and `/api/panel/*`. The Host check is defense in
 depth, not a network boundary: Docker Compose binds the app to
 `127.0.0.1:3000`, while the PM2 setup can bind on `0.0.0.0:3000`. When using
@@ -179,14 +202,23 @@ printf '%s\n' "$DESIRED_CADDYFILE" | sudo tee /etc/caddy/Caddyfile >/dev/null
 sudo systemctl reload caddy
 ```
 
+The panel's `/panel` route is not in that template. Write the block the panel
+installer prints to `/etc/caddy/conf.d/jass-panel.caddy`, then run
+`sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile` and
+`sudo systemctl reload caddy`.
+
 The provisioning Caddy step performs this domain substitution automatically.
 
-The daemon installer must verify that the live Caddyfile imports
+Before installing the daemon, confirm that the live Caddyfile imports
 `/etc/caddy/conf.d/*.caddy`; otherwise `/panel` silently reaches the Next
-fallback page. On the VPS, validate the Caddyfile with both an empty and a
+fallback page. The panel installer does not check this, because it does not
+read or write the proxy. On the VPS, validate the Caddyfile with both an empty and a
 populated `conf.d` directory and confirm the imported `/panel` handler wins
 over the default app handler. The snippet must use mutually exclusive
 `handle` blocks; a loose `reverse_proxy` can sort after the default handler.
+`handle` takes a single matcher, so the repository Caddyfile lists its public
+`/api/panel` paths in a named `path` matcher; Caddy 2.11.6 rejects a multi-path
+`handle` line at load time.
 Check the path matrix for public
 `/api/panel` variants against the installed Caddy version before enabling the
 daemon.
@@ -299,7 +331,8 @@ Run through this before every real production deploy, not just the first one:
       `FAILED` or exits nonzero, do not install or enable the panel daemon.
 - [ ] **Update Caddy on an existing host before installing the daemon.**
       Use the manual Caddy update above or rerun full provisioning with the
-      same `--domain` value. Validate imports with an empty
+      same `--domain` value, then write the panel's `/panel` block to
+      `/etc/caddy/conf.d/jass-panel.caddy`. Validate imports with an empty
       and populated directory and confirm the panel handler precedes the
       default app handler.
 - [ ] **Re-run `npm audit`** and re-verify any findings are still transitive

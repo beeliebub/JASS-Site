@@ -149,5 +149,7 @@ Pick the right starting point for the kind of work:
   every path builder re-validates the sha1 shape before touching the filesystem. Image "usage" is
   derived by substring-matching a sha1 across every block's raw `data`, deliberately, so a new block
   type embedding an image needs no special-casing.
-- **There is no test suite.** Do not report "no tests for this path" as a gap in the area; the
-  project verifies with typecheck, lint, `next build`, and manual admin walkthroughs.
+- **There is no project-wide test suite.** vitest is installed but used narrowly, for direct contract
+  tests of a handful of security-sensitive route handlers (see `app/api/panel/identity/route.test.ts`).
+  Do not report "no tests for this path" as a gap in an area outside that pattern; most of the project
+  verifies with typecheck, lint, `next build`, and manual admin walkthroughs.

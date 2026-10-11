@@ -38,8 +38,10 @@ When invoked:
 - **Skip** stylistic preferences unless they violate this project's conventions.
 - **Skip** issues in unrelated, unchanged code unless CRITICAL.
 - **Consolidate** similar issues instead of repeating the same finding per file.
-- **Do not report missing tests.** This project has no test runner installed; verification is
-  typecheck, lint, `next build`, and manual admin walkthroughs.
+- **Do not blanket-report missing tests.** vitest is installed but used narrowly, for direct contract
+  tests of a handful of security-sensitive route handlers (see `app/api/panel/identity/route.test.ts`).
+  Outside that pattern, verification is typecheck, lint, `next build`, and manual admin walkthroughs --
+  don't flag the absence of tests there as a finding.
 
 ### Pre-Report Gate
 

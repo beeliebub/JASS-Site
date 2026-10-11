@@ -336,7 +336,7 @@ For an existing host, rerunning `./setup.sh --mode provision --domain <current-d
 runs the full provisioning sequence. To update Caddy alone, create the
 directory, substitute the current domain using the commands above, write the
 updated file, and reload Caddy before installing the separate panel daemon.
-Until the daemon installs its snippet, `/panel` reaches the Next.js fallback
+Until the operator writes the snippet that the panel installer prints to `/etc/caddy/conf.d/`, `/panel` reaches the Next.js fallback
 page.
 
 #### 8. Build and start the app

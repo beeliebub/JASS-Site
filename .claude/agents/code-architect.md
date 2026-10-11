@@ -52,8 +52,9 @@ snapshot, its revalidation call, and which side of the server/client boundary ea
   `lib/validation/**` already owns.
 - Choose the simplest design that matches its siblings. Do not introduce a new persistence mechanism,
   a state-management library, an ORM pattern, or an abstraction layer the rest of the codebase does
-  not already use. There is no test runner and no DI framework here; a design that assumes either is
-  wrong for this repo.
+  not already use. There is no DI framework here, and the test runner (vitest) is used narrowly for
+  direct contract tests of a handful of security-sensitive route handlers, not a project-wide suite; a
+  design that assumes a DI framework or broad test coverage is wrong for this repo.
 - **Decide the server/client split explicitly.** Server components fetch and pass plain serializable
   props (note that `Date` values are serialized to ISO strings before crossing into client
   components). Anything importing Prisma — directly or through `lib/content.ts`,
