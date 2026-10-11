@@ -47,6 +47,10 @@ next-env.d.ts
 /prisma/dev.db
 /prisma/dev.db-journal
 
+# test database (test/global-setup.ts creates and deletes it per run)
+/prisma/test.db
+/prisma/test.db-journal
+
 # local DB backups (scripts/backup-db.ts)
 /backups
 

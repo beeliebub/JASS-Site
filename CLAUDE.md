@@ -18,6 +18,7 @@ npm run dev              # start dev server, http://localhost:3000
 npm run build             # production build
 npm run start              # run a production build
 npm run lint                # eslint
+npm test                     # vitest -- narrow, targeted contract tests only (see Verification below)
 npm run db:seed           # seed placeholder content (re-runnable; --pages-only skips content overwrite)
 npm run db:backup          # timestamped SQLite backup into backups/ (keeps last 7)
 npm run create-admin        # create/update an OWNER or ADMIN account
@@ -58,7 +59,28 @@ re-run, and `npm run db:seed -- --pages-only` skips the content-overwriting port
 
 If a fresh `npm install`/`npx prisma ...`/`npx tsc`/`npm run lint`/`npm run db:seed`
 fails with the fatal error above, retry with these flags before assuming something
-is actually broken.
+is actually broken. `npm test` (vitest) has not been observed to hit this crash and
+does not need the `--no-turbofan` workaround.
+
+## Testing
+
+vitest is installed (`npm test`), but used narrowly: direct contract tests for a handful of
+security-sensitive route handlers, not a project-wide suite. `app/api/panel/identity/route.test.ts`
+is the reference example — it imports the route's exported handlers directly (no running server
+needed) and exercises them against a real database.
+
+Tests run against a dedicated `prisma/test.db`, never `prisma/dev.db`:
+`test/global-setup.ts` deletes any leftover file, runs `prisma migrate deploy` against it before the
+suite starts, and deletes it again afterward; `test/setup.ts` points `DATABASE_URL` at that file before
+any test file's own imports (and therefore `lib/prisma.ts`) evaluate. A test file that creates rows is
+responsible for cleaning them up (see `createUser`/`afterEach` in the reference example) and for
+calling `prisma.$disconnect()` in an `afterAll` so Windows releases the file handle before teardown
+tries to delete it.
+
+Most of the app still has no test coverage and is verified by typecheck, lint, `next build` (when
+routing or the server/client boundary changed), and a manual walkthrough against `npm run dev` — adding
+vitest did not change that default; write a test file only for logic in the same risk class as the
+reference example (a security gate, a data-integrity invariant), not as a blanket expectation.
 
 ## Environment variables
 
@@ -136,6 +158,8 @@ Auth.js JWT sessions refresh role, email, and name from the live user row on eac
 - `components/` — shared UI components
 - `lib/` — data layer, Prisma client singleton, utilities
 - `prisma/` — schema, migrations, and the local SQLite DB file
+- `test/` — vitest global setup/teardown and env setup (see "Testing" above); test files themselves
+  live next to the code they cover (e.g. `app/api/panel/identity/route.test.ts`)
 
 ## Agent workflow
 

@@ -24,7 +24,8 @@ codebase directly.
 
 - Analyze requirements and create detailed, dependency-ordered implementation plans
 - Identify risks specific to this deployment: a live SQLite database you cannot see, no staging
-  environment, no test suite, and a single manual deploy path
+  environment, only narrow test coverage (vitest, a handful of route-level contract tests -- see
+  `app/api/panel/identity/route.test.ts`), and a single manual deploy path
 - Bake this project's non-negotiable requirements into every plan, not as an afterthought
 
 ## Planning Process
@@ -99,7 +100,10 @@ decision for an open one]
 - Typecheck: `node --no-turbofan node_modules/typescript/lib/tsc.js --noEmit`
 - Lint: `node --no-turbofan node_modules/eslint/bin/eslint.js`
 - Build: `npm run build` (state whether this change needs it)
-- Manual: [the exact admin/visitor walkthrough that proves this works — there is no test runner]
+- Manual: [the exact admin/visitor walkthrough that proves this works]. If the change is a
+  security-sensitive route handler in the style of `app/api/panel/identity/route.ts`, a vitest
+  contract-test file alongside the route is the established pattern (see `vitest.config.ts`); most
+  other changes still rely on the manual walkthrough, since there is no project-wide test suite.
 
 ## Production-Safety Checklist
 - [ ] No dev-database ids/values in the migration; backfills key on slug/type/FK
@@ -232,11 +236,13 @@ time passes, without changing how Post List blocks own their posts.
 - A seed change that is not an upsert or a guarded insert
 - A new mutating route with no stated role gate, audit entity, or revalidation path
 - A shared module that would pull Prisma into the client chain
-- A plan that assumes a test runner, a background job scheduler, or a staging environment — this
-  project has none of the three
+- A plan that assumes a project-wide test suite, a background job scheduler, or a staging environment
+  — this project has none of the three (vitest exists, but only for targeted route-level contract
+  tests, not general coverage)
 - Steps without exact file paths, or phases that cannot be delivered independently
 - A plan with no docs-update step
 
 **Remember**: a great plan here names exact files, says what happens to rows that already exist in a
-database you have never seen, states how the change will actually be verified without a test suite,
-and never omits the docs-update step.
+database you have never seen, states how the change will actually be verified (a manual walkthrough,
+or a vitest contract test for a security-sensitive route handler), and never omits the docs-update
+step.

@@ -54,9 +54,13 @@ Nested paths under `rules`, `wiki`, and `home` remain valid.
 
 Auth.js JWT sessions refresh role, email, and name from the live user row on each authenticated request.
 
-### Verification (there is no test runner)
+### Verification
 Typecheck → lint → build only when routing or the server/client boundary changed → manual walkthrough
-against `npm run dev`. Do not write test files or invoke `npm test`; nothing is installed to run them.
+against `npm run dev`. vitest (`npm test`) is installed, but used narrowly: direct contract tests for
+a handful of security-sensitive route handlers (see `app/api/panel/identity/route.test.ts`), not a
+project-wide suite. Tests run against a dedicated `prisma/test.db` (migrated fresh per run, torn down
+after via `test/global-setup.ts`), never `prisma/dev.db`. Most of the app still has no test coverage
+and relies on the manual walkthrough.
 
 ### `PLAN.md` is an ephemeral work queue, not documentation
 Never treat it as a source of truth about how the site behaves, and never migrate its contents into

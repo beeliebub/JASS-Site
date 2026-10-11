@@ -104,6 +104,19 @@ response uses the standard `{ data: { user } }` envelope and returns only
 gate. The daemon can cache positive results for a few seconds, but must not
 cache a denial or server error.
 
+For scheduled actions with no browser cookie (timed restarts), the daemon
+instead calls `POST http://127.0.0.1:3000/api/panel/identity` with
+`{ "userId": "<id>" }` (the website's own `User.id`, `^[A-Za-z0-9_-]{1,64}$`,
+one key, under 1 KiB) and no cookie or forwarded header at all. It re-checks
+the database on every call -- no caching anywhere in the response path -- so
+a demotion or deletion takes effect on the very next scheduled run. A match
+returns `{ data: { user: { id, role } } }` with only those two fields; a
+missing, deleted, or ineligible-role user returns `{ data: { user: null } }`,
+indistinguishable from each other on purpose. A `5xx` means the lookup itself
+failed and must never be read as "not eligible" -- the daemon should pause
+the scheduled action rather than cancel it. A non-`POST` method gets `405`
+with `Allow: POST`; a malformed body gets `400`.
+
 The daemon owns panel capabilities. An OWNER must be able to grant or revoke
 for an ADMIN every panel capability that an OWNER can use, including
 capabilities added later. Keep the grant interface OWNER-only and associate
@@ -120,7 +133,7 @@ capability grants.
 - A `5xx`, timeout, or network error means authentication is temporarily
   unavailable. Fail closed and show a temporary-unavailable page.
 
-The endpoint rejects non-loopback `Host` values, and the public Caddy site
+Both endpoints reject non-loopback `Host` values, and the public Caddy site
 returns `404` for `/api/panel` and `/api/panel/*`. The Host check is defense in
 depth, not a network boundary: Docker Compose binds the app to
 `127.0.0.1:3000`, while the PM2 setup can bind on `0.0.0.0:3000`. When using

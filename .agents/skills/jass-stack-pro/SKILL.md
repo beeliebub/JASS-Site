@@ -249,7 +249,11 @@ npm run db:seed -- --pages-only      # every deploy, never the bare db:seed
 
 ## Verification
 
-No test runner is installed. Do not write test files or invoke `npm test`. The loop is typecheck →
-lint → (build when routing or the server/client boundary changed) → manual walkthrough against
-`npm run dev`, logged in as an admin. Lean on the type system to compensate: exhaustive
+vitest is installed (`npm test`), but used narrowly: direct contract tests for a handful of
+security-sensitive route handlers, not a project-wide suite -- see `vitest.config.ts`,
+`test/global-setup.ts`/`test/setup.ts`, and `app/api/panel/identity/route.test.ts` for the pattern.
+Tests run against a dedicated `prisma/test.db` (migrated fresh per run via `migrate deploy`, torn down
+after), never `prisma/dev.db`. Most of the app still has no test coverage; the loop there remains
+typecheck → lint → (build when routing or the server/client boundary changed) → manual walkthrough
+against `npm run dev`, logged in as an admin. Lean on the type system to compensate: exhaustive
 `Record<Union, …>` maps, literal unions, and `satisfies` are this repo's regression net.
